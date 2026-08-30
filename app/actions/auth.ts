@@ -51,7 +51,11 @@ export async function signIn(formData: FormData): Promise<{ error?: string }> {
   if (error) {
     return { error: "Identifiants incorrects." };
   }
-  redirect("/");
+
+  // Rediriger les administrateurs vers l'administration, sinon l'espace client.
+  const { getUserRoles } = await import("@/lib/rbac");
+  const { isAdmin } = await getUserRoles();
+  redirect(isAdmin ? "/admin" : "/");
 }
 
 /** Déconnexion. */
