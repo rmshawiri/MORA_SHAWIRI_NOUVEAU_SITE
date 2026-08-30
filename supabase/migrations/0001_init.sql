@@ -380,6 +380,26 @@ alter table public.notifications enable row level security;
 alter table public.audit_logs enable row level security;
 alter table public.settings enable row level security;
 
+-- Rendre la migration relançable : suppression des politiques existantes.
+drop policy if exists "services public read" on public.services;
+drop policy if exists "products public read" on public.products;
+drop policy if exists "categories public read" on public.categories;
+drop policy if exists "pages public read" on public.pages;
+drop policy if exists "faqs public read" on public.faqs;
+drop policy if exists "settings public read" on public.settings;
+drop policy if exists "profiles own select" on public.profiles;
+drop policy if exists "profiles own update" on public.profiles;
+drop policy if exists "profiles own insert" on public.profiles;
+drop policy if exists "orders own select" on public.orders;
+drop policy if exists "order_items own select" on public.order_items;
+drop policy if exists "payments own select" on public.payments;
+drop policy if exists "quote_requests own select" on public.quote_requests;
+drop policy if exists "appointments own select" on public.appointments;
+drop policy if exists "affiliates own select" on public.affiliates;
+drop policy if exists "commissions own select" on public.commissions;
+drop policy if exists "notifications own select" on public.notifications;
+drop policy if exists "notifications own update" on public.notifications;
+
 -- Données PUBLIQUES : lecture libre pour les entités publiées.
 create policy "services public read" on public.services
   for select using (status = 'active');
@@ -456,7 +476,7 @@ on conflict (category) do nothing;
 insert into public.settings (id, value, is_public) values
   ('site_name', '"MORA Shawiri"', true),
   ('site_slogan', '"Le Choix Optimal pour votre performance"', true),
-  ('site_url', format('"%s"', coalesce(current_setting('app.site_url', true), '')), true),
+  ('site_url', (format('"%s"', coalesce(current_setting('app.site_url', true), 'http://localhost:3000')))::jsonb, true),
   ('site_email', '"contact@morashawiri.com"', true),
   ('site_phone', '"+269 430 63 06"', true),
   ('site_whatsapp', '"https://wa.me/2694306306"', true),
