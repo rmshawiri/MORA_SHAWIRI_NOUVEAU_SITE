@@ -1,6 +1,7 @@
 "use server";
 
 import { createAdminClient } from "@/lib/supabase/admin";
+import { createClient } from "@/lib/supabase/server";
 import { getServiceBySlug, type Service } from "@/lib/data/services";
 import { getPaymentMethod, type PaymentMethodId } from "@/lib/data/payments";
 import { allocateDocumentId, DOCUMENT_TYPES } from "@/lib/document-engine";
@@ -58,6 +59,13 @@ export async function createOrder(input: CreateOrderInput): Promise<CreateOrderR
 
   try {
     const supabase = createAdminClient();
+    // Associer la commande à l'utilisateur connecté lorsqu'il y en a un.
+    const user = await (async () => {
+      const sc = await createClient();
+      const { data } = await sc.auth.getUser();
+      return data.user;
+    })();
+
     const doc = await allocateDocumentId(DOCUMENT_TYPES.COMMANDE_CLIENT.code);
     const orderNumber = doc.id; // Utilise MORA-CMCL-... comme numéro de commande stable
 
@@ -67,7 +75,7 @@ export async function createOrder(input: CreateOrderInput): Promise<CreateOrderR
       .insert({
         customer_name: input.contactName.trim(),
         customer_email: input.contactEmail?.trim() || null,
-        customer_id: null, // invité ; à associer à l'utilisateur connecté si dispo
+        customer_id: user?.id ?? null,
         order_number: orderNumber,
         status: "awaiting_payment",
         payment_status: "pending",
