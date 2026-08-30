@@ -1,10 +1,12 @@
 "use server";
 
+import { cookies } from "next/headers";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 import { getServiceBySlug, type Service } from "@/lib/data/services";
 import { getPaymentMethod, type PaymentMethodId } from "@/lib/data/payments";
 import { allocateDocumentId, DOCUMENT_TYPES } from "@/lib/document-engine";
+import { getAffiliateByCode, commissionAmount } from "@/lib/affiliation";
 
 /**
  * Création de commande (V1) — modèle « déclaration de paiement ».
@@ -119,6 +121,23 @@ export async function createOrder(input: CreateOrderInput): Promise<CreateOrderR
       .from("orders")
       .update({ payment_status: "in_review" })
       .eq("id", order.id);
+
+    // 5) Attribution d'affiliation + commission (si un lien affilié est présent)
+    const cookieStore = await cookies();
+    const ref = cookieStore.get("ms_ref")?.value;
+    if (ref) {
+      const affiliate = await getAffiliateByCode(ref);
+      if (affiliate && affiliate.rate > 0) {
+        await supabase.from("commissions").insert({
+          affiliate_id: affiliate.affiliateId,
+          order_id: order.id,
+          rate_applied: affiliate.rate,
+          base_amount: total,
+          amount: commissionAmount(total, affiliate.rate),
+          status: "pending",
+        });
+      }
+    }
 
     return { success: true, orderNumber };
   } catch {

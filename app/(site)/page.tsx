@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { Button } from "@/components/ui/Button";
 import { ServiceCard } from "@/components/ui/ServiceCard";
+import { AffiliateTracker } from "@/components/AffiliateTracker";
 import { featuredServices } from "@/lib/data/services";
 import { siteConfig } from "@/lib/config";
 
@@ -14,6 +15,7 @@ const values = [
 export default function HomePage() {
   return (
     <>
+      <AffiliateTracker />
       {/* Hero */}
       <section className="bg-mora-blue">
         <div className="mx-auto grid max-w-6xl items-center gap-10 px-4 py-16 sm:px-6 md:py-24 lg:grid-cols-2">
