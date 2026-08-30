@@ -50,6 +50,21 @@ export default async function ServiceDetailPage({
 
   return (
     <div className="bg-white">
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{
+          __html: JSON.stringify({
+            "@context": "https://schema.org",
+            "@type": "Service",
+            name: service.name,
+            description: service.summary,
+            url: absoluteUrl(`/services/${service.slug}`),
+            image: absoluteUrl(service.image),
+            provider: { "@type": "Organization", name: siteConfig.name },
+            areaServed: "KM",
+          }),
+        }}
+      />
       <div className="mx-auto max-w-6xl px-4 py-10 sm:px-6">
         {/* Fil d'Ariane */}
         <nav aria-label="Fil d'Ariane" className="mb-6 text-sm text-gray-500">

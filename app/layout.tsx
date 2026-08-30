@@ -66,12 +66,41 @@ export default function RootLayout({
 }: {
   children: React.ReactNode;
 }) {
+  const organizationJsonLd = {
+    "@context": "https://schema.org",
+    "@type": "Organization",
+    name: siteConfig.name,
+    slogan: siteConfig.slogan,
+    description: siteConfig.description,
+    url: siteConfig.url,
+    email: siteConfig.contact.email,
+    telephone: siteConfig.contact.phoneE164,
+    address: {
+      "@type": "PostalAddress",
+      addressLocality: siteConfig.contact.city,
+      addressCountry: "KM",
+      streetAddress: "Moroni, Magoudjou",
+    },
+    sameAs: [
+      siteConfig.social.facebook,
+      siteConfig.social.instagram,
+      siteConfig.social.youtube,
+      siteConfig.social.tiktok,
+      siteConfig.social.linkedin,
+      siteConfig.social.telegram,
+    ],
+  };
+
   return (
     <html
       lang={siteConfig.language}
       className={`${inter.variable} ${outfit.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col bg-white text-gray-900">
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{ __html: JSON.stringify(organizationJsonLd) }}
+        />
         {children}
       </body>
     </html>
