@@ -31,7 +31,7 @@ export function OrderActions({ id, status }: { id: string; status: string }) {
           key={a.label}
           onClick={() => apply(a)}
           disabled={pending || status === a.status}
-          className="rounded-full border border-gray-200 px-3 py-1 text-xs font-medium text-gray-600 hover:border-mora-blue hover:text-mora-blue disabled:opacity-50"
+          className="rounded-full border border-gray-200 px-3 py-1 text-xs font-medium text-gray-600 transition-colors hover:border-mora-blue hover:text-mora-blue disabled:cursor-not-allowed disabled:opacity-50"
         >
           {a.label}
         </button>

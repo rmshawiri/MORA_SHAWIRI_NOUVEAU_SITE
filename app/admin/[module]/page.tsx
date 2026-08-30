@@ -1,5 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { AdminPage } from "@/components/admin/AdminPage";
+import { Badge } from "@/components/ui/Badge";
 
 const labels: Record<string, string> = {
   produits: "01 — Gestion des produits",
@@ -13,6 +15,20 @@ const labels: Record<string, string> = {
   parametres: "10 — Paramètres",
   marketing: "11 — Gestion du marketing",
   popups: "12 — Gestion des popups",
+};
+
+const glyphs: Record<string, string> = {
+  produits: "▤",
+  clients: "●",
+  affilies: "◈",
+  commissions: "✚",
+  "rendez-vous": "◔",
+  contenus: "▤",
+  notifications: "◉",
+  statistiques: "▥",
+  parametres: "⚙",
+  marketing: "◆",
+  popups: "◧",
 };
 
 export async function generateStaticParams() {
@@ -29,20 +45,26 @@ export default async function AdminModulePlaceholder({
   if (!label) notFound();
 
   return (
-    <div className="p-6">
-      <h1 className="font-display text-2xl font-bold text-gray-900">{label}</h1>
-      <div className="mt-6 rounded-2xl border border-dashed border-gray-300 bg-white p-10 text-center">
-        <p className="font-semibold text-gray-800">Module en cours de construction</p>
-        <p className="mx-auto mt-2 max-w-md text-sm text-gray-500">
-          Ce module d&apos;administration sera développé prochainement. Il permettra de gérer cette
-          partie de la plateforme depuis l&apos;interface, sans modifier le code.
-        </p>
-        <div className="mt-5">
-          <Link href="/admin" className="text-sm font-semibold text-mora-blue hover:underline">
-            ← Retour au tableau de bord
-          </Link>
+    <AdminPage icon={glyphs[module] ?? "▣"} title={label} subtitle="Module d'administration">
+      <div className="relative overflow-hidden rounded-3xl border border-dashed border-gray-300 bg-white px-6 py-16 text-center shadow-soft">
+        <div aria-hidden className="pointer-events-none absolute inset-x-0 top-0 h-28 bg-mora-blue-10/60" />
+        <div className="relative">
+          <span aria-hidden className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-mora-blue-10 text-3xl text-mora-blue ring-1 ring-mora-blue-20">
+            {glyphs[module] ?? "▣"}
+          </span>
+          <div className="mt-5 flex justify-center">
+            <Badge tone="neutral">En construction</Badge>
+          </div>
+          <p className="mt-4 font-display text-xl font-bold text-gray-900">Module en cours de construction</p>
+          <p className="mx-auto mt-2 max-w-md text-sm leading-relaxed text-gray-500">
+            Ce module d&apos;administration sera développé prochainement. Il permettra de gérer cette
+            partie de la plateforme depuis l&apos;interface, sans modifier le code.
+          </p>
+          <div className="mt-6">
+            <Link href="/admin" className="link-accent text-sm">← Retour au tableau de bord</Link>
+          </div>
         </div>
       </div>
-    </div>
+    </AdminPage>
   );
 }

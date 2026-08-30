@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import { Button } from "@/components/ui/Button";
+import { Field, Input } from "@/components/ui/Field";
 import { updateSettings, type SettingsInput } from "@/app/actions/settings";
 
 const FIELDS: { key: keyof SettingsInput; label: string }[] = [
@@ -14,6 +15,8 @@ const FIELDS: { key: keyof SettingsInput; label: string }[] = [
   { key: "site_whatsapp", label: "Lien WhatsApp" },
   { key: "site_address", label: "Adresse" },
 ];
+
+const card = "rounded-2xl border border-gray-100 bg-white p-6 shadow-soft";
 
 export function ParametresManager({ initial }: { initial: Partial<Record<string, string>> }) {
   const router = useRouter();
@@ -51,38 +54,43 @@ export function ParametresManager({ initial }: { initial: Partial<Record<string,
   return (
     <div className="grid gap-6 lg:grid-cols-2">
       {/* Paramètres */}
-      <div className="rounded-3xl bg-white p-6 shadow-sm">
+      <div className={card}>
         <h2 className="font-display text-lg font-bold text-gray-900">Paramètres du site</h2>
+        <p className="mt-1 text-sm text-gray-500">Informations publiques affichées sur le site.</p>
         <div className="mt-4 space-y-4">
           {FIELDS.map((f) => (
-            <label key={f.key} className="block text-sm font-medium text-gray-700">{f.label}
-              <input
+            <Field key={f.key} label={f.label} htmlFor={`setting-${f.key}`}>
+              <Input
+                id={`setting-${f.key}`}
                 value={(form[f.key] as string) ?? ""}
                 onChange={(e) => setForm({ ...form, [f.key]: e.target.value })}
-                className="mt-2 w-full rounded-xl border border-gray-300 px-4 py-3 text-sm focus:border-mora-blue focus:outline-none"
               />
-            </label>
+            </Field>
           ))}
           {error && <p className="rounded-xl bg-error-soft p-3 text-sm text-error">{error}</p>}
           {success && <p className="rounded-xl bg-success-soft p-3 text-sm text-success">Paramètres enregistrés.</p>}
-          <Button onClick={save} variant="primary" size="md" disabled={pending}>
-            {pending ? "Enregistrement..." : "Enregistrer"}
-          </Button>
+          <div className="pt-1">
+            <Button onClick={save} variant="primary" size="md" disabled={pending}>
+              {pending ? "Enregistrement..." : "Enregistrer"}
+            </Button>
+          </div>
         </div>
       </div>
 
       {/* Sauvegarde / Restauration */}
-      <div className="rounded-3xl bg-white p-6 shadow-sm">
+      <div className={card}>
         <h2 className="font-display text-lg font-bold text-gray-900">Sauvegarde &amp; restauration</h2>
-        <p className="mt-2 text-sm text-gray-500">
+        <p className="mt-2 text-sm leading-relaxed text-gray-500">
           Exportez une sauvegarde JSON de la configuration et des contenus. La restauration effectue
           une sauvegarde de sécurité préalable (journalisée) puis réapplique les données.
         </p>
         <div className="mt-5 flex flex-col gap-3">
           <a href="/api/backup" download>
-            <Button variant="primary" size="md" className="w-full">⬇ Exporter (JSON)</Button>
+            <Button variant="primary" size="md" className="w-full">
+              <span aria-hidden>⬇</span> Exporter (JSON)
+            </Button>
           </a>
-          <label className="flex cursor-pointer flex-col items-center justify-center gap-2 rounded-2xl border border-dashed border-gray-300 px-4 py-6 text-center">
+          <label className="flex cursor-pointer flex-col items-center justify-center gap-2 rounded-2xl border border-dashed border-gray-300 px-4 py-6 text-center transition-colors hover:border-mora-blue-40 hover:bg-mora-blue-10/40">
             <input
               type="file"
               accept="application/json"
@@ -93,8 +101,9 @@ export function ParametresManager({ initial }: { initial: Partial<Record<string,
               }}
             />
             <span className="text-sm font-medium text-mora-blue">{restoring ? "Restauration..." : "Restaurer depuis un fichier JSON"}</span>
+            <span className="text-xs text-gray-400">Formats acceptés : JSON</span>
           </label>
-          <p className="text-xs text-gray-400">
+          <p className="text-xs leading-relaxed text-gray-400">
             La restauration est réservée aux administrateurs autorisés et ne touche pas aux mots de
             passe ni aux secrets.
           </p>

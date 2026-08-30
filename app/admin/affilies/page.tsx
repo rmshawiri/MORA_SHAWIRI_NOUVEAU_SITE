@@ -1,4 +1,8 @@
 import { createAdminClient } from "@/lib/supabase/admin";
+import { AdminPage } from "@/components/admin/AdminPage";
+import { AdminTable, AdminRow, AdminCell } from "@/components/admin/AdminTable";
+import { EmptyState } from "@/components/ui/EmptyState";
+import { StatusPill } from "@/components/ui/StatusPill";
 
 export const metadata = { title: "Affiliés — Administration", robots: { index: false, follow: false } };
 
@@ -19,41 +23,25 @@ export default async function AdminAffiliesPage() {
   const list = affiliates ?? [];
 
   return (
-    <div className="p-6">
-      <h1 className="font-display text-2xl font-bold text-gray-900">04 — Gestion des affiliés</h1>
-      <p className="mt-1 text-sm text-gray-500">Comptes affiliés, catégories et statuts.</p>
-
+    <AdminPage icon="◈" title="04 — Gestion des affiliés" subtitle="Comptes affiliés, catégories et statuts.">
       {list.length === 0 ? (
-        <div className="mt-6 rounded-2xl border border-dashed border-gray-300 bg-white p-10 text-center">
-          <p className="font-semibold text-gray-800">Aucun affilié pour le moment</p>
-          <p className="mt-2 text-sm text-gray-500">
-            Les personnes rejoignant le programme d&apos;affiliation apparaîtront ici.
-          </p>
-        </div>
+        <EmptyState
+          icon={<span aria-hidden className="text-2xl">🤝</span>}
+          title="Aucun affilié pour le moment"
+          description="Les personnes rejoignant le programme d'affiliation apparaîtront ici."
+        />
       ) : (
-        <div className="mt-6 overflow-hidden rounded-2xl bg-white shadow-sm">
-          <table className="w-full text-left text-sm">
-            <thead className="border-b border-gray-100 bg-gray-50 text-xs uppercase tracking-wide text-gray-500">
-              <tr>
-                <th className="px-4 py-3">Code</th>
-                <th className="px-4 py-3">Catégorie</th>
-                <th className="px-4 py-3">Statut</th>
-                <th className="px-4 py-3">Date</th>
-              </tr>
-            </thead>
-            <tbody>
-              {list.map((a) => (
-                <tr key={a.id} className="border-b border-gray-50">
-                  <td className="px-4 py-3 font-mono text-xs text-mora-blue">{a.code}</td>
-                  <td className="px-4 py-3 text-gray-600">{catLabel[a.category] ?? a.category}</td>
-                  <td className="px-4 py-3 text-gray-600">{a.status}</td>
-                  <td className="px-4 py-3 text-gray-600">{new Date(a.created_at).toLocaleDateString("fr-FR")}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <AdminTable headers={["Code", "Catégorie", "Statut", "Date"]}>
+          {list.map((a) => (
+            <AdminRow key={a.id}>
+              <AdminCell className="font-mono text-xs font-medium text-mora-blue">{a.code}</AdminCell>
+              <AdminCell>{catLabel[a.category] ?? a.category}</AdminCell>
+              <AdminCell><StatusPill status={a.status} /></AdminCell>
+              <AdminCell>{new Date(a.created_at).toLocaleDateString("fr-FR")}</AdminCell>
+            </AdminRow>
+          ))}
+        </AdminTable>
       )}
-    </div>
+    </AdminPage>
   );
 }

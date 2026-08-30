@@ -31,8 +31,8 @@ export function CommissionActions({ id, status }: { id: string; status: string }
           disabled={pending || f.value === status}
           className={
             f.value === status
-              ? "rounded-full bg-mora-blue px-3 py-1 text-xs font-semibold text-white"
-              : "rounded-full border border-gray-200 px-3 py-1 text-xs font-medium text-gray-600 hover:border-mora-blue hover:text-mora-blue disabled:opacity-50"
+              ? "rounded-full bg-mora-blue px-3 py-1 text-xs font-semibold text-white shadow-soft"
+              : "rounded-full border border-gray-200 px-3 py-1 text-xs font-medium text-gray-600 transition-colors hover:border-mora-blue hover:text-mora-blue disabled:cursor-not-allowed disabled:opacity-50"
           }
         >
           {f.label}
@@ -42,7 +42,7 @@ export function CommissionActions({ id, status }: { id: string; status: string }
         <button
           onClick={() => setStatus("cancelled")}
           disabled={pending}
-          className="rounded-full border border-error-200 px-3 py-1 text-xs font-medium text-error hover:bg-error-soft disabled:opacity-50"
+          className="rounded-full border border-error-200 px-3 py-1 text-xs font-medium text-error transition-colors hover:bg-error-soft disabled:cursor-not-allowed disabled:opacity-50"
         >
           Annuler
         </button>

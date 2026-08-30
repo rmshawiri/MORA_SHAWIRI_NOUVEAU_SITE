@@ -3,6 +3,8 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/Button";
+import { Field, Input, Select } from "@/components/ui/Field";
+import { Badge } from "@/components/ui/Badge";
 import { createProduct, updateProduct, deleteProduct, type ProductInput } from "@/app/actions/produits";
 
 interface ProductRow {
@@ -15,6 +17,14 @@ interface ProductRow {
 }
 
 const eur = (n: number | null) => (n == null ? "—" : `${n.toLocaleString("fr-FR")} KMF`);
+
+const productTone: Record<string, "success" | "warning" | "neutral" | "info"> = {
+  published: "success",
+  available: "success",
+  draft: "neutral",
+  unavailable: "warning",
+  archived: "neutral",
+};
 
 export function ProductManager({ products }: { products: ProductRow[] }) {
   const router = useRouter();
@@ -58,34 +68,34 @@ export function ProductManager({ products }: { products: ProductRow[] }) {
 
   return (
     <div className="grid gap-6 lg:grid-cols-2">
-      <div className="rounded-3xl bg-white p-6 shadow-sm">
+      <div className="rounded-2xl border border-gray-100 bg-white p-6 shadow-soft">
         <h2 className="font-display text-lg font-bold text-gray-900">{editingId ? "Modifier le produit" : "Ajouter un produit"}</h2>
         <div className="mt-4 space-y-4">
-          <label className="block text-sm font-medium text-gray-700">Nom
-            <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className="mt-2 w-full rounded-xl border border-gray-300 px-4 py-3 text-sm focus:border-mora-blue focus:outline-none" />
-          </label>
+          <Field label="Nom">
+            <Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Nom du produit" />
+          </Field>
           <div className="grid grid-cols-2 gap-3">
-            <label className="block text-sm font-medium text-gray-700">Prix (KMF)
-              <input type="number" min={0} value={form.price ?? 0} onChange={(e) => setForm({ ...form, price: Number(e.target.value) || 0 })} className="mt-2 w-full rounded-xl border border-gray-300 px-4 py-3 text-sm focus:border-mora-blue focus:outline-none" />
-            </label>
-            <label className="block text-sm font-medium text-gray-700">Type
-              <select value={form.type} onChange={(e) => setForm({ ...form, type: e.target.value as ProductInput["type"] })} className="mt-2 w-full rounded-xl border border-gray-300 px-4 py-3 text-sm focus:border-mora-blue focus:outline-none">
+            <Field label="Prix (KMF)">
+              <Input type="number" min={0} value={form.price ?? 0} onChange={(e) => setForm({ ...form, price: Number(e.target.value) || 0 })} />
+            </Field>
+            <Field label="Type">
+              <Select value={form.type} onChange={(e) => setForm({ ...form, type: e.target.value as ProductInput["type"] })}>
                 <option value="digital">Numérique</option>
                 <option value="physical">Physique</option>
                 <option value="service">Service</option>
                 <option value="pack">Pack</option>
-              </select>
-            </label>
+              </Select>
+            </Field>
           </div>
-          <label className="block text-sm font-medium text-gray-700">Statut
-            <select value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value as ProductInput["status"] })} className="mt-2 w-full rounded-xl border border-gray-300 px-4 py-3 text-sm focus:border-mora-blue focus:outline-none">
+          <Field label="Statut">
+            <Select value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value as ProductInput["status"] })}>
               <option value="draft">Brouillon</option>
               <option value="published">Publié</option>
               <option value="available">Disponible</option>
               <option value="unavailable">Indisponible</option>
               <option value="archived">Archivé</option>
-            </select>
-          </label>
+            </Select>
+          </Field>
           {error && <p className="rounded-xl bg-error-soft p-3 text-sm text-error">{error}</p>}
           <div className="flex gap-3">
             <Button onClick={save} variant="primary" size="md" disabled={pending}>{pending ? "Enregistrement..." : editingId ? "Enregistrer" : "Ajouter"}</Button>
@@ -94,8 +104,11 @@ export function ProductManager({ products }: { products: ProductRow[] }) {
         </div>
       </div>
 
-      <div className="rounded-3xl bg-white p-6 shadow-sm">
-        <h2 className="font-display text-lg font-bold text-gray-900">Produits ({products.length})</h2>
+      <div className="rounded-2xl border border-gray-100 bg-white p-6 shadow-soft">
+        <div className="flex items-center justify-between gap-2">
+          <h2 className="font-display text-lg font-bold text-gray-900">Produits</h2>
+          <Badge tone="neutral">{products.length}</Badge>
+        </div>
         {products.length === 0 ? (
           <p className="mt-4 text-sm text-gray-500">Aucun produit en base. La boutique affiche actuellement un état vide (produits « à venir »).</p>
         ) : (
@@ -103,9 +116,16 @@ export function ProductManager({ products }: { products: ProductRow[] }) {
             {products.map((p) => (
               <li key={p.id} className="rounded-xl border border-gray-100 p-4">
                 <div className="flex items-start justify-between gap-2">
-                  <div>
+                  <div className="min-w-0">
                     <p className="font-semibold text-gray-800">{p.name}</p>
-                    <p className="mt-1 text-sm text-gray-600">{eur(p.price)} · {p.type} · {p.status}</p>
+                    <div className="mt-1.5 flex flex-wrap items-center gap-2 text-sm text-gray-600">
+                      <span className="font-semibold text-mora-blue tabular-nums">{eur(p.price)}</span>
+                      <span aria-hidden>·</span>
+                      <span className="capitalize">{p.type}</span>
+                      <Badge tone={productTone[p.status] ?? "neutral"}>
+                        <span className="capitalize">{p.status}</span>
+                      </Badge>
+                    </div>
                   </div>
                   <div className="flex gap-2">
                     <Button onClick={() => edit(p)} variant="secondary" size="sm">Modifier</Button>

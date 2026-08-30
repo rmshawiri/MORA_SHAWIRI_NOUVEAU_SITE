@@ -1,5 +1,6 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { PopupManager } from "@/components/admin/PopupManager";
+import { AdminPage } from "@/components/admin/AdminPage";
 
 export const metadata = { title: "Popups — Administration", robots: { index: false, follow: false } };
 
@@ -24,14 +25,12 @@ export default async function AdminPopupsPage() {
   }
 
   return (
-    <div className="p-6">
-      <h1 className="font-display text-2xl font-bold text-gray-900">12 — Gestion des popups</h1>
-      <p className="mt-1 text-sm text-gray-500">
-        Créez, activez et priorisez les popups du site (bannières, modales, annonces).
-      </p>
-      <div className="mt-6">
-        <PopupManager popups={popups} />
-      </div>
-    </div>
+    <AdminPage
+      icon="◧"
+      title="12 — Gestion des popups"
+      subtitle="Créez, activez et priorisez les popups du site (bannières, modales, annonces)."
+    >
+      <PopupManager popups={popups} />
+    </AdminPage>
   );
 }

@@ -3,6 +3,8 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/Button";
+import { Field, Input, Textarea } from "@/components/ui/Field";
+import { Badge } from "@/components/ui/Badge";
 import { createFaq, updateFaq, deleteFaq, type FaqInput } from "@/app/actions/contenus";
 
 interface FaqRow {
@@ -59,21 +61,21 @@ export function FaqManager({ faqs }: { faqs: FaqRow[] }) {
   return (
     <div className="grid gap-6 lg:grid-cols-2">
       {/* Formulaire */}
-      <div className="rounded-3xl bg-white p-6 shadow-sm">
+      <div className="rounded-2xl border border-gray-100 bg-white p-6 shadow-soft">
         <h2 className="font-display text-lg font-bold text-gray-900">
           {editingId ? "Modifier la question" : "Ajouter une question"}
         </h2>
         <div className="mt-4 space-y-4">
-          <label className="block text-sm font-medium text-gray-700">Question
-            <textarea value={form.question} onChange={(e) => setForm({ ...form, question: e.target.value })} rows={2} className="mt-2 w-full rounded-xl border border-gray-300 px-4 py-3 text-sm focus:border-mora-blue focus:outline-none" />
-          </label>
-          <label className="block text-sm font-medium text-gray-700">Réponse
-            <textarea value={form.answer} onChange={(e) => setForm({ ...form, answer: e.target.value })} rows={3} className="mt-2 w-full rounded-xl border border-gray-300 px-4 py-3 text-sm focus:border-mora-blue focus:outline-none" />
-          </label>
+          <Field label="Question">
+            <Textarea value={form.question} onChange={(e) => setForm({ ...form, question: e.target.value })} rows={2} />
+          </Field>
+          <Field label="Réponse">
+            <Textarea value={form.answer} onChange={(e) => setForm({ ...form, answer: e.target.value })} rows={3} />
+          </Field>
           <div className="grid grid-cols-2 gap-3">
-            <label className="block text-sm font-medium text-gray-700">Catégorie
-              <input value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })} className="mt-2 w-full rounded-xl border border-gray-300 px-4 py-3 text-sm focus:border-mora-blue focus:outline-none" />
-            </label>
+            <Field label="Catégorie">
+              <Input value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })} />
+            </Field>
             <label className="flex items-end gap-2 pb-3 text-sm text-gray-700">
               <input type="checkbox" checked={form.is_active} onChange={(e) => setForm({ ...form, is_active: e.target.checked })} />
               Visible (publié)
@@ -90,8 +92,11 @@ export function FaqManager({ faqs }: { faqs: FaqRow[] }) {
       </div>
 
       {/* Liste */}
-      <div className="rounded-3xl bg-white p-6 shadow-sm">
-        <h2 className="font-display text-lg font-bold text-gray-900">Questions ({faqs.length})</h2>
+      <div className="rounded-2xl border border-gray-100 bg-white p-6 shadow-soft">
+        <div className="flex items-center justify-between">
+          <h2 className="font-display text-lg font-bold text-gray-900">Questions</h2>
+          <Badge tone="neutral">{faqs.length}</Badge>
+        </div>
         {faqs.length === 0 ? (
           <p className="mt-4 text-sm text-gray-500">Aucune question. Ajoutez-en une.</p>
         ) : (
@@ -102,9 +107,10 @@ export function FaqManager({ faqs }: { faqs: FaqRow[] }) {
                   <div>
                     <p className="font-semibold text-gray-800">{f.question}</p>
                     <p className="mt-1 text-sm text-gray-600 line-clamp-2">{f.answer}</p>
-                    <p className="mt-2 text-xs text-gray-400">
-                      {f.category ?? "Général"} · {f.is_active ? "publié" : "masqué"}
-                    </p>
+                    <div className="mt-2 flex items-center gap-2">
+                      <Badge tone="neutral">{f.category ?? "Général"}</Badge>
+                      <Badge tone={f.is_active ? "success" : "warning"}>{f.is_active ? "Publié" : "Masqué"}</Badge>
+                    </div>
                   </div>
                   <div className="flex gap-2">
                     <Button onClick={() => edit(f)} variant="secondary" size="sm">Modifier</Button>

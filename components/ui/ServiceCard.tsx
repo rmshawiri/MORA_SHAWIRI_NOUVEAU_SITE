@@ -11,10 +11,12 @@ export function ServiceCard({
   service: Service;
   className?: string;
 }) {
+  const ctaHref = service.directPurchase ? `/commander?service=${service.slug}` : `/devis?service=${service.slug}`;
+
   return (
     <article
       className={cn(
-        "group flex flex-col overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm transition-shadow hover:shadow-md",
+        "group relative flex flex-col overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-soft card-lift",
         className,
       )}
     >
@@ -28,41 +30,54 @@ export function ServiceCard({
           alt={`Image du service ${service.name} de MORA Shawiri`}
           fill
           sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 25vw"
-          className="object-cover transition-transform duration-300 group-hover:scale-105"
+          className="object-cover transition-transform duration-500 ease-out group-hover:scale-105"
         />
+        <div aria-hidden className="absolute inset-0 bg-gradient-to-t from-black/55 via-black/0 to-transparent" />
+        {/* Prix affiché sur le visuel */}
+        <span
+          className={cn(
+            "absolute bottom-3 left-3 rounded-full px-3 py-1 text-xs font-bold backdrop-blur-sm",
+            service.priceType === "quote"
+              ? "bg-white/95 text-gray-700"
+              : "bg-mora-or text-mora-blue shadow-gold",
+          )}
+        >
+          {priceLabel(service)}
+        </span>
+        <span
+          aria-hidden
+          className="absolute inset-x-3 bottom-3 flex translate-y-2 items-center justify-center gap-1.5 rounded-xl bg-white/95 py-2 text-sm font-semibold text-mora-blue opacity-0 backdrop-blur-sm transition-all duration-300 group-hover:translate-y-0 group-hover:opacity-100"
+        >
+          Voir le service
+          <span aria-hidden className="transition-transform group-hover:translate-x-0.5">→</span>
+        </span>
       </Link>
 
       <div className="flex flex-1 flex-col gap-3 p-5">
         <div className="flex items-center justify-between gap-2">
-          <span className="rounded-full bg-mora-blue-20 px-3 py-1 text-xs font-medium text-mora-blue">
+          <span className="rounded-full bg-mora-blue-10 px-3 py-1 text-xs font-semibold text-mora-blue">
             {service.category}
-          </span>
-          <span
-            className={cn(
-              "text-sm font-bold",
-              service.priceType === "quote" ? "text-gray-500" : "text-mora-blue",
-            )}
-          >
-            {priceLabel(service)}
           </span>
         </div>
 
-        <h3 className="font-display text-lg font-bold leading-snug text-gray-900">
-          <Link href={`/services/${service.slug}`} className="hover:text-mora-blue">
-            {service.name}
-          </Link>
+        <h3 className="font-display text-lg font-bold leading-snug text-gray-900 transition-colors group-hover:text-mora-blue">
+          <Link href={`/services/${service.slug}`}>{service.name}</Link>
         </h3>
 
         <p className="flex-1 text-sm leading-relaxed text-gray-600">{service.summary}</p>
 
-        <div className="mt-2">
-          <Button
-            href={service.directPurchase ? `/commander?service=${service.slug}` : `/devis?service=${service.slug}`}
-            variant={service.directPurchase ? "primary" : "secondary"}
-            size="sm"
-          >
+        <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+          <Button href={ctaHref} variant={service.directPurchase ? "primary" : "secondary"} size="sm">
             {service.ctaPrimary}
           </Button>
+          <Link
+            href={`/services/${service.slug}`}
+            className="inline-flex items-center gap-1 text-sm font-semibold text-mora-blue transition-colors hover:text-mora-blue-60"
+            aria-label={`En savoir plus sur ${service.name}`}
+          >
+            Menu
+            <span aria-hidden className="transition-transform group-hover:translate-x-0.5">→</span>
+          </Link>
         </div>
       </div>
     </article>

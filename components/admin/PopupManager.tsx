@@ -3,6 +3,8 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/Button";
+import { Field, Input, Select, Textarea } from "@/components/ui/Field";
+import { Badge } from "@/components/ui/Badge";
 import { createPopup, updatePopup, deletePopup, type PopupInput } from "@/app/actions/popups";
 
 interface PopupRow {
@@ -12,6 +14,8 @@ interface PopupRow {
   is_active: boolean;
   priority: number;
 }
+
+const card = "rounded-2xl border border-gray-100 bg-white p-6 shadow-soft";
 
 export function PopupManager({ popups }: { popups: PopupRow[] }) {
   const router = useRouter();
@@ -38,29 +42,32 @@ export function PopupManager({ popups }: { popups: PopupRow[] }) {
 
   return (
     <div className="grid gap-6 lg:grid-cols-2">
-      <div className="rounded-3xl bg-white p-6 shadow-sm">
-        <h2 className="font-display text-lg font-bold text-gray-900">{editingId ? "Modifier le popup" : "Créer un popup"}</h2>
+      <div className={card}>
+        <div className="flex items-center justify-between gap-2">
+          <h2 className="font-display text-lg font-bold text-gray-900">{editingId ? "Modifier le popup" : "Créer un popup"}</h2>
+          {editingId && <Badge tone="blue">Modification</Badge>}
+        </div>
         <div className="mt-4 space-y-4">
-          <label className="block text-sm font-medium text-gray-700">Titre
-            <input value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} className="mt-2 w-full rounded-xl border border-gray-300 px-4 py-3 text-sm focus:border-mora-blue focus:outline-none" />
-          </label>
+          <Field label="Titre" htmlFor="popup-title">
+            <Input id="popup-title" value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} placeholder="Ex : Offre de bienvenue" />
+          </Field>
           <div className="grid grid-cols-2 gap-3">
-            <label className="block text-sm font-medium text-gray-700">Type
-              <select value={form.type} onChange={(e) => setForm({ ...form, type: e.target.value as PopupInput["type"] })} className="mt-2 w-full rounded-xl border border-gray-300 px-4 py-3 text-sm focus:border-mora-blue focus:outline-none">
+            <Field label="Type" htmlFor="popup-type">
+              <Select id="popup-type" value={form.type} onChange={(e) => setForm({ ...form, type: e.target.value as PopupInput["type"] })}>
                 <option value="banner">Bannière</option>
                 <option value="modal">Modale</option>
                 <option value="announcement">Annonce</option>
-              </select>
-            </label>
-            <label className="block text-sm font-medium text-gray-700">Priorité
-              <input type="number" value={form.priority} onChange={(e) => setForm({ ...form, priority: Number(e.target.value) || 0 })} className="mt-2 w-full rounded-xl border border-gray-300 px-4 py-3 text-sm focus:border-mora-blue focus:outline-none" />
-            </label>
+              </Select>
+            </Field>
+            <Field label="Priorité" htmlFor="popup-priority">
+              <Input id="popup-priority" type="number" value={form.priority} onChange={(e) => setForm({ ...form, priority: Number(e.target.value) || 0 })} />
+            </Field>
           </div>
-          <label className="block text-sm font-medium text-gray-700">Contenu
-            <textarea value={form.content ?? ""} onChange={(e) => setForm({ ...form, content: e.target.value })} rows={3} className="mt-2 w-full rounded-xl border border-gray-300 px-4 py-3 text-sm focus:border-mora-blue focus:outline-none" />
-          </label>
-          <label className="flex items-center gap-2 text-sm text-gray-700">
-            <input type="checkbox" checked={form.is_active} onChange={(e) => setForm({ ...form, is_active: e.target.checked })} />
+          <Field label="Contenu" htmlFor="popup-content">
+            <Textarea id="popup-content" value={form.content ?? ""} onChange={(e) => setForm({ ...form, content: e.target.value })} rows={3} />
+          </Field>
+          <label className="flex items-center gap-2 text-sm font-medium text-gray-700">
+            <input type="checkbox" checked={form.is_active} onChange={(e) => setForm({ ...form, is_active: e.target.checked })} className="h-4 w-4 rounded border-gray-300 text-mora-blue focus:ring-mora-blue" />
             Actif
           </label>
           {error && <p className="rounded-xl bg-error-soft p-3 text-sm text-error">{error}</p>}
@@ -71,8 +78,11 @@ export function PopupManager({ popups }: { popups: PopupRow[] }) {
         </div>
       </div>
 
-      <div className="rounded-3xl bg-white p-6 shadow-sm">
-        <h2 className="font-display text-lg font-bold text-gray-900">Popups ({popups.length})</h2>
+      <div className={card}>
+        <div className="flex items-center justify-between gap-2">
+          <h2 className="font-display text-lg font-bold text-gray-900">Popups</h2>
+          <Badge tone="neutral">{popups.length}</Badge>
+        </div>
         {popups.length === 0 ? (
           <p className="mt-4 text-sm text-gray-500">Aucun popup. Créez-en un.</p>
         ) : (
@@ -82,7 +92,11 @@ export function PopupManager({ popups }: { popups: PopupRow[] }) {
                 <div className="flex items-start justify-between gap-2">
                   <div>
                     <p className="font-semibold text-gray-800">{p.title}</p>
-                    <p className="mt-1 text-sm text-gray-600">{p.type} · priorité {p.priority} · {p.is_active ? "actif" : "inactif"}</p>
+                    <div className="mt-1.5 flex flex-wrap items-center gap-2 text-xs text-gray-500">
+                      <Badge tone="neutral">{p.type}</Badge>
+                      <span>priorité {p.priority}</span>
+                      <Badge tone={p.is_active ? "success" : "warning"}>{p.is_active ? "Actif" : "Inactif"}</Badge>
+                    </div>
                   </div>
                   <div className="flex gap-2">
                     <Button onClick={() => { setEditingId(p.id); setForm({ title: p.title, type: p.type as PopupInput["type"], is_active: p.is_active, priority: p.priority }); }} variant="secondary" size="sm">Modifier</Button>

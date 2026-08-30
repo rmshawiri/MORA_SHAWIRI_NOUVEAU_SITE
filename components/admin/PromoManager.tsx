@@ -3,6 +3,8 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/Button";
+import { Field, Input, Select } from "@/components/ui/Field";
+import { Badge } from "@/components/ui/Badge";
 import { createPromo, updatePromo, deletePromo, type PromoInput } from "@/app/actions/marketing";
 
 interface PromoRow {
@@ -14,6 +16,8 @@ interface PromoRow {
   used_count: number;
   valid_until: string | null;
 }
+
+const card = "rounded-2xl border border-gray-100 bg-white p-6 shadow-soft";
 
 export function PromoManager({ promos }: { promos: PromoRow[] }) {
   const router = useRouter();
@@ -44,25 +48,28 @@ export function PromoManager({ promos }: { promos: PromoRow[] }) {
 
   return (
     <div className="grid gap-6 lg:grid-cols-2">
-      <div className="rounded-3xl bg-white p-6 shadow-sm">
-        <h2 className="font-display text-lg font-bold text-gray-900">{editingId ? "Modifier le code" : "Créer un code promo"}</h2>
+      <div className={card}>
+        <div className="flex items-center justify-between gap-2">
+          <h2 className="font-display text-lg font-bold text-gray-900">{editingId ? "Modifier le code" : "Créer un code promo"}</h2>
+          {editingId && <Badge tone="blue">Modification</Badge>}
+        </div>
         <div className="mt-4 space-y-4">
-          <label className="block text-sm font-medium text-gray-700">Code
-            <input value={form.code} onChange={(e) => setForm({ ...form, code: e.target.value.toUpperCase() })} placeholder="Ex: SHAWIRI10" className="mt-2 w-full rounded-xl border border-gray-300 px-4 py-3 text-sm uppercase focus:border-mora-blue focus:outline-none" />
-          </label>
+          <Field label="Code" htmlFor="promo-code">
+            <Input id="promo-code" value={form.code} onChange={(e) => setForm({ ...form, code: e.target.value.toUpperCase() })} placeholder="Ex : SHAWIRI10" className="uppercase" />
+          </Field>
           <div className="grid grid-cols-2 gap-3">
-            <label className="block text-sm font-medium text-gray-700">Type
-              <select value={form.discount_type} onChange={(e) => setForm({ ...form, discount_type: e.target.value as "percent" | "fixed" })} className="mt-2 w-full rounded-xl border border-gray-300 px-4 py-3 text-sm focus:border-mora-blue focus:outline-none">
+            <Field label="Type" htmlFor="promo-type">
+              <Select id="promo-type" value={form.discount_type} onChange={(e) => setForm({ ...form, discount_type: e.target.value as "percent" | "fixed" })}>
                 <option value="percent">Pourcentage (%)</option>
                 <option value="fixed">Montant (KMF)</option>
-              </select>
-            </label>
-            <label className="block text-sm font-medium text-gray-700">{form.discount_type === "percent" ? "Valeur (%)" : "Valeur (KMF)"}
-              <input type="number" value={form.value} onChange={(e) => setForm({ ...form, value: Number(e.target.value) || 0 })} className="mt-2 w-full rounded-xl border border-gray-300 px-4 py-3 text-sm focus:border-mora-blue focus:outline-none" />
-            </label>
+              </Select>
+            </Field>
+            <Field label={form.discount_type === "percent" ? "Valeur (%)" : "Valeur (KMF)"} htmlFor="promo-value">
+              <Input id="promo-value" type="number" value={form.value} onChange={(e) => setForm({ ...form, value: Number(e.target.value) || 0 })} />
+            </Field>
           </div>
-          <label className="flex items-center gap-2 text-sm text-gray-700">
-            <input type="checkbox" checked={form.is_active} onChange={(e) => setForm({ ...form, is_active: e.target.checked })} />
+          <label className="flex items-center gap-2 text-sm font-medium text-gray-700">
+            <input type="checkbox" checked={form.is_active} onChange={(e) => setForm({ ...form, is_active: e.target.checked })} className="h-4 w-4 rounded border-gray-300 text-mora-blue focus:ring-mora-blue" />
             Actif
           </label>
           {error && <p className="rounded-xl bg-error-soft p-3 text-sm text-error">{error}</p>}
@@ -73,8 +80,11 @@ export function PromoManager({ promos }: { promos: PromoRow[] }) {
         </div>
       </div>
 
-      <div className="rounded-3xl bg-white p-6 shadow-sm">
-        <h2 className="font-display text-lg font-bold text-gray-900">Codes promotionnels ({promos.length})</h2>
+      <div className={card}>
+        <div className="flex items-center justify-between gap-2">
+          <h2 className="font-display text-lg font-bold text-gray-900">Codes promotionnels</h2>
+          <Badge tone="neutral">{promos.length}</Badge>
+        </div>
         {promos.length === 0 ? (
           <p className="mt-4 text-sm text-gray-500">Aucun code promo. Créez-en un.</p>
         ) : (
@@ -82,11 +92,16 @@ export function PromoManager({ promos }: { promos: PromoRow[] }) {
             {promos.map((p) => (
               <li key={p.id} className="rounded-xl border border-gray-100 p-4">
                 <div className="flex items-start justify-between gap-2">
-                  <div>
+                  <div className="min-w-0">
                     <p className="font-mono text-sm font-bold text-mora-blue">{p.code}</p>
-                    <p className="mt-1 text-sm text-gray-600">
-                      {p.discount_type === "percent" ? `${p.value} %` : `${p.value.toLocaleString("fr-FR")} KMF`} · {p.used_count} utilisation(s) · {p.is_active ? "actif" : "inactif"}
-                    </p>
+                    <div className="mt-1.5 flex flex-wrap items-center gap-2 text-xs text-gray-500">
+                      <Badge tone="neutral">
+                        {p.discount_type === "percent" ? `${p.value} %` : `${p.value.toLocaleString("fr-FR")} KMF`}
+                      </Badge>
+                      <span>{p.used_count} utilisation(s)</span>
+                      <Badge tone={p.is_active ? "success" : "warning"}>{p.is_active ? "Actif" : "Inactif"}</Badge>
+                      {p.valid_until && <span>· jusqu&apos;au {new Date(p.valid_until).toLocaleDateString("fr-FR")}</span>}
+                    </div>
                   </div>
                   <div className="flex gap-2">
                     <Button onClick={() => { setEditingId(p.id); setForm({ code: p.code, discount_type: p.discount_type as "percent" | "fixed", value: p.value, is_active: p.is_active }); }} variant="secondary" size="sm">Modifier</Button>

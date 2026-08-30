@@ -1,5 +1,6 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { ProductManager } from "@/components/admin/ProductManager";
+import { AdminPage } from "@/components/admin/AdminPage";
 
 export const metadata = { title: "Produits — Administration", robots: { index: false, follow: false } };
 
@@ -21,14 +22,12 @@ export default async function AdminProduitsPage() {
   }));
 
   return (
-    <div className="p-6">
-      <h1 className="font-display text-2xl font-bold text-gray-900">01 — Gestion des produits</h1>
-      <p className="mt-1 text-sm text-gray-500">
-        Produits de la boutique. Ajoutez, modifiez ou supprimez — un produit publié apparaît sur la boutique.
-      </p>
-      <div className="mt-6">
-        <ProductManager products={products} />
-      </div>
-    </div>
+    <AdminPage
+      icon="▤"
+      title="01 — Gestion des produits"
+      subtitle="Produits de la boutique. Ajoutez, modifiez ou supprimez — un produit publié apparaît sur la boutique."
+    >
+      <ProductManager products={products} />
+    </AdminPage>
   );
 }

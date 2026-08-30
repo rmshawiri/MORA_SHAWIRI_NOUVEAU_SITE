@@ -1,5 +1,6 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { ParametresManager } from "@/components/admin/ParametresManager";
+import { AdminPage } from "@/components/admin/AdminPage";
 
 export const metadata = { title: "Paramètres — Administration", robots: { index: false, follow: false } };
 
@@ -16,14 +17,12 @@ export default async function AdminParametresPage() {
   }
 
   return (
-    <div className="p-6">
-      <h1 className="font-display text-2xl font-bold text-gray-900">10 — Paramètres</h1>
-      <p className="mt-1 text-sm text-gray-500">
-        Paramètres globaux du site, sauvegarde et restauration. Aucun secret n&apos;est stocké ici.
-      </p>
-      <div className="mt-6">
-        <ParametresManager initial={initial} />
-      </div>
-    </div>
+    <AdminPage
+      icon="⚙"
+      title="10 — Paramètres"
+      subtitle="Paramètres globaux du site, sauvegarde et restauration. Aucun secret n'est stocké ici."
+    >
+      <ParametresManager initial={initial} />
+    </AdminPage>
   );
 }

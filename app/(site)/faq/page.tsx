@@ -3,13 +3,14 @@ import { faqs as seedFaqs, faqCategories as seedCats, type Faq } from "@/lib/dat
 import { createClient } from "@/lib/supabase/server";
 import { absoluteUrl } from "@/lib/config";
 import { Button } from "@/components/ui/Button";
+import { SectionHeading } from "@/components/ui/SectionHeading";
+import { Reveal } from "@/components/ui/Reveal";
 
 export const metadata: Metadata = {
   title: "FAQ",
   description:
     "Réponses aux questions fréquentes sur MORA Shawiri : services, tarifs, devis, rendez-vous, formation, boutique et affiliation.",
   alternates: { canonical: absoluteUrl("/faq") },
-  // Données structurées FAQ (contenu réel visible).
 };
 
 export default async function FaqPage() {
@@ -36,36 +37,43 @@ export default async function FaqPage() {
   }
 
   return (
-    <div className="bg-gray-structure">
-      <div className="mx-auto max-w-3xl px-4 py-12 sm:px-6">
-        <h1 className="font-display text-3xl font-bold text-gray-900 sm:text-4xl">
-          Questions fréquentes
-        </h1>
-        <p className="mt-3 text-gray-600">
-          Des réponses claires sur nos services, tarifs, devis, rendez-vous, formation, boutique et
-          programme d&apos;affiliation.
-        </p>
+    <div className="bg-surface">
+      <div className="mx-auto max-w-3xl px-4 py-14 sm:px-6 sm:py-20">
+        <SectionHeading
+          eyebrow="FAQ"
+          title="Questions fréquentes"
+          description="Des réponses claires sur nos services, tarifs, devis, rendez-vous, formation, boutique et programme d'affiliation."
+        />
 
-        <div className="mt-10 space-y-10">
+        <div className="mt-12 space-y-12">
           {faqCategories.map((cat) => {
             const items = faqs.filter((f) => f.category === cat);
             return (
               <section key={cat}>
-                <h2 className="font-display text-lg font-bold text-mora-blue">{cat}</h2>
-                <div className="mt-3 space-y-3">
+                <Reveal>
+                  <div className="flex items-center gap-3">
+                    <h2 className="font-display text-lg font-bold tracking-tight text-mora-blue sm:text-xl">
+                      {cat}
+                    </h2>
+                    <span aria-hidden className="h-px flex-1 bg-gradient-to-r from-mora-blue-20 to-transparent" />
+                  </div>
+                </Reveal>
+                <div className="mt-5 space-y-3">
                   {items.map((f, i) => (
                     <details
                       key={`${cat}-${i}`}
-                      className="group rounded-2xl border border-gray-100 bg-white"
+                      className="group rounded-2xl border border-gray-100 bg-white shadow-soft transition-all duration-200 open:border-mora-blue-40/40 open:shadow-card"
                     >
-                      <summary className="flex cursor-pointer items-center justify-between gap-4 px-5 py-4 text-sm font-semibold text-gray-800 transition-colors hover:text-mora-blue">
+                      <summary className="flex cursor-pointer items-center justify-between gap-4 rounded-2xl px-5 py-4 text-sm font-semibold text-gray-800 transition-colors hover:text-mora-blue focus-visible:outline-mora-blue">
                         {f.question}
-                        <span className="text-mora-blue" aria-hidden>
-                          <span className="group-open:hidden">＋</span>
-                          <span className="hidden group-open:inline">－</span>
+                        <span
+                          aria-hidden
+                          className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-mora-blue-10 text-mora-blue transition-transform group-open:rotate-180"
+                        >
+                          <svg viewBox="0 0 20 20" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2"><path d="m5 8 5 5 5-5" strokeLinecap="round" strokeLinejoin="round"/></svg>
                         </span>
                       </summary>
-                      <div className="px-5 pb-4 text-sm leading-relaxed text-gray-600">
+                      <div className="px-5 pb-5 text-sm leading-relaxed text-gray-600">
                         {f.answer}
                       </div>
                     </details>
@@ -76,20 +84,22 @@ export default async function FaqPage() {
           })}
         </div>
 
-        <div className="mt-12 rounded-3xl bg-mora-blue p-8 text-center">
-          <h2 className="font-display text-xl font-bold text-white">Une autre question ?</h2>
-          <p className="mx-auto mt-2 max-w-md text-blue-100">
-            Contactez-nous directement sur WhatsApp ou via notre formulaire de contact.
-          </p>
-          <div className="mt-5 flex flex-col justify-center gap-3 sm:flex-row">
-            <Button href="/contact" variant="secondary" size="md">
-              Nous contacter
-            </Button>
-            <Button href="/services" variant="primary" size="md">
-              Voir nos services
-            </Button>
+        <Reveal>
+          <div className="relative mt-14 overflow-hidden rounded-3xl bg-mora-gradient p-8 text-center text-white shadow-lift sm:p-10">
+            <div aria-hidden className="absolute inset-0 bg-mora-grid opacity-50" />
+            <div aria-hidden className="absolute -left-12 -top-12 h-40 w-40 rounded-full bg-mora-or/15 blur-3xl" />
+            <div className="relative">
+              <h2 className="font-display text-xl font-bold">Une autre question ?</h2>
+              <p className="mx-auto mt-2 max-w-md text-blue-100/90">
+                Contactez-nous directement sur WhatsApp ou via notre formulaire de contact.
+              </p>
+              <div className="mt-6 flex flex-col justify-center gap-3 sm:flex-row">
+                <Button href="/contact" variant="secondary" size="md">Nous contacter</Button>
+                <Button href="/services" variant="primary" size="md">Voir nos services</Button>
+              </div>
+            </div>
           </div>
-        </div>
+        </Reveal>
       </div>
     </div>
   );

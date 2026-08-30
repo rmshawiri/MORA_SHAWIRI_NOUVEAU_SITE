@@ -3,6 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { Button } from "@/components/ui/Button";
+import { Field, Input } from "@/components/ui/Field";
 import { signIn } from "@/app/actions/auth";
 
 export default function ConnexionPage() {
@@ -20,52 +21,45 @@ export default function ConnexionPage() {
   }
 
   return (
-    <form action={onSubmit} className="rounded-3xl bg-white p-8 shadow-sm">
-      <h1 className="font-display text-2xl font-bold text-gray-900">Se connecter</h1>
-      <p className="mt-1 text-sm text-gray-500">Accédez à votre espace MORA Shawiri.</p>
-
-      <div className="mt-6 space-y-4">
-        <label className="block text-sm font-medium text-gray-700">
-          Adresse email
-          <input
-            name="email"
-            type="email"
-            autoComplete="email"
-            required
-            className="mt-2 w-full rounded-xl border border-gray-300 px-4 py-3 text-sm focus:border-mora-blue focus:outline-none"
-          />
-        </label>
-        <label className="block text-sm font-medium text-gray-700">
-          Mot de passe
-          <input
-            name="password"
-            type="password"
-            autoComplete="current-password"
-            required
-            className="mt-2 w-full rounded-xl border border-gray-300 px-4 py-3 text-sm focus:border-mora-blue focus:outline-none"
-          />
-        </label>
+    <form action={onSubmit} className="surface-card animate-fade-up rounded-3xl p-6 sm:p-8">
+      <div className="mb-6">
+        <h1 className="font-display text-2xl font-bold tracking-tight text-balance text-gray-900">
+          Se connecter
+        </h1>
+        <p className="mt-1.5 text-sm leading-relaxed text-gray-500">
+          Accédez à votre espace MORA Shawiri.
+        </p>
       </div>
 
-      {error && <p className="mt-4 rounded-xl bg-error-soft p-3 text-sm text-error">{error}</p>}
+      <div className="space-y-4">
+        <Field label="Adresse email" htmlFor="connexion-email">
+          <Input id="connexion-email" name="email" type="email" autoComplete="email" required placeholder="vous@exemple.com" />
+        </Field>
+        <Field label="Mot de passe" htmlFor="connexion-password">
+          <Input id="connexion-password" name="password" type="password" autoComplete="current-password" required placeholder="••••••••" />
+        </Field>
+      </div>
+
+      <div className="mt-5 flex justify-end">
+        <Link href="/mot-de-passe-oublie" className="link-accent text-sm">Mot de passe oublié ?</Link>
+      </div>
+
+      {error && (
+        <p role="alert" className="mt-4 rounded-xl border border-error-soft bg-error-soft px-4 py-3 text-sm text-error">
+          {error}
+        </p>
+      )}
 
       <div className="mt-6">
-        <Button type="submit" variant="primary" size="md" className="w-full" disabled={pending}>
+        <Button type="submit" variant="primary" size="lg" className="w-full" disabled={pending}>
           {pending ? "Connexion..." : "Se connecter"}
         </Button>
       </div>
 
-      <div className="mt-4 flex flex-col gap-1 text-sm text-gray-600">
-        <Link href="/mot-de-passe-oublie" className="text-mora-blue hover:underline">
-          Mot de passe oublié ?
-        </Link>
-        <span>
-          Pas encore de compte ?{" "}
-          <Link href="/inscription" className="text-mora-blue hover:underline">
-            Créer un compte
-          </Link>
-        </span>
-      </div>
+      <p className="mt-6 border-t border-gray-100 pt-5 text-center text-sm text-gray-600">
+        Pas encore de compte ?{" "}
+        <Link href="/inscription" className="link-accent">Créer un compte</Link>
+      </p>
     </form>
   );
 }

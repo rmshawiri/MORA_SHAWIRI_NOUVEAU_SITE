@@ -2,7 +2,12 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import Image from "next/image";
 import { Button } from "@/components/ui/Button";
+import { Badge } from "@/components/ui/Badge";
+import { EmptyState } from "@/components/ui/EmptyState";
+import { SectionHeading } from "@/components/ui/SectionHeading";
+import { Reveal } from "@/components/ui/Reveal";
 import { createClient } from "@/lib/supabase/server";
+import { services, priceLabel } from "@/lib/data/services";
 import { absoluteUrl } from "@/lib/config";
 
 export const metadata: Metadata = {
@@ -11,6 +16,15 @@ export const metadata: Metadata = {
     "Découvrez les services MORA Shawiri disponibles dès maintenant. Les produits arrivent bientôt.",
   alternates: { canonical: absoluteUrl("/boutique") },
 };
+
+// Services à achat direct (source : données réelles) présentés comme disponibles.
+const availableServices = services
+  .filter((s) => s.directPurchase)
+  .map((s) => ({
+    name: s.name,
+    href: `/services/${s.slug}`,
+    label: `${priceLabel(s)} — commander directement`,
+  }));
 
 export default async function BoutiquePage() {
   // Produits publiés depuis la base (gérés par l'admin) ; repli sur l'état vide sinon.
@@ -35,41 +49,59 @@ export default async function BoutiquePage() {
   }
 
   return (
-    <div className="bg-gray-structure">
-      <div className="mx-auto max-w-6xl px-4 py-12 sm:px-6">
-        <h1 className="font-display text-3xl font-bold text-gray-900 sm:text-4xl">Boutique MORA Shawiri</h1>
-        <p className="mt-3 max-w-2xl text-gray-600">
-          L&apos;espace commercial de MORA Shawiri regroupe nos services disponibles et, prochainement,
-          nos produits.
-        </p>
+    <div className="bg-surface">
+      <div className="mx-auto max-w-6xl px-4 py-14 sm:px-6 sm:py-20">
+        <SectionHeading
+          eyebrow="Espace commercial"
+          title="Boutique MORA Shawiri"
+          description="L'espace commercial de MORA Shawiri regroupe nos services disponibles et, prochainement, nos produits."
+        />
+
+        {/* Bandeau "disponibilité" */}
+        <Reveal>
+          <div className="mt-10 flex flex-wrap items-center gap-2 rounded-2xl border border-mora-green-soft bg-mora-green-soft/50 px-4 py-3 text-sm text-mora-green">
+            <span aria-hidden className="h-2 w-2 rounded-full bg-mora-green" />
+            Les prestations ci-dessous sont disponibles à la commande immédiate.
+          </div>
+        </Reveal>
 
         {/* Services disponibles */}
-        <section className="mt-10">
-          <h2 className="font-display text-xl font-bold text-mora-blue">Services disponibles</h2>
-          <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            <Link
-              href="/services/audit-strategique-global"
-              className="rounded-2xl border border-gray-100 bg-white p-6 transition-shadow hover:shadow-md"
-            >
-              <p className="font-semibold text-gray-900">Audit Stratégique Global</p>
-              <p className="mt-1 text-sm text-gray-600">30 000 KMF — commander directement.</p>
-            </Link>
-            <Link
-              href="/services/creation-de-logo"
-              className="rounded-2xl border border-gray-100 bg-white p-6 transition-shadow hover:shadow-md"
-            >
-              <p className="font-semibold text-gray-900">Création de Logo</p>
-              <p className="mt-1 text-sm text-gray-600">15 000 KMF — commander directement.</p>
-            </Link>
-            <Link
-              href="/services/formation-prospection-relation-client"
-              className="rounded-2xl border border-gray-100 bg-white p-6 transition-shadow hover:shadow-md"
-            >
-              <p className="font-semibold text-gray-900">Formation Prospection &amp; Relation Client</p>
-              <p className="mt-1 text-sm text-gray-600">5 000 KMF — s&apos;inscrire.</p>
-            </Link>
+        <section className="mt-12">
+          <Reveal>
+            <div className="flex items-center gap-3">
+              <h2 className="font-display text-xl font-bold tracking-tight text-mora-blue sm:text-2xl">
+                Services disponibles
+              </h2>
+              <span aria-hidden className="h-px flex-1 bg-gradient-to-r from-mora-blue-20 to-transparent" />
+            </div>
+          </Reveal>
+          <div className="mt-6 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+            {availableServices.map((s, i) => (
+              <Reveal key={s.href} delay={i * 60}>
+                <Link
+                  href={s.href}
+                  className="group surface-card card-lift relative flex h-full flex-col justify-between overflow-hidden rounded-2xl p-6"
+                >
+                  <div>
+                    <Badge tone="green" dot>Disponible</Badge>
+                    <p className="mt-4 font-display text-lg font-bold text-gray-900 transition-colors group-hover:text-mora-blue">
+                      {s.name}
+                    </p>
+                  </div>
+                  <div className="mt-6 flex items-center justify-between gap-3">
+                    <p className="text-sm font-semibold text-mora-blue">{s.label}</p>
+                    <span
+                      aria-hidden
+                      className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-mora-blue-10 text-mora-blue transition-all duration-300 group-hover:bg-mora-blue group-hover:text-mora-or"
+                    >
+                      →
+                    </span>
+                  </div>
+                </Link>
+              </Reveal>
+            ))}
           </div>
-          <div className="mt-6">
+          <div className="mt-8">
             <Button href="/services" variant="secondary" size="md">
               Voir tous nos services
             </Button>
@@ -77,40 +109,63 @@ export default async function BoutiquePage() {
         </section>
 
         {/* Produits */}
-        <section className="mt-12">
-          <h2 className="font-display text-xl font-bold text-mora-blue">Produits</h2>
+        <section className="mt-16">
+          <Reveal>
+            <div className="flex items-center gap-3">
+              <h2 className="font-display text-xl font-bold tracking-tight text-mora-blue sm:text-2xl">
+                Produits
+              </h2>
+              <span aria-hidden className="h-px flex-1 bg-gradient-to-r from-mora-blue-20 to-transparent" />
+            </div>
+          </Reveal>
+
           {products.length > 0 ? (
-            <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-              {products.map((p) => (
-                <div key={p.id} className="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm">
-                  <div className="relative aspect-[4/3] bg-gray-structure">
-                    {p.image ? <Image src={p.image} alt={p.name} fill sizes="(max-width: 640px) 100vw, 30vw" className="object-cover" /> : (
-                      <span className="flex h-full items-center justify-center text-sm text-gray-400">Visuel à venir</span>
-                    )}
-                  </div>
-                  <div className="p-5">
-                    <p className="font-semibold text-gray-900">{p.name}</p>
-                    <p className="mt-1 text-sm font-semibold text-mora-blue">{p.price != null ? `${p.price.toLocaleString("fr-FR")} KMF` : "Sur devis"}</p>
-                    <div className="mt-3">
-                      <Button href="/contact" variant="secondary" size="sm">Poser une question</Button>
+            <div className="mt-6 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+              {products.map((p, i) => (
+                <Reveal key={p.id} delay={i * 60}>
+                  <article className="group surface-card card-lift flex h-full flex-col overflow-hidden rounded-2xl">
+                    <div className="relative aspect-[4/3] bg-gray-structure">
+                      {p.image ? (
+                        <Image
+                          src={p.image}
+                          alt={p.name}
+                          fill
+                          sizes="(max-width: 640px) 100vw, 30vw"
+                          className="object-cover transition-transform duration-500 ease-out group-hover:scale-105"
+                        />
+                      ) : (
+                        <span className="flex h-full items-center justify-center text-sm text-gray-400">
+                          Visuel à venir
+                        </span>
+                      )}
                     </div>
-                  </div>
-                </div>
+                    <div className="flex flex-1 flex-col p-5">
+                      <p className="font-display font-bold text-gray-900">{p.name}</p>
+                      <p className="mt-1 text-sm font-semibold text-mora-blue tabular-nums">
+                        {p.price != null ? `${p.price.toLocaleString("fr-FR")} KMF` : "Sur devis"}
+                      </p>
+                      <div className="mt-4 flex-1" />
+                      <div>
+                        <Button href="/contact" variant="secondary" size="sm">
+                          Poser une question
+                        </Button>
+                      </div>
+                    </div>
+                  </article>
+                </Reveal>
               ))}
             </div>
           ) : (
-            <div className="mt-4 rounded-3xl border border-dashed border-gray-300 bg-white p-10 text-center">
-              <div className="mx-auto max-w-lg">
-                <p className="font-display text-xl font-bold text-gray-900">Nos produits arrivent bientôt</p>
-                <p className="mt-2 text-gray-600">
-                  MORA Shawiri prépare actuellement de nouvelles ressources et offres à découvrir
-                  prochainement. En attendant, découvrez nos services disponibles dès maintenant.
-                </p>
-                <div className="mt-6">
-                  <Button href="/services" variant="primary" size="md">Découvrir nos services</Button>
-                </div>
+            <Reveal>
+              <div className="mt-6">
+                <EmptyState
+                  icon={<span aria-hidden className="text-2xl">🛍️</span>}
+                  title="Nos produits arrivent bientôt"
+                  description="MORA Shawiri prépare actuellement de nouvelles ressources et offres à découvrir prochainement. En attendant, découvrez nos services disponibles dès maintenant."
+                  action={<Button href="/services" variant="primary" size="md">Découvrir nos services</Button>}
+                />
               </div>
-            </div>
+            </Reveal>
           )}
         </section>
       </div>

@@ -1,5 +1,6 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { FaqManager } from "@/components/admin/FaqManager";
+import { AdminPage } from "@/components/admin/AdminPage";
 
 export const metadata = { title: "Contenus — Administration", robots: { index: false, follow: false } };
 
@@ -20,14 +21,12 @@ export default async function AdminContenusPage() {
   }));
 
   return (
-    <div className="p-6">
-      <h1 className="font-display text-2xl font-bold text-gray-900">07 — Gestion des contenus</h1>
-      <p className="mt-1 text-sm text-gray-500">
-        FAQ du site. Ajoutez, modifiez ou supprimez des questions — publication immédiate.
-      </p>
-      <div className="mt-6">
-        <FaqManager faqs={faqs} />
-      </div>
-    </div>
+    <AdminPage
+      icon="▤"
+      title="07 — Gestion des contenus"
+      subtitle="FAQ du site. Ajoutez, modifiez ou supprimez des questions — publication immédiate."
+    >
+      <FaqManager faqs={faqs} />
+    </AdminPage>
   );
 }

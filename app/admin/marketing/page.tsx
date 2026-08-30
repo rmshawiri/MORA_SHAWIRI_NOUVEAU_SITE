@@ -1,5 +1,6 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { PromoManager } from "@/components/admin/PromoManager";
+import { AdminPage } from "@/components/admin/AdminPage";
 
 export const metadata = { title: "Marketing — Administration", robots: { index: false, follow: false } };
 
@@ -26,14 +27,12 @@ export default async function AdminMarketingPage() {
   }
 
   return (
-    <div className="p-6">
-      <h1 className="font-display text-2xl font-bold text-gray-900">11 — Gestion du marketing</h1>
-      <p className="mt-1 text-sm text-gray-500">
-        Codes promotionnels. Créez des codes de réduction (% ou montant).
-      </p>
-      <div className="mt-6">
-        <PromoManager promos={promos} />
-      </div>
-    </div>
+    <AdminPage
+      icon="◆"
+      title="11 — Gestion du marketing"
+      subtitle="Codes promotionnels. Créez des codes de réduction (% ou montant)."
+    >
+      <PromoManager promos={promos} />
+    </AdminPage>
   );
 }
