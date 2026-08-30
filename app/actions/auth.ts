@@ -76,3 +76,17 @@ export async function resetPassword(formData: FormData): Promise<{ error?: strin
   }
   return {};
 }
+
+/** Définition d'un nouveau mot de passe après récupération de compte. */
+export async function updatePassword(formData: FormData): Promise<{ error?: string }> {
+  const password = String(formData.get("password") ?? "");
+  if (password.length < 8) {
+    return { error: "Le mot de passe doit contenir au moins 8 caractères." };
+  }
+  const supabase = await createClient();
+  const { error } = await supabase.auth.updateUser({ password });
+  if (error) {
+    return { error: "Impossible de mettre à jour le mot de passe." };
+  }
+  return {};
+}
