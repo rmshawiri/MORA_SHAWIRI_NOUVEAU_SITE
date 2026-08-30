@@ -1,4 +1,5 @@
 import { createAdminClient } from "@/lib/supabase/admin";
+import { CommissionActions } from "@/components/admin/CommissionActions";
 
 export const metadata = { title: "Commissions — Administration", robots: { index: false, follow: false } };
 
@@ -45,6 +46,7 @@ export default async function AdminCommissionsPage() {
                 <th className="px-4 py-3">Taux</th>
                 <th className="px-4 py-3">Montant</th>
                 <th className="px-4 py-3">Statut</th>
+                <th className="px-4 py-3">Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -60,6 +62,7 @@ export default async function AdminCommissionsPage() {
                   <td className="px-4 py-3 text-gray-600">{Math.round(Number(c.rate_applied || 0) * 100)} %</td>
                   <td className="px-4 py-3 font-semibold text-gray-800">{(c.amount ?? 0).toLocaleString("fr-FR")} KMF</td>
                   <td className="px-4 py-3 text-gray-600">{c.status}</td>
+                  <td className="px-4 py-3"><CommissionActions id={c.id} status={c.status} /></td>
                 </tr>
               ))}
             </tbody>

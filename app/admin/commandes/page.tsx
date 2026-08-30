@@ -1,4 +1,5 @@
 import { createAdminClient } from "@/lib/supabase/admin";
+import { OrderActions } from "@/components/admin/OrderActions";
 
 export const metadata = { title: "Commandes — Administration", robots: { index: false, follow: false } };
 
@@ -39,6 +40,7 @@ export default async function AdminCommandesPage() {
                 <th className="px-4 py-3">Statut</th>
                 <th className="px-4 py-3">Paiement</th>
                 <th className="px-4 py-3">Date</th>
+                <th className="px-4 py-3">Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -52,6 +54,7 @@ export default async function AdminCommandesPage() {
                   <td className="px-4 py-3 text-gray-600">{o.status}</td>
                   <td className="px-4 py-3 text-gray-600">{o.payment_status}</td>
                   <td className="px-4 py-3 text-gray-600">{new Date(o.created_at).toLocaleDateString("fr-FR")}</td>
+                  <td className="px-4 py-3"><OrderActions id={o.id} status={o.status} /></td>
                 </tr>
               ))}
             </tbody>
