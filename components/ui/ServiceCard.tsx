@@ -57,7 +57,7 @@ export function ServiceCard({
 
         <div className="mt-2">
           <Button
-            href={service.directPurchase ? `/services/${service.slug}` : `/devis?service=${service.slug}`}
+            href={service.directPurchase ? `/commander?service=${service.slug}` : `/devis?service=${service.slug}`}
             variant={service.directPurchase ? "primary" : "secondary"}
             size="sm"
           >

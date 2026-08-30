@@ -34,7 +34,7 @@ export function generateMetadata({
 
 function CtaTarget(service: Service) {
   if (service.directPurchase) {
-    return `/boutique?service=${service.slug}`;
+    return `/commander?service=${service.slug}`;
   }
   return `/devis?service=${service.slug}`;
 }
