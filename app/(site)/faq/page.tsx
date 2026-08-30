@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
-import { faqs, faqCategories } from "@/lib/data/faqs";
+import { faqs as seedFaqs, faqCategories as seedCats, type Faq } from "@/lib/data/faqs";
+import { createClient } from "@/lib/supabase/server";
 import { absoluteUrl } from "@/lib/config";
 import { Button } from "@/components/ui/Button";
 
@@ -11,7 +12,29 @@ export const metadata: Metadata = {
   // Données structurées FAQ (contenu réel visible).
 };
 
-export default function FaqPage() {
+export default async function FaqPage() {
+  // Lecture depuis la base (gérée par l'admin) ; repli sur les données réelles par défaut.
+  let faqs: Faq[] = seedFaqs;
+  let faqCategories: string[] = seedCats;
+  try {
+    const supabase = await createClient();
+    const { data } = await supabase
+      .from("faqs")
+      .select("question, answer, category, is_active")
+      .eq("is_active", true)
+      .order("sort_order", { ascending: true });
+    if (data && data.length > 0) {
+      faqs = data.map((f) => ({
+        question: f.question,
+        answer: f.answer,
+        category: (f.category as Faq["category"]) ?? "Général",
+      }));
+      faqCategories = Array.from(new Set(faqs.map((f) => f.category)));
+    }
+  } catch {
+    // Conserver les données par défaut si la base n'est pas disponible.
+  }
+
   return (
     <div className="bg-gray-structure">
       <div className="mx-auto max-w-3xl px-4 py-12 sm:px-6">
