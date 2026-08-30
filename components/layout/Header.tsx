@@ -38,6 +38,9 @@ export function Header() {
         </nav>
 
         <div className="hidden items-center gap-3 lg:flex">
+          <Button href="/espace-client" variant="ghost" size="sm">
+            Mon compte
+          </Button>
           <Button href="/devis" variant="primary" size="sm">
             Demander un devis
           </Button>
@@ -75,7 +78,10 @@ export function Header() {
               {item.label}
             </Link>
           ))}
-          <div className="mt-2">
+          <div className="mt-2 flex flex-col gap-2">
+            <Button href="/espace-client" variant="ghost" size="md" className="w-full">
+              Mon compte
+            </Button>
             <Button href="/devis" variant="primary" size="md" className="w-full">
               Demander un devis
             </Button>
