@@ -19,6 +19,7 @@ const modules = [
   { href: "/admin/parametres", label: "10 — Paramètres", key: "parametres" },
   { href: "/admin/marketing", label: "11 — Marketing", key: "marketing" },
   { href: "/admin/popups", label: "12 — Popups", key: "popups" },
+  { href: "/admin/administrateurs", label: "Administrateurs", key: "admins" },
 ];
 
 export default async function AdminLayout({ children }: { children: React.ReactNode }) {
