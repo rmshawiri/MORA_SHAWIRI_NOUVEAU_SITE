@@ -31,7 +31,7 @@ export function getSiteUrl(): string {
   }
 }
 
-export type SmtpConfig = {
+type SmtpConfig = {
   host: string;
   port: number;
   secure: boolean;
@@ -69,16 +69,5 @@ export function getSmtpConfig(): SmtpConfig | null {
     from,
     fromName: readOptional('SMTP_FROM_NAME') ?? 'MORA Shawiri',
     to: readOptional('CONTACT_EMAIL') ?? from,
-  };
-}
-
-/**
- * Diagnostic sans divulgation : indique uniquement la présence des variables.
- * Aucune valeur n'est retournée (cf. § 73 « Diagnostic »).
- */
-export function describeEnvironment(): Record<string, boolean> {
-  return {
-    NEXT_PUBLIC_SITE_URL: readOptional('NEXT_PUBLIC_SITE_URL') !== undefined,
-    SMTP_CONFIGURED: getSmtpConfig() !== null,
   };
 }

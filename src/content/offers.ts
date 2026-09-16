@@ -245,7 +245,7 @@ export const offers: readonly Offer[] = [
 ] as const;
 
 /** Les trois offres mises en avant sur la page d'accueil. */
-export const featuredOfferIds = ['site-vitrine', 'logo', 'audit'] as const;
+const featuredOfferIds = ['site-vitrine', 'logo', 'audit'] as const;
 
 export const featuredOffers = featuredOfferIds
   .map((id) => offers.find((offer) => offer.id === id))
