@@ -133,16 +133,35 @@ test('aucun mot de passe de provisionnement n\'est présent dans le dépôt', ()
 });
 
 test('la clé secrète n\'est lue que côté serveur', () => {
+  // On cherche une LECTURE effective de la variable, pas une mention de son nom
+  // dans un commentaire : une documentation qui nomme la clé ne l'expose pas.
+  const READ = /process\s*\.\s*env\s*(?:\.\s*SUPABASE_SECRET_KEY|\[\s*['"]SUPABASE_SECRET_KEY['"]\s*\])/;
+
   const offenders: string[] = [];
 
   for (const file of trackedFiles.filter((f) => /^src\/.*\.tsx?$/.test(f))) {
     const content = readFileSync(resolve(process.cwd(), file), 'utf8');
-    if (!content.includes('SUPABASE_SECRET_KEY')) continue;
+    if (!READ.test(content)) continue;
 
     const isServerOnly = content.includes("import 'server-only'");
     const isClientComponent = /^\s*['"]use client['"]/m.test(content);
 
     if (!isServerOnly || isClientComponent) offenders.push(file);
+  }
+
+  assert.deepEqual(offenders, []);
+});
+
+test('aucun composant client n\'importe la couche à privilèges', () => {
+  const offenders: string[] = [];
+
+  for (const file of trackedFiles.filter((f) => /^src\/.*\.tsx?$/.test(f))) {
+    const content = readFileSync(resolve(process.cwd(), file), 'utf8');
+    const isClientComponent = /^\s*['"]use client['"]/m.test(content);
+    if (!isClientComponent) continue;
+
+    if (/from\s+['"][^'"]*supabase\/admin['"]/.test(content)) offenders.push(file);
+    if (/from\s+['"][^'"]*lib\/rbac['"]/.test(content)) offenders.push(file);
   }
 
   assert.deepEqual(offenders, []);

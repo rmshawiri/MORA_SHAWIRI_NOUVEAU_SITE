@@ -15,6 +15,8 @@ import {
   getRuntimeEnvironment,
   getSupabasePublicConfig,
   getSupabasePublicConfigSafe,
+  hasIsolatedDatabase,
+  isDatabaseIsolated,
   isSupabaseConfigured,
   type RuntimeEnvironment,
   type SupabaseEnvironment,
@@ -97,9 +99,58 @@ test('les contextes hors production acceptent le projet de développement', () =
   }
 });
 
+test('le projet unique « shared » est accepté dans tous les contextes', () => {
+  const runtimes: RuntimeEnvironment[] = ['production', 'preview', 'development', 'local'];
+  for (const runtime of runtimes) {
+    assert.equal(describeEnvironmentMismatch(runtime, 'shared'), null);
+  }
+});
+
+test('« shared » déclare explicitement une base non isolée', () => {
+  assert.equal(isDatabaseIsolated('shared'), false);
+  assert.equal(isDatabaseIsolated('dev'), true);
+  assert.equal(isDatabaseIsolated('prod'), true);
+});
+
+test('hasIsolatedDatabase refuse aussi l\'absence de configuration', () => {
+  withEnv({}, () => {
+    assert.equal(hasIsolatedDatabase(), false);
+  });
+
+  withEnv({ ...CONFIGURED, NEXT_PUBLIC_SUPABASE_ENV: 'shared' }, () => {
+    assert.equal(hasIsolatedDatabase(), false);
+  });
+
+  withEnv({ ...CONFIGURED, NEXT_PUBLIC_SUPABASE_ENV: 'dev' }, () => {
+    assert.equal(hasIsolatedDatabase(), true);
+  });
+});
+
+test('une URL portant un chemin est ramenée à la racine du projet', () => {
+  withEnv(
+    {
+      ...CONFIGURED,
+      NEXT_PUBLIC_SUPABASE_URL: 'https://exemple-dev.supabase.co/rest/v1/',
+      NEXT_PUBLIC_SUPABASE_ENV: 'shared',
+    },
+    () => {
+      assert.equal(getSupabasePublicConfig()?.url, 'https://exemple-dev.supabase.co');
+    },
+  );
+});
+
+test('une URL invalide est refusée explicitement', () => {
+  withEnv(
+    { ...CONFIGURED, NEXT_PUBLIC_SUPABASE_URL: 'pas-une-url', NEXT_PUBLIC_SUPABASE_ENV: 'shared' },
+    () => {
+      assert.throws(() => getSupabasePublicConfig(), /NEXT_PUBLIC_SUPABASE_URL/);
+    },
+  );
+});
+
 test('aucun message d\'erreur ne transporte d\'URL ni de clé', () => {
   const runtimes: RuntimeEnvironment[] = ['production', 'preview', 'development', 'local'];
-  const environments: SupabaseEnvironment[] = ['dev', 'prod'];
+  const environments: SupabaseEnvironment[] = ['dev', 'prod', 'shared'];
 
   for (const runtime of runtimes) {
     for (const environment of environments) {

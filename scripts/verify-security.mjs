@@ -16,8 +16,14 @@
  *   2. accès horizontal — un compte ne voit pas les données d'un autre ;
  *   3. accès vertical — un compte ne s'accorde pas de droits supplémentaires.
  *
- * Sur la production, seuls les contrôles anonymes en lecture sont exécutés :
+ * Sur `--env prod`, seuls les contrôles anonymes en lecture sont exécutés :
  * aucun compte de test n'y est jamais créé (`00_SUPABASE.md` § 114-115).
+ *
+ * Sur `--env shared`, les contrôles authentifiés s'exécutent, faute de base
+ * jetable. Le compte temporaire porte un domaine réservé `@mora-shawiri.test`,
+ * il est supprimé dans un bloc `finally`, et un balayage final vérifie qu'aucun
+ * compte de test ne subsiste. La limite est réelle et documentée : elle
+ * disparaîtra le jour où un second projet Supabase existera.
  */
 
 import { randomUUID } from 'node:crypto';
@@ -101,7 +107,7 @@ async function authenticatedChecks(target, adminUsername) {
   log.step('2. Accès horizontal et vertical — compte client temporaire');
 
   const suffix = randomUUID().slice(0, 8);
-  const testEmail = `test.rls.${suffix}@mora-shawiri.test`;
+  const testEmail = `test.rls.${suffix}${TEST_EMAIL_DOMAIN}`;
   const testPassword = `Tst-${randomUUID()}`;
   let testUserId = null;
 
@@ -296,10 +302,46 @@ async function authenticatedChecks(target, adminUsername) {
   await adminSession.auth.signOut();
 }
 
+const TEST_EMAIL_DOMAIN = '@mora-shawiri.test';
+
+/**
+ * Balayage final : aucun compte de test ne doit subsister, quel que soit le
+ * chemin emprunté par le script.
+ */
+async function assertNoLeftoverTestAccounts(target) {
+  log.step('4. Absence de résidu');
+
+  const service = createClient(target.url, target.secretKey, {
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
+
+  const { data, error } = await service.auth.admin.listUsers({ page: 1, perPage: 200 });
+  if (error) {
+    check('les comptes sont lisibles pour le balayage', false, error.message);
+    return;
+  }
+
+  const leftovers = data.users.filter((user) => user.email?.endsWith(TEST_EMAIL_DOMAIN));
+
+  for (const user of leftovers) {
+    await service.auth.admin.deleteUser(user.id);
+    log.warn('compte de test résiduel supprimé');
+  }
+
+  check('aucun compte de test ne subsiste', leftovers.length === 0, `${leftovers.length} trouvé(s)`);
+}
+
 async function main() {
   const target = resolveTarget();
 
   log.step(`Vérifications de sécurité — ${describeTarget(target)}`);
+
+  if (target.isLiveData) {
+    log.warn(
+      'Base portant les données réelles : le compte de test créé est temporaire, ' +
+        'isolé par un domaine réservé, et supprimé en fin d\'exécution.',
+    );
+  }
 
   await anonymousChecks(target);
 
@@ -307,6 +349,7 @@ async function main() {
     log.step('Contrôles authentifiés ignorés : aucun compte de test n\'est créé en production.');
   } else {
     await authenticatedChecks(target, readFlag('admin'));
+    await assertNoLeftoverTestAccounts(target);
   }
 
   log.step(`Résultat : ${results.passed} contrôle(s) réussi(s), ${results.failed} échec(s).`);

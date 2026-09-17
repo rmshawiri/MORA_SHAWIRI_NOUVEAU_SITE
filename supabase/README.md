@@ -14,32 +14,43 @@ Rien ne se modifie durablement depuis l'interface graphique de Supabase sans
 
 ---
 
-## Deux projets, jamais un seul
+## Un seul projet aujourd'hui, la séparation reste possible
 
-| Projet | Usage | Variables d'outillage |
+Le plan Supabase retenu n'autorise qu'un projet. **`MORA_SHAWIRI_NOUVEAU_SITE`
+est donc le seul projet utilisé**, pour tous les contextes.
+
+`10_DEPLOIEMENT/00_SUPABASE.md` § 46-48 demande de séparer développement et
+production. Cette exigence n'est pas satisfaite aujourd'hui, et le code le dit
+plutôt que de le taire : `NEXT_PUBLIC_SUPABASE_ENV=shared` déclare la situation,
+et `hasIsolatedDatabase()` renvoie `false`. Les phases suivantes peuvent donc
+refuser d'elles-mêmes toute opération qui exigerait une base jetable.
+
+| Mode | Signification | Variables d'outillage |
 |---|---|---|
-| `mora-shawiri-dev` | développement, migrations, tests, données fictives | `SUPABASE_DEV_*` |
-| `mora-shawiri-prod` | production, données réelles | `SUPABASE_PROD_*` |
+| `shared` | projet unique — **situation actuelle** | variables de l'application |
+| `dev` | base de développement dédiée | `SUPABASE_DEV_*` |
+| `prod` | base de production dédiée | `SUPABASE_PROD_*` |
 
-La base de production ne sert jamais d'environnement de test (§ 48, § 114-115).
+### Le jour de la séparation
 
-Deux mécanismes le garantissent :
+Créer le second projet, renseigner les variables `SUPABASE_DEV_*` et
+`SUPABASE_PROD_*`, et passer `NEXT_PUBLIC_SUPABASE_ENV` à `dev` ou `prod` selon
+la cible Vercel. **Aucune ligne de code à modifier.** Les contrôles de cohérence
+deviennent alors actifs :
 
 1. **Côté application** — `src/lib/supabase/environment.ts` compare le contexte
-   d'exécution (`VERCEL_ENV`) au projet déclaré (`NEXT_PUBLIC_SUPABASE_ENV`) et
-   lève si les deux ne concordent pas. Un déploiement de prévisualisation ne
-   peut donc pas atteindre la base de production.
-2. **Côté outillage** — les scripts exigent `--env dev` ou `--env prod`, sans
-   valeur par défaut, et refusent la production sans
-   `--i-know-this-is-production`.
+   d'exécution (`VERCEL_ENV`) au projet déclaré et lève si les deux ne
+   concordent pas. Une prévisualisation ne peut plus atteindre la production.
+2. **Côté outillage** — les scripts exigent un `--env` explicite, sans valeur
+   par défaut, et refusent `prod` sans `--i-know-this-is-production`.
 
 ### Répartition des variables Vercel
 
-| Cible Vercel | `NEXT_PUBLIC_SUPABASE_ENV` | Projet visé |
+| Cible Vercel | Aujourd'hui | Après séparation |
 |---|---|---|
-| Production | `prod` | `mora-shawiri-prod` |
-| Preview | `dev` | `mora-shawiri-dev` |
-| Development | `dev` | `mora-shawiri-dev` |
+| Production | `shared` | `prod` |
+| Preview | `shared` | `dev` |
+| Development | `shared` | `dev` |
 
 ---
 
@@ -48,14 +59,21 @@ Deux mécanismes le garantissent :
 Nommage : `AAAAMMJJHHMMSS_description.sql`. L'ordre alphabétique est l'ordre
 d'application.
 
+L'exécution du SQL passe par l'API de gestion Supabase, qui réclame un jeton
+d'accès personnel (`SUPABASE_ACCESS_TOKEN`). La clé secrète ne suffit pas : elle
+ouvre PostgREST, GoTrue et Storage — donc les **lignes** — mais pas le moteur
+SQL. Aucune fonction d'exécution SQL n'est installée sur le projet, et c'est
+délibéré : ce serait une porte d'entrée d'élévation de privilèges.
+
 ```bash
 # Ce qui serait appliqué, sans rien écrire
-npm run db:migrate -- --env dev --dry-run
+npm run db:migrate -- --env shared --dry-run
 
 # Application réelle
-npm run db:migrate -- --env dev
+npm run db:migrate -- --env shared
 
-# Production, avec confirmation explicite
+# Le jour de la séparation
+npm run db:migrate -- --env dev
 npm run db:migrate -- --env prod --i-know-this-is-production
 ```
 
@@ -78,6 +96,33 @@ Toutes les migrations sont rejouables — `create table if not exists`,
 
 ---
 
+## Réinitialisation du socle précédent
+
+Le projet Supabase portait encore le schéma d'une implémentation antérieure,
+remplacée dans le dépôt par le commit `6dc6946` mais jamais retirée de la base :
+28 tables appliquées par un script ad hoc, donc invisibles pour l'outillage
+actuel et en collision avec celles de la phase 4A.
+
+`scripts/reset-legacy-schema.mjs` les supprime. Ce n'est **pas** une migration,
+et ce choix est délibéré : un fichier de migration dont le rôle est de supprimer
+des tables reste une arme chargée que la moindre erreur de suivi ferait rejouer
+sur des données réelles. Les migrations restent strictement additives ; la
+destruction est une action d'exploitation, explicite et confirmée à la main.
+
+```bash
+node scripts/reset-legacy-schema.mjs --env shared --dry-run
+node scripts/reset-legacy-schema.mjs --env shared --confirm-destroy
+node scripts/reset-legacy-schema.mjs --env shared --confirm-destroy --purge-auth-users
+```
+
+Sans `--confirm-destroy`, le script se contente de décrire ce qu'il ferait. Il
+nomme explicitement les tables qu'il supprime et **laisse intacte** toute table
+qu'il ne connaît pas. `--purge-auth-users` supprime les comptes applicatifs
+Supabase Auth ; cela ne touche jamais le compte propriétaire du tableau de bord
+Supabase.
+
+---
+
 ## Provisionnement des administrateurs
 
 Aucun compte n'est codé en dur, et le nombre d'administrateurs n'est pas
@@ -91,8 +136,8 @@ ADMIN_SEED_RACHADE_ROLE=SUPER_ADMIN
 ```
 
 ```bash
-npm run db:provision -- --env dev --dry-run
-npm run db:provision -- --env dev
+npm run db:provision -- --env shared --dry-run
+npm run db:provision -- --env shared
 ```
 
 Ce que le script garantit :
@@ -114,8 +159,8 @@ l'administration.
 ## Vérification de sécurité
 
 ```bash
-npm run db:verify -- --env dev
-npm run db:verify -- --env dev --admin rachade
+npm run db:verify -- --env shared
+npm run db:verify -- --env shared --admin rachade
 ```
 
 Le script interroge la base comme le ferait un attaquant :
@@ -130,8 +175,15 @@ Le script interroge la base comme le ferait un attaquant :
 4. **Compte administrateur** — permissions effectives, accès au journal,
    protection du dernier détenteur de `admin.full_access`.
 
-Sur la production, seuls les contrôles anonymes en lecture sont exécutés :
-aucun compte de test n'y est jamais créé.
+Sur `--env prod`, seuls les contrôles anonymes en lecture sont exécutés : aucun
+compte de test n'y est jamais créé.
+
+Sur `--env shared`, faute de base jetable, les contrôles authentifiés
+s'exécutent malgré tout sur la base réelle. Trois précautions encadrent ce
+compromis : le compte temporaire porte un domaine réservé `@mora-shawiri.test`,
+il est supprimé dans un bloc `finally`, et un balayage final vérifie qu'aucun
+compte de test ne subsiste. **Cette limite disparaîtra le jour où un second
+projet Supabase existera.**
 
 ---
 

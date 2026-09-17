@@ -1,15 +1,18 @@
 /**
  * Configuration commune aux scripts d'exploitation.
  *
- * Deux projets Supabase coexistent. Les scripts ne lisent JAMAIS les variables
- * de l'application (`NEXT_PUBLIC_SUPABASE_*`), qui décrivent l'environnement
- * dans lequel le site tourne. Ils lisent des variables préfixées par
- * l'environnement visé, ce qui rend la cible explicite à chaque exécution :
+ * La cible est toujours explicite : `--env` n'a aucune valeur par défaut.
  *
- *   SUPABASE_DEV_PROJECT_REF   SUPABASE_PROD_PROJECT_REF
- *   SUPABASE_DEV_URL           SUPABASE_PROD_URL
- *   SUPABASE_DEV_PUBLISHABLE_KEY   SUPABASE_PROD_PUBLISHABLE_KEY
- *   SUPABASE_DEV_SECRET_KEY    SUPABASE_PROD_SECRET_KEY
+ *   --env shared   projet unique, servant tous les contextes. Lit les variables
+ *                  de l'application : NEXT_PUBLIC_SUPABASE_URL,
+ *                  NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY, SUPABASE_SECRET_KEY.
+ *
+ *   --env dev      projets séparés, le jour où un second projet existe.
+ *   --env prod     Variables préfixées : SUPABASE_DEV_* et SUPABASE_PROD_*.
+ *
+ * `shared` désigne une base qui porte les données réelles : les scripts la
+ * traitent avec les mêmes précautions que `prod`, et toute opération
+ * destructive y exige une confirmation explicite.
  *
  * Aucune valeur n'est affichée : les fonctions de ce module renvoient les
  * secrets à l'appelant mais ne les journalisent jamais, et `describeTarget()`
@@ -27,7 +30,12 @@ export function loadLocalEnv() {
   const path = resolve(PROJECT_ROOT, '.env.local');
   if (!existsSync(path)) return;
 
-  for (const line of readFileSync(path, 'utf8').split(/\r?\n/)) {
+  // Un éditeur Windows peut préfixer le fichier d'une marque d'ordre des
+  // octets. Sans ce retrait, la toute première variable serait ignorée — panne
+  // discrète et pénible à diagnostiquer.
+  const content = readFileSync(path, 'utf8').replace(/^﻿/, '');
+
+  for (const line of content.split(/\r?\n/)) {
     const match = line.match(/^\s*([A-Za-z0-9_]+)\s*=\s*(.*)$/);
     if (!match) continue;
 
@@ -67,45 +75,86 @@ function requireEnv(name) {
   return value;
 }
 
+/** Extrait la référence de projet d'une URL `https://<ref>.supabase.co`. */
+function projectRefFromUrl(url) {
+  const host = new URL(url).host;
+  const ref = host.split('.')[0];
+
+  if (!/^[a-z0-9]{16,}$/.test(ref)) {
+    throw new Error(
+      'Impossible de déduire la référence du projet depuis NEXT_PUBLIC_SUPABASE_URL. ' +
+        'Attendu : https://<ref>.supabase.co',
+    );
+  }
+
+  return ref;
+}
+
+/** Normalise une URL Supabase vers la racine du projet. */
+function originOf(value) {
+  try {
+    return new URL(value).origin;
+  } catch {
+    throw new Error('URL Supabase invalide. Attendu : https://<ref>.supabase.co');
+  }
+}
+
 /**
  * Résout l'environnement cible.
  *
  * `--env` est obligatoire : aucune valeur par défaut n'est retenue, afin
- * qu'aucune commande ne puisse atteindre la production par inadvertance.
- * Viser la production exige en outre `--i-know-this-is-production`.
+ * qu'aucune commande ne puisse atteindre les données réelles par inadvertance.
+ *
+ * `shared` et `prod` désignent tous deux une base portant des données réelles.
+ * Ils sont donc traités de la même façon : `isLiveData` vaut `true`, et les
+ * commandes destructives doivent exiger une confirmation.
  */
-export function resolveTarget({ allowProduction = true } = {}) {
+export function resolveTarget({ allowLiveData = true } = {}) {
   loadLocalEnv();
 
   const env = readFlag('env');
 
-  if (env !== 'dev' && env !== 'prod') {
-    throw new Error('Argument requis : --env dev | --env prod');
+  if (env !== 'dev' && env !== 'prod' && env !== 'shared') {
+    throw new Error('Argument requis : --env shared | --env dev | --env prod');
   }
 
-  if (env === 'prod') {
-    if (!allowProduction) {
-      throw new Error(
-        'Cette commande est interdite sur la production. ' +
-          'La base de production ne sert jamais d\'environnement de test.',
-      );
-    }
+  const isLiveData = env !== 'dev';
 
-    if (!hasFlag('i-know-this-is-production')) {
-      throw new Error(
-        'Cible « prod » refusée sans confirmation explicite. ' +
-          'Ajoutez --i-know-this-is-production pour confirmer.',
-      );
-    }
+  if (isLiveData && !allowLiveData) {
+    throw new Error(
+      `Cette commande est interdite sur « ${env} », qui porte les données réelles.`,
+    );
+  }
+
+  if (env === 'prod' && !hasFlag('i-know-this-is-production')) {
+    throw new Error(
+      'Cible « prod » refusée sans confirmation explicite. ' +
+        'Ajoutez --i-know-this-is-production pour confirmer.',
+    );
+  }
+
+  if (env === 'shared') {
+    const url = originOf(requireEnv('NEXT_PUBLIC_SUPABASE_URL'));
+
+    return {
+      env,
+      isLiveData,
+      isProduction: false,
+      projectRef: process.env.SUPABASE_PROJECT_REF?.trim() || projectRefFromUrl(url),
+      url,
+      publishableKey: requireEnv('NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY'),
+      secretKey: requireEnv('SUPABASE_SECRET_KEY'),
+    };
   }
 
   const prefix = env === 'dev' ? 'SUPABASE_DEV' : 'SUPABASE_PROD';
 
   return {
     env,
+    isLiveData,
     isProduction: env === 'prod',
     projectRef: requireEnv(`${prefix}_PROJECT_REF`),
-    url: requireEnv(`${prefix}_URL`),
+    url: originOf(requireEnv(`${prefix}_URL`)),
     publishableKey: requireEnv(`${prefix}_PUBLISHABLE_KEY`),
     secretKey: requireEnv(`${prefix}_SECRET_KEY`),
   };
@@ -119,7 +168,10 @@ export function resolveAccessToken() {
 
 /** Description non sensible de la cible, sûre à journaliser. */
 export function describeTarget(target) {
-  return `environnement=${target.env} projet=${target.projectRef}`;
+  return (
+    `environnement=${target.env} projet=${target.projectRef} ` +
+    `donnees=${target.isLiveData ? 'reelles' : 'jetables'}`
+  );
 }
 
 /**
