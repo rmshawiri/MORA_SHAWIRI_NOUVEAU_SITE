@@ -7,7 +7,7 @@ export default function manifest(): MetadataRoute.Manifest {
     name: 'MORA Shawiri — Agence digitale',
     short_name: site.name,
     description:
-      'Le Choix Optimal pour votre Performance. Sites web, identité visuelle, organisation des données et formations aux Comores.',
+      'Le Choix Optimal pour votre performance. Sites web, identité visuelle, organisation des données et formations aux Comores.',
     lang: 'fr',
     dir: 'ltr',
     start_url: '/',

@@ -32,7 +32,7 @@ const facts = [
   {
     Icon: Mail,
     strong: 'Confirmation sous 24 h',
-    text: 'Nous validons le créneau et vous envoyons le lien ou l’adresse.',
+    text: 'Vous recevez un accusé de réception, puis nous validons le créneau avec vous.',
   },
 ];
 
@@ -52,7 +52,7 @@ export default function RendezVousPage() {
         breadcrumb={[{ label: 'Accueil', href: '/' }, { label: 'Prendre rendez-vous' }]}
         eyebrow="Rendez-vous"
         title="Réservez votre échange en moins de deux minutes"
-        lead="Répondez à quelques questions, une à la fois. À la fin, votre demande complète part directement sur notre WhatsApp — nous confirmons le créneau sous 24 h ouvrées."
+        lead="Répondez à quelques questions, une à la fois. À la fin, votre demande nous est transmise et vous recevez un accusé de réception par e-mail — nous confirmons le créneau sous 24 h ouvrées."
       />
 
       <section className="section" aria-labelledby="rdv-title">

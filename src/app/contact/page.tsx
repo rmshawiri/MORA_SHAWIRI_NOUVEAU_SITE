@@ -43,8 +43,9 @@ export default function ContactPage() {
               <p className="eyebrow">Formulaire</p>
               <h2 style={{ fontSize: 'var(--text-h3)' }}>Demander un devis gratuit</h2>
               <p style={{ marginBottom: 8 }}>
-                Vos réponses composent automatiquement un message WhatsApp prêt à envoyer : c’est le
-                canal le plus rapide pour obtenir une réponse.
+                Votre demande nous parvient directement, et vous en recevez un accusé de réception
+                par e-mail. Vous pourrez ensuite, si vous le souhaitez, en envoyer une copie sur
+                WhatsApp.
               </p>
               <ContactForm />
             </div>
@@ -126,10 +127,14 @@ export default function ContactPage() {
         </div>
       </section>
 
+      {/* Le CTA principal pointait auparavant vers /contact/ — c'est-à-dire vers
+          la page déjà affichée. Il propose désormais l'étape suivante réelle. */}
       <CtaBand
-        title="Un projet, une question, un doute ?"
+        title="Vous préférez un échange de vive voix ?"
         text="Le premier échange est gratuit et sans engagement. Il éclaire souvent la décision à lui seul."
-        primaryLabel="Demander un devis gratuit"
+        primaryLabel="Prendre rendez-vous"
+        primaryHref="/rendez-vous/"
+        currentPath="/contact/"
         whatsappMessage="Bonjour MORA Shawiri, j’ai une question sur vos prestations."
       />
     </>

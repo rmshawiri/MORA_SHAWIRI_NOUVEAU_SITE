@@ -44,12 +44,23 @@ export const rdvLabels = {
   required: 'Merci de renseigner ce champ pour continuer.',
   invalidEmail: 'Cette adresse e-mail semble incorrecte.',
   invalidPhone: 'Ce numéro semble incomplet.',
-  sendLabel: 'Envoyer ma demande sur WhatsApp',
+  sendLabel: 'Envoyer ma demande',
+  sendingLabel: 'Envoi en cours…',
+  retryLabel: 'Réessayer l’envoi',
+  whatsappCopyLabel: 'Envoyer une copie sur WhatsApp',
+  whatsappFallbackLabel: 'Nous écrire sur WhatsApp',
   doneTitle: 'Votre demande de rendez-vous est prête',
   doneLead:
-    'Vérifiez le récapitulatif ci-dessous, puis envoyez-le : la conversation WhatsApp s’ouvre avec votre message déjà rédigé.',
+    'Vérifiez le récapitulatif ci-dessous, puis envoyez-le : votre demande nous parvient directement et vous en recevez un accusé de réception par e-mail.',
   doneNote:
-    'Nous confirmons votre créneau sous 24 h ouvrées (Lun. – Sam., 08H – 17H, heure de Moroni).',
+    'Vous pouvez modifier chaque réponse avant l’envoi : rien n’est transmis tant que vous n’avez pas cliqué.',
+  sentTitle: 'Votre demande de rendez-vous a bien été envoyée',
+  sentLead:
+    'Elle vient d’arriver chez MORA Shawiri, et un accusé de réception part vers votre adresse e-mail. Notre équipe revient vers vous pour confirmer le créneau.',
+  sentAsk: 'Souhaitez-vous aussi en envoyer une copie sur WhatsApp ?',
+  sentNote:
+    'Ce n’est pas obligatoire : votre demande nous est déjà parvenue.',
+  errorTitle: 'Votre demande n’a pas été envoyée.',
 } as const;
 
 export const rdvSteps: readonly RdvStep[] = [
@@ -116,15 +127,15 @@ export const rdvSteps: readonly RdvStep[] = [
     placeholder: '+269 ...',
   },
   {
+    // L'adresse est requise : sans elle, aucun accusé de réception n'est possible
+    // et la demande ne pourrait pas être confirmée (`08_EMAILS` § 15).
     name: 'email',
     label: 'E-mail',
-    question: 'Souhaitez-vous recevoir la confirmation par e-mail ?',
-    hint: 'Facultatif.',
+    question: 'À quelle adresse devons-nous vous confirmer le rendez-vous ?',
+    hint: 'Elle sert uniquement à vous envoyer la confirmation de votre demande.',
     type: 'email',
     autoComplete: 'email',
     placeholder: 'vous@exemple.com',
-    optional: true,
-    emptyValue: 'Non communiqué',
   },
   {
     name: 'budget',

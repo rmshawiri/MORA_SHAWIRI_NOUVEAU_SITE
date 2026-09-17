@@ -1,7 +1,7 @@
 import Image from 'next/image';
 import Link from 'next/link';
-import LegalLinks from '@/components/layout/LegalLinks';
 import { Clock, Mail, MapPin, Phone, socialIcons } from '@/components/ui/Icon';
+import { legalLinks } from '@/content/legal';
 import { site, socials } from '@/lib/site';
 
 const navigateLinks = [
@@ -15,9 +15,9 @@ const resourceLinks = [
   { href: '/rendez-vous/', label: 'Prendre rendez-vous' },
   { href: '/affiliation/', label: 'Programme d’affiliation' },
   { href: '/formation-prospection-relation-client/', label: 'Formation prospection' },
+  { href: '/faq/', label: 'Questions fréquentes' },
   { href: '/blog/', label: 'Blog & conseils' },
   { href: '/contact/', label: 'Nous contacter' },
-  { href: '/contact/', label: 'Demander un devis' },
 ];
 
 /** Pied de page commun à toutes les pages du site. */
@@ -104,7 +104,16 @@ export default function Footer() {
 
         <div className="footer-bottom">
           <p>© {new Date().getFullYear()} MORA Shawiri — Tous droits réservés.</p>
-          <LegalLinks />
+          {/* Pages autonomes et indexables, et non plus des fenêtres modales
+              (`01_STRUCTURE_DES_URLS.md` § 80) : les documents légaux ont
+              désormais une URL propre, partageable et référençable. */}
+          <nav aria-label="Informations légales">
+            {legalLinks.map((link) => (
+              <Link key={link.href} href={link.href}>
+                {link.label}
+              </Link>
+            ))}
+          </nav>
         </div>
       </div>
     </footer>

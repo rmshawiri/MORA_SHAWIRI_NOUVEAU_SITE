@@ -406,6 +406,19 @@ strong { font-weight: 650; color: var(--mora-blue-deep); }
   font-size: var(--text-caption); color: var(--text-secondary);
 }
 
+/* Regroupements par famille : offres de la Boutique et catégories de la FAQ.
+   Un simple intertitre filé — aucune couleur ni forme nouvelle. */
+.offer-group { display: grid; gap: var(--sp-6); }
+.offer-group + .offer-group { margin-top: var(--sp-12); }
+.faq-group { display: grid; gap: var(--sp-5); max-width: 900px; margin-inline: auto; }
+.faq-group + .faq-group { margin-top: var(--sp-10); }
+.offer-group__title,
+.faq-group__title {
+  margin: 0; font-family: var(--font-display); font-weight: 700;
+  font-size: var(--text-h3); color: var(--mora-blue-deep);
+  padding-bottom: var(--sp-3); border-bottom: 1px solid var(--border);
+}
+
 /* 5.5 Listes à coches */
 .check-list { display: grid; gap: var(--sp-3); }
 .check-list li {
@@ -623,6 +636,66 @@ table.compare .no { color: #b9c0c9; }
 .field__hint { font-size: var(--text-caption); color: var(--text-secondary); }
 .form__note { font-size: var(--text-caption); color: var(--text-secondary); }
 
+/* États du formulaire : validation, envoi, erreur, confirmation.
+   Le vocabulaire visuel est repris du questionnaire de rendez-vous
+   (`.rdv-error`, `.rdv-done`, `.rdv-recap`) pour rester dans le design system
+   existant : aucune nouvelle couleur, aucun nouveau rayon. */
+.field__error { margin: 0; font-size: var(--text-caption); font-weight: 600; color: #b3261e; }
+.field input[aria-invalid="true"],
+.field select[aria-invalid="true"],
+.field textarea[aria-invalid="true"] { border-color: #b3261e; }
+.field input[aria-invalid="true"]:focus,
+.field select[aria-invalid="true"]:focus,
+.field textarea[aria-invalid="true"]:focus { box-shadow: 0 0 0 4px rgba(179, 38, 30, .12); }
+
+/* Offre transmise depuis la Boutique : rappel discret du contexte. */
+.form__context {
+  margin: 0; padding: 12px 16px;
+  font-size: var(--text-caption); color: var(--text-secondary);
+  background: var(--gray-light);
+  border: 1px solid var(--border); border-left: 3px solid var(--shawiri-gold);
+  border-radius: var(--r-btn);
+}
+.form__context strong { color: var(--mora-blue-deep); }
+
+.form-alert {
+  display: grid; gap: var(--sp-1);
+  padding: var(--sp-4) var(--sp-5);
+  font-size: var(--text-caption); color: var(--text-primary);
+  background: rgba(179, 38, 30, .06);
+  border: 1px solid rgba(179, 38, 30, .28); border-radius: var(--r-btn);
+}
+.form-alert strong { font-family: var(--font-display); color: #b3261e; }
+.form-alert:focus { outline: none; }
+.form-alert:focus-visible { outline: 3px solid var(--shawiri-gold); outline-offset: 3px; }
+
+.form-done { display: grid; gap: var(--sp-5); }
+.form-done:focus { outline: none; }
+.form-done:focus-visible {
+  outline: 3px solid var(--shawiri-gold); outline-offset: 6px; border-radius: var(--r-card);
+}
+.form-done .rdv-done__head h3 { margin: 0; font-size: var(--text-h3); }
+.form-done__ask {
+  margin: 0; font-family: var(--font-display); font-weight: 600; color: var(--mora-blue-deep);
+}
+.form-done > .btn { justify-self: start; }
+
+/* Pot de miel anti-robot : hors écran, non focusable, sans effet sur la mise en page. */
+.hp-field { position: absolute; left: -9999px; width: 1px; height: 1px; overflow: hidden; }
+
+/* Bouton pendant l'envoi : l'état est visible et la double soumission impossible. */
+.btn:disabled { cursor: not-allowed; opacity: .72; }
+.btn:disabled:hover { transform: none; box-shadow: none; }
+.btn__spinner {
+  flex: none; width: 16px; height: 16px; border-radius: 50%;
+  border: 2px solid currentColor; border-top-color: transparent;
+  animation: btn-spin 700ms linear infinite;
+}
+@keyframes btn-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+  .btn__spinner { animation: none; opacity: .6; }
+}
+
 /* 5.13 Cartes contact */
 .contact-item {
   display: flex; gap: var(--sp-4); align-items: flex-start;
@@ -709,18 +782,6 @@ table.compare .no { color: #b9c0c9; }
 .header-actions { display: flex; align-items: center; gap: var(--sp-3); }
 /* Le duplicata d'actions vit dans le menu mobile uniquement */
 .site-nav .header-actions { display: none; }
-.lang-switch {
-  display: flex; align-items: center; gap: 2px;
-  padding: 3px; border-radius: var(--r-pill);
-  background: rgba(255, 255, 255, .1);
-}
-.lang-switch a {
-  padding: 5px 11px; border-radius: var(--r-pill);
-  font-family: var(--font-display); font-size: .75rem; font-weight: 600;
-  letter-spacing: .04em; color: rgba(255, 255, 255, .8);
-}
-.lang-switch a:hover { color: var(--white); }
-.lang-switch a[aria-current="true"] { background: var(--white); color: var(--mora-blue); }
 
 .nav-toggle {
   display: none; align-items: center; justify-content: center;
@@ -1045,67 +1106,6 @@ table.compare .no { color: #b9c0c9; }
 .article .cta-band h2, .article .cta-band h3 { color: var(--white); }
 .article .cta-band p, .article .cta-band li { color: var(--text-on-brand-muted); }
 
-/* 7.6b Fenêtres modales (mentions légales, confidentialité) */
-.modal {
-  position: fixed; inset: 0; z-index: 3000;
-  display: grid; place-items: center;
-  padding: clamp(16px, 4vw, 48px);
-  background: rgba(0, 20, 40, .62);
-  opacity: 0; visibility: hidden;
-  /* `visibility` bascule sans transition à l'ouverture (le panneau est donc
-     immédiatement focusable) et n'est masquée qu'après le fondu de fermeture. */
-  transition: opacity 260ms var(--t-medium), visibility 0s linear 260ms;
-}
-.modal.is-open {
-  opacity: 1; visibility: visible;
-  transition: opacity 260ms var(--t-medium), visibility 0s;
-}
-.modal__panel {
-  position: relative; width: min(760px, 100%); max-height: min(84dvh, 900px);
-  display: flex; flex-direction: column;
-  background: var(--white); border-radius: var(--r-card);
-  box-shadow: 0 40px 90px rgba(0, 12, 26, .45);
-  transform: translateY(18px) scale(.98);
-  transition: transform 300ms var(--t-long);
-}
-.modal.is-open .modal__panel { transform: none; }
-.modal__head {
-  display: flex; align-items: flex-start; justify-content: space-between; gap: var(--sp-5);
-  padding: clamp(22px, 2.6vw, 32px) clamp(22px, 2.6vw, 36px) var(--sp-5);
-  border-bottom: 1px solid var(--border);
-}
-.modal__head h2 { margin: 0; font-size: var(--text-h3); }
-.modal__head p { margin: var(--sp-2) 0 0; font-size: var(--text-caption); color: var(--text-secondary); }
-.modal__close {
-  flex: none; width: 42px; height: 42px; display: grid; place-items: center;
-  border: 1px solid var(--border); border-radius: 12px;
-  background: var(--white); color: var(--mora-blue); cursor: pointer;
-  transition: background var(--t-quick), color var(--t-quick), border-color var(--t-quick);
-}
-.modal__close:hover { background: var(--mora-blue); color: var(--white); border-color: var(--mora-blue); }
-.modal__body {
-  overflow-y: auto; -webkit-overflow-scrolling: touch;
-  padding: clamp(22px, 2.6vw, 32px) clamp(22px, 2.6vw, 36px) clamp(26px, 3vw, 36px);
-}
-.modal__body h3 {
-  font-size: 1.0625rem; margin: var(--sp-6) 0 var(--sp-2);
-}
-.modal__body h3:first-child { margin-top: 0; }
-.modal__body p, .modal__body li { color: #2c343d; font-size: var(--text-small); line-height: 1.7; }
-.modal__body p { margin: 0 0 var(--sp-3); }
-.modal__body ul { display: grid; gap: var(--sp-2); margin: 0 0 var(--sp-4); padding-left: var(--sp-5); }
-.modal__body ul li { list-style: disc; }
-.modal__body a { text-decoration: underline; }
-.modal__foot {
-  padding: var(--sp-4) clamp(22px, 2.6vw, 36px) var(--sp-5);
-  border-top: 1px solid var(--border);
-  font-size: var(--text-caption); color: var(--text-secondary);
-}
-body.modal-open { overflow: hidden; }
-@media (prefers-reduced-motion: reduce) {
-  .modal, .modal__panel { transition: none; }
-}
-
 /* 7.7 Simulateur d'affiliation */
 .calc {
   display: grid; gap: clamp(28px, 3vw, 48px);
@@ -1203,12 +1203,14 @@ body.modal-open { overflow: hidden; }
 }
 .footer-bottom p { margin: 0; }
 .footer-bottom nav { display: flex; flex-wrap: wrap; gap: var(--sp-5); }
-.footer-bottom nav button {
+.footer-bottom nav button,
+.footer-bottom nav a {
   padding: 0; border: 0; background: none; cursor: pointer;
   font-family: var(--font-body); font-size: inherit; color: rgba(255, 255, 255, .68);
   transition: color var(--t-quick);
 }
-.footer-bottom nav button:hover { color: var(--white); text-decoration: underline; }
+.footer-bottom nav button:hover,
+.footer-bottom nav a:hover { color: var(--white); text-decoration: underline; }
 
 /* 7.9 WhatsApp intégré + retour haut */
 .dock {
@@ -1288,13 +1290,16 @@ main[data-page-transition] { animation: page-in 320ms var(--t-long) both; }
 }
 
 @media (max-width: 1280px) {
-  .site-nav ul { gap: 0; }
-  .site-nav a { padding: 10px 11px; font-size: .9375rem; }
+  /* Un écart minimal subsiste entre les zones cliquables : deux liens ne doivent
+     jamais se toucher (`02_RESPONSIVE_MOBILE.md` § 36). Le padding est réduit
+     d'autant, la largeur totale de la barre reste donc inchangée. */
+  .site-nav ul { gap: 2px; }
+  .site-nav a { padding: 10px 10px; font-size: .9375rem; }
   .header-actions--desktop .btn { padding: 0 14px; }
 }
 
 @media (max-width: 1180px) {
-  .site-nav a { padding: 10px 9px; font-size: .875rem; }
+  .site-nav a { padding: 10px 8px; font-size: .875rem; }
   .brand__name small { display: none; }
   .header-inner { gap: var(--sp-4); }
   /* Priorité au rendez-vous : le devis reste accessible dans le pied de page */
@@ -1340,7 +1345,6 @@ main[data-page-transition] { animation: page-in 320ms var(--t-long) both; }
     margin-top: var(--sp-6); gap: var(--sp-4);
   }
   .site-nav .header-actions .btn { width: 100%; min-height: 52px; padding: 14px 18px; line-height: 1.25; }
-  .site-nav .lang-switch { justify-content: center; }
   .header-actions--desktop { display: none; }
   body.nav-open { overflow: hidden; }
 }
@@ -1456,6 +1460,9 @@ main[data-page-transition] { animation: page-in 320ms var(--t-long) both; }
   .offer__foot .btn { width: 100%; }
   .offer__price { text-align: left; }
 
+  /* Confirmation du formulaire : bouton pleine largeur, comme le reste du mobile */
+  .form-done > .btn { width: 100%; justify-self: stretch; }
+
   /* Prix de la formation */
   .pv-price { padding: var(--sp-6) var(--sp-5); }
   .pv-pay li { padding: 12px 14px; font-size: .9375rem; }
@@ -1477,7 +1484,7 @@ main[data-page-transition] { animation: page-in 320ms var(--t-long) both; }
   .dock__wa span { display: none; }
   .dock__wa { width: 52px; height: 52px; padding: 0; justify-content: center; }
   .to-top { width: 40px; height: 40px; }
-  body.nav-open .dock, body.modal-open .dock { opacity: 0; visibility: hidden; }
+  body.nav-open .dock { opacity: 0; visibility: hidden; }
 
   /* Menu mobile : finition */
   .site-nav { padding-bottom: var(--sp-6); }
@@ -1486,9 +1493,8 @@ main[data-page-transition] { animation: page-in 320ms var(--t-long) both; }
   .site-nav .header-actions { margin-top: var(--sp-5); gap: var(--sp-3); }
   .site-nav .header-actions .btn { min-height: 52px; padding: 14px 18px; line-height: 1.25; }
 
-  /* FAQ et modales */
+  /* FAQ */
   .faq summary { padding: var(--sp-4) var(--sp-5); font-size: 1rem; }
-  .modal { padding: 12px; }
 }
 
 /* ---------- Petits mobiles ---------- */
@@ -1640,6 +1646,12 @@ textarea.rdv-input { min-height: 132px; resize: vertical; }
 .rdv-back:hover, .rdv-skip:hover { color: var(--mora-blue); }
 .rdv-next { white-space: normal; }
 
+/* L'écran de confirmation reçoit le focus après l'envoi : il ne doit pas
+   afficher de contour au clic, mais rester visible au clavier. */
+.rdv-done:focus { outline: none; }
+.rdv-done:focus-visible {
+  outline: 3px solid var(--shawiri-gold); outline-offset: 6px; border-radius: var(--r-card);
+}
 .rdv-done__head { display: flex; align-items: center; gap: var(--sp-3); }
 .rdv-done__head h2 { margin: 0; font-size: var(--text-h3); }
 .rdv-done__icon {

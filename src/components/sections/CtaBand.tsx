@@ -10,11 +10,21 @@ type CtaBandProps = {
   primaryHref?: string;
   /** Message pré-rempli du bouton WhatsApp. */
   whatsappMessage: string;
+  /**
+   * Chemin de la page courante. Renseigné, il active la garde qui empêche le
+   * bandeau de proposer la page déjà affichée (`06_CONTACT.md` § 47 : un CTA ne
+   * doit pas mentir sur sa destination).
+   */
+  currentPath?: string;
 };
 
 /**
  * Bandeau d'appel à l'action présent en fin de chaque page :
- * rendez-vous, devis, WhatsApp.
+ * rendez-vous, action principale, WhatsApp.
+ *
+ * Deux gardes techniques : aucun bouton ne pointe vers la page courante, et le
+ * bouton « Prendre rendez-vous » s'efface lorsque l'action principale mène déjà
+ * au même endroit — pour ne jamais afficher deux fois la même destination.
  */
 export default function CtaBand({
   title,
@@ -22,7 +32,19 @@ export default function CtaBand({
   primaryLabel,
   primaryHref = '/contact/',
   whatsappMessage,
+  currentPath,
 }: CtaBandProps) {
+  const candidates = [
+    { key: 'rdv', label: 'Prendre rendez-vous', href: '/rendez-vous/', primary: false },
+    { key: 'primary', label: primaryLabel, href: primaryHref, primary: true },
+  ];
+
+  const links = candidates.filter((item) => {
+    if (item.href === currentPath) return false;
+    if (!item.primary && item.href === primaryHref) return false;
+    return true;
+  });
+
   return (
     <section className="section">
       <div className="container">
@@ -32,12 +54,17 @@ export default function CtaBand({
             <p>{text}</p>
           </div>
           <div className="btn-row">
-            <Link className="btn btn--light btn--lg" href="/rendez-vous/">
-              Prendre rendez-vous
-            </Link>
-            <Link className="btn btn--gold btn--lg" href={primaryHref}>
-              {primaryLabel} <ArrowRight />
-            </Link>
+            {links.map((item) =>
+              item.primary ? (
+                <Link className="btn btn--gold btn--lg" href={item.href} key={item.key}>
+                  {item.label} <ArrowRight />
+                </Link>
+              ) : (
+                <Link className="btn btn--light btn--lg" href={item.href} key={item.key}>
+                  {item.label}
+                </Link>
+              ),
+            )}
             <a
               className="btn btn--light btn--lg"
               href={whatsappLink(whatsappMessage)}

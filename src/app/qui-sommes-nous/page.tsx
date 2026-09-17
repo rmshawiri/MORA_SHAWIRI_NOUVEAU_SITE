@@ -138,7 +138,7 @@ export default function AboutPage() {
                 Basés à Moroni, nous intervenons sur les trois îles de l’Union des Comores et
                 accompagnons à distance des clients dans tout le monde francophone.
               </p>
-              <p className="founder__signature">Le Choix Optimal pour votre Performance</p>
+              <p className="founder__signature">Le Choix Optimal pour votre performance</p>
               <div className="btn-row" style={{ marginTop: 32 }}>
                 <Link className="btn btn--primary" href="/contact/">
                   Discuter de votre projet <ArrowRight />

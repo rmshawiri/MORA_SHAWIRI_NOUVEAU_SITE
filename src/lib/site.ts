@@ -9,7 +9,8 @@
 
 export const site = {
   name: 'MORA Shawiri',
-  slogan: 'Le Choix Optimal pour votre Performance',
+  // Casse officielle du Design System § 3.2 : « performance » en minuscule.
+  slogan: 'Le Choix Optimal pour votre performance',
   legalName: 'MORA Shawiri',
   locality: 'Moroni',
   region: 'Grande Comore',

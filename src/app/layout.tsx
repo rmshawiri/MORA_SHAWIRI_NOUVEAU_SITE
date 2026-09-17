@@ -38,14 +38,9 @@ export const metadata: Metadata = {
   description: site.description,
   applicationName: site.name,
   authors: [{ name: site.name }],
-  keywords: [
-    'agence digitale Comores',
-    'création site web Comores',
-    'création logo Comores',
-    'e-commerce Comores',
-    'marketing digital Moroni',
-    'formation professionnelle Comores',
-  ],
+  // Pas de `keywords` : la balise est ignorée par les moteurs depuis 2009 et son
+  // contenu ressemblait à une liste de positionnement — à l'opposé de la
+  // discipline demandée par `00_EXIGENCES_SEO.md` § 31.
   icons: {
     icon: '/favicon.png',
     apple: '/logo-circle.png',

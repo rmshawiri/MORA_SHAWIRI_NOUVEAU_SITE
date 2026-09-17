@@ -233,7 +233,7 @@ export default function HomePage() {
             eyebrow="Boutique"
             title="Nos offres les plus demandées"
             titleId="boutique-title"
-            lead="Douze offres prêtes à démarrer, de la création de logo à la formation commerciale. Chaque prestation est chiffrée selon votre besoin réel."
+            lead="Quatorze prestations prêtes à démarrer, de la création de logo au développement d’applications. Les prix définis sont affichés ; les projets sur mesure sont chiffrés selon votre besoin réel."
           />
           <div className="grid grid--3 reveal-group">
             {featuredOffers.map((offer) => (
@@ -242,7 +242,7 @@ export default function HomePage() {
           </div>
           <div className="btn-row" style={{ marginTop: 40, justifyContent: 'center' }}>
             <Link className="btn btn--primary btn--lg" href="/boutique/">
-              Voir les 12 offres <ArrowRight />
+              Voir les 14 prestations <ArrowRight />
             </Link>
           </div>
         </div>
