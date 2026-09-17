@@ -75,6 +75,22 @@ export type SettingRow = {
   updated_at: string;
 };
 
+/**
+ * Compteurs de limitation de fréquence (migration 0002 § 3).
+ *
+ * Aucune politique RLS ne les couvre : seule la clé `service_role` y accède,
+ * depuis `src/lib/auth/rate-limit.ts`. `subject_hash` est une empreinte HMAC,
+ * jamais l'adresse IP ni l'identifiant en clair.
+ */
+export type RateLimitCounterRow = {
+  bucket: string;
+  subject_hash: string;
+  window_start: string;
+  attempts: number;
+  blocked_until: string | null;
+  updated_at: string;
+};
+
 export type AuditLogRow = {
   id: number;
   actor_id: string | null;
@@ -177,6 +193,11 @@ export type Database = {
         Pick<SettingRow, 'key' | 'value' | 'label'> & Partial<SettingRow>
       >;
       audit_logs: Table<AuditLogRow, Omit<Partial<AuditLogRow>, 'id'> & Pick<AuditLogRow, 'action'>>;
+      rate_limit_counters: Table<
+        RateLimitCounterRow,
+        Pick<RateLimitCounterRow, 'bucket' | 'subject_hash' | 'window_start'> &
+          Partial<RateLimitCounterRow>
+      >;
     };
     Views: Record<never, never>;
     Functions: {

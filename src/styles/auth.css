@@ -1,0 +1,336 @@
+/* ==========================================================================
+   MORA Shawiri — Espaces de compte (authentification et espaces privés)
+
+   Feuille **séparée**, chargée uniquement par le groupe de routes `(compte)`.
+   `globals.css` n'est pas touché : la décision D-13 le demande, et la
+   non-régression du site public en dépend. Aucune page publique ne charge ce
+   fichier.
+
+   Aucun jeton de design n'est redéfini. Couleurs, typographies, rayons, ombres
+   et durées proviennent tous de `globals.css` : ces quelques classes ne font
+   qu'assembler l'existant pour des écrans que le site vitrine n'avait pas.
+   ========================================================================== */
+
+/* ------------------------------------------------------------- 1. GABARIT */
+
+/* Colonne étroite : un formulaire d'authentification n'a rien à gagner à
+   s'étaler, et la lecture d'un champ isolé est meilleure sur une mesure
+   courte. */
+.auth-shell {
+  padding-block: clamp(48px, 6vw, 88px);
+}
+
+.auth-shell__inner {
+  width: 100%;
+  max-width: 520px;
+  margin-inline: auto;
+}
+
+/* Variante des écrans qui présentent de l'information autant qu'un
+   formulaire : tableau de bord, gestion du second facteur. */
+.auth-shell--wide .auth-shell__inner {
+  max-width: 760px;
+}
+
+.auth-card {
+  background: var(--white);
+  border: 1px solid var(--border);
+  border-radius: var(--r-card);
+  box-shadow: var(--shadow-md);
+  padding: clamp(24px, 4vw, 40px);
+}
+
+.auth-card + .auth-card {
+  margin-top: var(--sp-6);
+}
+
+.auth-card__head {
+  margin-bottom: var(--sp-6);
+}
+
+.auth-card__head h1,
+.auth-card__head h2 {
+  font-size: var(--text-h3);
+  margin-bottom: var(--sp-3);
+}
+
+.auth-card__head p {
+  color: var(--text-secondary);
+  margin-bottom: 0;
+}
+
+/* Liens secondaires sous le formulaire : mot de passe oublié, inscription. */
+.auth-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-2) var(--sp-5);
+  margin-top: var(--sp-6);
+  padding-top: var(--sp-5);
+  border-top: 1px solid var(--border);
+  font-size: var(--text-caption);
+}
+
+.auth-links a {
+  font-weight: 600;
+}
+
+/* ------------------------------------------------------------- 2. MESSAGES */
+
+/* `globals.css` fournit `.form-alert` pour l'erreur. Il manquait l'équivalent
+   neutre et positif : une demande de réinitialisation aboutit sans qu'aucun
+   compte n'ait forcément été trouvé, et l'annoncer en rouge serait faux. */
+.auth-notice {
+  display: grid;
+  gap: var(--sp-2);
+  padding: var(--sp-4) var(--sp-5);
+  border-radius: var(--r-btn);
+  border-left: 4px solid var(--mora-blue-soft);
+  background: var(--gray-secondary);
+  color: var(--text-primary);
+  font-size: var(--text-small);
+  margin-bottom: var(--sp-5);
+}
+
+.auth-notice strong {
+  font-family: var(--font-display);
+}
+
+.auth-notice--ok {
+  border-left-color: var(--growth-green);
+  background: rgba(0, 168, 89, .08);
+}
+
+.auth-notice--warn {
+  border-left-color: var(--shawiri-gold);
+  background: rgba(255, 215, 0, .12);
+}
+
+.auth-notice:focus {
+  outline: none;
+}
+
+.auth-notice:focus-visible {
+  outline: 3px solid var(--shawiri-gold);
+  outline-offset: 3px;
+}
+
+/* Motifs de refus d'un mot de passe, listés sous le champ. */
+.auth-reasons {
+  margin: var(--sp-2) 0 0;
+  display: grid;
+  gap: var(--sp-1);
+  font-size: var(--text-caption);
+  color: #b3261e;
+  font-weight: 600;
+}
+
+.auth-reasons li {
+  padding-left: var(--sp-4);
+  position: relative;
+}
+
+.auth-reasons li::before {
+  content: "—";
+  position: absolute;
+  left: 0;
+}
+
+/* ------------------------------------------------- 3. DOUBLE AUTHENTIFICATION */
+
+.auth-steps {
+  counter-reset: auth-step;
+  display: grid;
+  gap: var(--sp-5);
+  margin-bottom: var(--sp-6);
+}
+
+.auth-steps li {
+  counter-increment: auth-step;
+  position: relative;
+  padding-left: 44px;
+  color: var(--text-secondary);
+}
+
+.auth-steps li::before {
+  content: counter(auth-step);
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--r-pill);
+  background: var(--mora-blue);
+  color: var(--white);
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: .875rem;
+}
+
+.auth-steps li strong {
+  display: block;
+  color: var(--mora-blue-deep);
+}
+
+/* Le code QR arrive de Supabase au format SVG. Le fond blanc et la marge
+   intérieure sont nécessaires : sans marge de silence, la plupart des
+   applications d'authentification échouent à lire le motif. */
+.auth-qr {
+  display: grid;
+  place-items: center;
+  padding: var(--sp-4);
+  background: var(--white);
+  border: 1px solid var(--border);
+  border-radius: var(--r-card);
+  margin-bottom: var(--sp-5);
+}
+
+.auth-qr img {
+  width: min(220px, 60vw);
+  height: auto;
+}
+
+.auth-secret {
+  display: grid;
+  gap: var(--sp-2);
+  padding: var(--sp-4);
+  border: 1px dashed var(--border);
+  border-radius: var(--r-btn);
+  background: var(--gray-light);
+  margin-bottom: var(--sp-5);
+}
+
+.auth-secret__label {
+  font-size: var(--text-caption);
+  color: var(--text-secondary);
+}
+
+.auth-secret code {
+  font-family: ui-monospace, 'SFMono-Regular', 'Consolas', monospace;
+  font-size: 1rem;
+  letter-spacing: .12em;
+  word-break: break-all;
+  color: var(--mora-blue-deep);
+  font-weight: 600;
+}
+
+/* Six chiffres : chiffres tabulaires et interlettrage large, pour qu'on
+   vérifie sa saisie d'un coup d'œil. */
+.auth-code input {
+  font-family: ui-monospace, 'SFMono-Regular', 'Consolas', monospace;
+  font-size: 1.5rem;
+  letter-spacing: .4em;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ----------------------------------------------------- 4. FICHES ET LISTES */
+
+.auth-meta {
+  display: grid;
+  gap: var(--sp-3);
+  margin: 0;
+}
+
+.auth-meta > div {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  padding-bottom: var(--sp-3);
+  border-bottom: 1px solid var(--border);
+}
+
+.auth-meta > div:last-child {
+  border-bottom: 0;
+  padding-bottom: 0;
+}
+
+.auth-meta dt {
+  color: var(--text-secondary);
+  font-size: var(--text-caption);
+}
+
+.auth-meta dd {
+  margin: 0;
+  font-weight: 600;
+  color: var(--mora-blue-deep);
+}
+
+/* Pastille d'état : active, à configurer, en attente. */
+.auth-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: 4px 12px;
+  border-radius: var(--r-pill);
+  font-size: var(--text-caption);
+  font-weight: 700;
+  font-family: var(--font-display);
+  background: var(--gray-secondary);
+  color: var(--mora-blue-deep);
+}
+
+.auth-badge--ok {
+  background: rgba(0, 168, 89, .14);
+  color: #046c3c;
+}
+
+.auth-badge--todo {
+  background: rgba(255, 215, 0, .22);
+  color: var(--mora-blue-deep);
+}
+
+.auth-factor {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-4);
+  padding: var(--sp-4);
+  border: 1px solid var(--border);
+  border-radius: var(--r-btn);
+  margin-bottom: var(--sp-4);
+}
+
+.auth-factor__name {
+  font-weight: 600;
+  color: var(--mora-blue-deep);
+}
+
+.auth-factor__date {
+  display: block;
+  font-size: var(--text-caption);
+  color: var(--text-secondary);
+  font-weight: 400;
+}
+
+/* Bouton de retrait : discret, mais sans ambiguïté sur sa nature. */
+.auth-factor .btn--danger {
+  --btn-bg: transparent;
+  --btn-fg: #b3261e;
+  border: 1px solid #e5b8b4;
+  box-shadow: none;
+}
+
+.auth-factor .btn--danger:hover {
+  --btn-bg: rgba(179, 38, 30, .06);
+  --btn-fg: #b3261e;
+  border-color: #b3261e;
+  box-shadow: none;
+  transform: none;
+}
+
+/* ----------------------------------------------------------- 5. RESPONSIVE */
+
+@media (max-width: 560px) {
+  .auth-card {
+    padding: var(--sp-5);
+  }
+
+  .auth-factor {
+    flex-direction: column;
+    align-items: stretch;
+  }
+}

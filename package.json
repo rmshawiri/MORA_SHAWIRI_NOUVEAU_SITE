@@ -12,7 +12,10 @@
     "test": "node --import tsx --test tests/unit/*.test.ts",
     "db:migrate": "node scripts/apply-migrations.mjs",
     "db:provision": "node scripts/provision-admins.mjs",
-    "db:verify": "node scripts/verify-security.mjs"
+    "db:configure": "node scripts/configure-auth.mjs",
+    "db:verify": "node scripts/verify-security.mjs",
+    "auth:verify": "node scripts/verify-auth.mjs",
+    "routes:verify": "node scripts/verify-routes.mjs"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.7",
