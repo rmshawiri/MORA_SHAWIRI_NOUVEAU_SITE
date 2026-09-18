@@ -187,15 +187,80 @@ projet Supabase existera.**
 
 ---
 
+## Authentification (phase 4B)
+
+### Décisions enregistrées en base
+
+Deux paramètres portent des arbitrages du propriétaire, et sont donc
+modifiables sans déploiement :
+
+| Paramètre | Décision | Valeur |
+|---|---|---|
+| `auth.public_registration_enabled` | D-9 — inscription publique des clients | `true` |
+| `auth.admin_mfa_required` | D-12 — second facteur obligatoire pour `SUPER_ADMIN` et `ADMIN` | `true` |
+
+```bash
+npm run db:configure -- --env shared --dry-run
+npm run db:configure -- --env shared
+```
+
+Le même script configure, avec `--redirect-urls`, les adresses vers lesquelles
+Supabase accepte de renvoyer après un lien reçu par e-mail. Cette opération-là
+touche à la configuration du projet et réclame donc `SUPABASE_ACCESS_TOKEN` ;
+elle n'est jamais implicite. Sans les bonnes adresses, un lien de
+réinitialisation ramènerait la personne à l'accueil, sans moyen de définir son
+mot de passe.
+
+### Limite connue : la livraison des e-mails
+
+Le projet utilise le service d'e-mail intégré de Supabase : **deux messages par
+heure au maximum, et uniquement vers les adresses membres de l'organisation
+Supabase**. Un client qui s'inscrirait aujourd'hui ne recevrait donc pas son
+message de confirmation. Le parcours est complet et vérifié ; seule la
+livraison manque. Configurer un SMTP personnalisé lèvera cette limite — c'est
+une décision du propriétaire, car elle place les identifiants de la boîte
+d'envoi chez Supabase.
+
+### Vérifications
+
+```bash
+npm run auth:verify    -- --env shared --admin rachade
+npm run routes:verify  -- --env shared --base https://…
+```
+
+`verify-auth.mjs` éprouve l'authentification contre la base : inscription
+publique et attribution du rôle `CLIENT` par le serveur, impossibilité de
+s'élever, enrôlement TOTP réel avec production de vrais codes à six chiffres,
+passage effectif de `AAL1` à `AAL2`, refus d'un code erroné.
+
+`verify-routes.mjs` interroge le site servi comme le ferait quelqu'un qui saisit
+une adresse d'administration directement. Il fabrique de vraies sessions,
+vérifie qu'une session `AAL1` sur un compte enrôlé n'ouvre pas l'administration,
+et cherche les **valeurs réelles** des secrets dans tout ce qui est envoyé au
+navigateur.
+
+Les deux scripts créent des comptes portant le domaine réservé
+`@mora-shawiri.test`, les suppriment dans un bloc `finally`, et vérifient
+l'absence de résidu. Le compte `rachade` est lu, jamais écrit : ni son mot de
+passe ni ses facteurs ne sont touchés.
+
+---
+
 ## Architecture du contrôle d'accès
 
 Trois barrières superposées, conformément au § 359 du rapport de phase 4 :
 
 | Barrière | Fichier | Nature |
 |---|---|---|
-| Session | `src/lib/supabase/middleware.ts` | Confort de navigation — **jamais** une protection |
-| Serveur | `src/lib/rbac/` | Contrôle réel : permission + propriété de la ressource |
+| Session | `src/proxy.ts`, `src/lib/supabase/middleware.ts` | Confort de navigation — **jamais** une protection |
+| Serveur | `src/lib/auth/guards.ts`, `src/lib/rbac/` | Contrôle réel : identité, rôle, niveau d'assurance, permission, propriété |
 | Base | politiques RLS | Dernier filet : une requête mal écrite n'expose rien |
+
+Le niveau d'assurance de la session (`aal1` après un mot de passe, `aal2` après
+un second facteur) est lu dans les **claims vérifiés** du jeton, à chaque
+requête, par `src/lib/auth/session.ts`. Les règles qui en tirent les
+conséquences vivent dans `src/lib/auth/access.ts`, sans aucune entrée-sortie :
+elles sont couvertes exhaustivement par `tests/unit/auth-access.test.ts`.
 
 Les fonctions d'autorisation (`public.has_permission`, `public.is_admin`,
 `public.current_permissions`) sont `SECURITY DEFINER` avec `search_path` figé.
@@ -204,7 +269,18 @@ pratiquait le socle précédent, identifié comme risque élevé par l'analyse d
 phase 4.
 
 La clé `service_role` reste réservée à trois usages : provisionnement,
-compteurs de limitation de fréquence, tâches serveur sans utilisateur.
+compteurs de limitation de fréquence, tâches serveur sans utilisateur. La phase
+4B en ajoute quatre emplois, tous dans cette dernière catégorie et tous
+antérieurs à l'existence d'une session : résoudre un identifiant métier en
+adresse technique avant connexion, lire les deux paramètres d'authentification,
+attribuer le rôle `CLIENT` à un compte qui vient d'être créé, horodater la
+dernière connexion. Aucune lecture faite **pour le compte d'un utilisateur
+connecté** ne passe par cette clé : ces lectures-là restent soumises à RLS.
+
+Conséquence mesurée en production : le navigateur ne reçoit **aucune** clé
+Supabase, pas même la clé publiable. Tous les parcours d'authentification
+passent par des actions serveur, et aucun composant navigateur n'ouvre de client
+Supabase.
 
 ---
 
