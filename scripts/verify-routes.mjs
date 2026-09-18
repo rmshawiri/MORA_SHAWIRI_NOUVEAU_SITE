@@ -454,6 +454,149 @@ async function sessionRoutes(target, base) {
   }
 }
 
+/* =========================== 3 bis. aucun secret servi au navigateur ====== */
+
+/**
+ * Recherche les **valeurs réelles** des secrets dans tout ce que le site
+ * envoie au navigateur.
+ *
+ * C'est la seule forme de contrôle qui prouve quelque chose. Vérifier qu'aucun
+ * nom de variable n'apparaît dans le code ne dit rien : une valeur peut fuir
+ * sans que son nom l'accompagne. Les valeurs sont donc cherchées telles
+ * quelles, dans le HTML de chaque page et dans chaque fichier JavaScript ou
+ * CSS que ces pages référencent.
+ *
+ * Aucune valeur n'est affichée, ni entière ni tronquée : seul le nom de la
+ * variable concernée apparaîtrait en cas de fuite.
+ */
+async function secretLeakChecks(base) {
+  log.step('3 bis. Absence de secret servi au navigateur');
+
+  /*
+   * `SMTP_USER` est volontairement absent de cette liste.
+   *
+   * Sa valeur est l'adresse de contact publiée de MORA Shawiri : elle figure
+   * dans le pied de page de chaque page, et c'est exactement ce qu'on attend
+   * d'une adresse de contact. La chercher comme un secret produirait une alerte
+   * sur toutes les pages, à tort — et une alerte qui se déclenche toujours
+   * finit par n'être plus lue. Le contrôle ci-dessous vérifie que cette
+   * identité est bien celle que l'on croit ; le véritable secret du compte
+   * d'envoi, `SMTP_PASSWORD`, reste cherché.
+   */
+  const publishedAddress = process.env.SMTP_USER?.trim();
+  const contactAddress = process.env.CONTACT_EMAIL?.trim();
+
+  check(
+    'l’identifiant SMTP est bien l’adresse de contact publiée, non un secret distinct',
+    Boolean(publishedAddress) && publishedAddress === contactAddress,
+    publishedAddress === contactAddress ? '' : 'SMTP_USER diffère de CONTACT_EMAIL : à vérifier',
+  );
+
+  const secrets = [
+    'SUPABASE_SECRET_KEY',
+    'SUPABASE_ACCESS_TOKEN',
+    'GITHUB_TOKEN',
+    'VERCEL_TOKEN',
+    'SMTP_PASSWORD',
+    'ADMIN_SEED_RACHADE_PASSWORD',
+  ]
+    .map((name) => ({ name, value: process.env[name]?.trim() }))
+    .filter((entry) => entry.value && entry.value.length >= 8);
+
+  check('des secrets réels sont disponibles pour la recherche', secrets.length > 0, `${secrets.length}`);
+
+  const pages = [
+    '/',
+    '/services/',
+    '/affiliation/',
+    '/contact/',
+    '/boutique/',
+    '/connexion/',
+    '/inscription/',
+    '/mot-de-passe-oublie/',
+    '/reinitialiser-mot-de-passe/',
+  ];
+
+  const assets = new Set();
+  const documents = [];
+
+  for (const page of pages) {
+    const result = await visit(base, page);
+    documents.push({ source: page, content: result.body });
+
+    for (const match of result.body.matchAll(/["'](\/_next\/static\/[^"']+\.(?:js|css))["']/g)) {
+      assets.add(match[1]);
+    }
+  }
+
+  for (const asset of assets) {
+    const response = await fetch(`${base}${asset}`);
+    if (response.ok) documents.push({ source: asset, content: await response.text() });
+  }
+
+  const leaks = [];
+
+  for (const { name, value } of secrets) {
+    for (const document of documents) {
+      if (document.content.includes(value)) leaks.push(`${name} dans ${document.source}`);
+    }
+  }
+
+  check(
+    `aucun secret dans ${pages.length} page(s) et ${assets.size} fichier(s) servis`,
+    leaks.length === 0,
+    leaks.join(' · '),
+  );
+
+  /*
+   * Même la clé publiable reste absente du navigateur.
+   *
+   * Ce n'était pas une exigence — cette clé est conçue pour être exposée, et
+   * tout ce qu'elle permet passe de toute façon par RLS. C'est la conséquence
+   * d'un choix d'architecture : l'intégralité des parcours d'authentification
+   * passe par des actions serveur, et aucun composant navigateur n'ouvre de
+   * client Supabase. Le résultat mérite d'être mesuré plutôt qu'affirmé, et
+   * surveillé : le jour où un écran privé dialoguera directement avec Supabase,
+   * ce contrôle changera d'état et il faudra le constater sciemment.
+   */
+  const publishable = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY?.trim();
+
+  check(
+    'le navigateur ne reçoit aucune clé Supabase, pas même la clé publiable',
+    Boolean(publishable) &&
+      !documents.some((document) => document.content.includes(publishable)),
+    publishable ? 'une clé publiable est servie : vérifier quel écran l’utilise' : 'clé absente de l’environnement',
+  );
+
+  /* --- En-têtes de sécurité -------------------------------------------- */
+
+  const response = await fetch(`${base}/`, { redirect: 'manual' });
+  const expected = {
+    'x-content-type-options': 'nosniff',
+    'referrer-policy': 'strict-origin-when-cross-origin',
+    'x-frame-options': 'SAMEORIGIN',
+    'permissions-policy': 'camera=(), microphone=(), geolocation=()',
+  };
+
+  for (const [header, value] of Object.entries(expected)) {
+    check(`en-tête ${header}`, response.headers.get(header) === value, response.headers.get(header) ?? 'absent');
+  }
+
+  check(
+    'HSTS est posé par l’hébergeur',
+    Boolean(response.headers.get('strict-transport-security')),
+    response.headers.get('strict-transport-security') ?? 'absent',
+  );
+
+  /* --- Les cookies de session ne sont pas lisibles par le script -------- */
+
+  const signIn = await visit(base, '/connexion/');
+  check(
+    'aucun jeton de session n’est écrit dans le HTML de la page de connexion',
+    !/sb-[a-z0-9]+-auth-token/.test(signIn.body),
+  );
+}
+
 /* ============================================ 4. actions serveur sans JS === */
 
 /**
@@ -853,6 +996,7 @@ async function main() {
 
   await anonymousRoutes(base);
   await publicIntegrity(base);
+  await secretLeakChecks(base);
 
   try {
     await sessionRoutes(target, base);
