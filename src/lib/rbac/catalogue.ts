@@ -136,6 +136,66 @@ export const ROLES = ['SUPER_ADMIN', 'ADMIN', 'CLIENT', 'AFFILIE'] as const;
 
 export type RoleCode = (typeof ROLES)[number];
 
+/**
+ * Modèle opérationnel proposé à la création d'un administrateur.
+ *
+ * Jusqu'à la phase 4C, cette liste était **attachée au rôle `ADMIN` en base** :
+ * attribuer le rôle accordait les 40 permissions d'un bloc. La décision D-18 a
+ * renversé ce principe — les permissions se donnent désormais compte par
+ * compte — et la migration 0004 a donc vidé le rôle.
+ *
+ * La liste n'a pas disparu pour autant : elle décrit le périmètre opérationnel
+ * documenté au § 49 de `02_ROLES_ET_PERMISSIONS.md`, et sert à **pré-cocher**
+ * la grille lors d'une invitation. Rien de plus. Un modèle proposé n'est pas un
+ * droit accordé : tant que le super-administrateur n'a pas validé la grille,
+ * aucune ligne n'est écrite.
+ *
+ * Elle ne contient, par construction, aucune permission critique — un test le
+ * vérifie contre le catalogue plutôt que de le supposer.
+ */
+export const ADMIN_TEMPLATE_PERMISSIONS = [
+  'users.view',
+  'users.create',
+  'users.update',
+  'users.disable',
+  'admins.view',
+  'services.view',
+  'services.create',
+  'services.update',
+  'services.publish',
+  'products.view',
+  'products.create',
+  'products.update',
+  'products.publish',
+  'orders.view',
+  'orders.update',
+  'orders.cancel',
+  'payments.view',
+  'quotes.view',
+  'quotes.create',
+  'quotes.update',
+  'quotes.manage',
+  'appointments.view',
+  'appointments.create',
+  'appointments.update',
+  'appointments.cancel',
+  'appointments.manage',
+  'affiliates.view',
+  'commissions.view',
+  'content.view',
+  'content.create',
+  'content.update',
+  'content.publish',
+  'media.view',
+  'media.upload',
+  'media.update',
+  'notifications.view',
+  'notifications.create',
+  'notifications.manage',
+  'settings.view',
+  'analytics.view',
+] as const satisfies readonly Permission[];
+
 /** Rôles donnant accès à l'espace d'administration. */
 export const ADMIN_ROLES = ['SUPER_ADMIN', 'ADMIN'] as const satisfies readonly RoleCode[];
 

@@ -185,7 +185,12 @@ async function main() {
         email,
         password,
         email_confirm: true,
-        user_metadata: { username, full_name: fullName },
+        // `app_metadata` n'est écrivable que par la clé à privilèges : depuis
+        // la migration 0004 § 8, c'est la seule source d'où le déclencheur
+        // `handle_new_auth_user` accepte un identifiant métier. Le passer en
+        // `user_metadata` laisserait une requête forgée en revendiquer un.
+        app_metadata: { username, full_name: fullName },
+        user_metadata: { full_name: fullName },
       });
 
       if (error) {

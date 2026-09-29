@@ -353,6 +353,172 @@ async function sessionRoutes(target, base) {
     );
     check('le tableau de bord confirme le niveau AAL2', withAal2.body.includes('AAL2'));
 
+    /* ================================================================== */
+    /*  Phase 4C — les permissions décident module par module              */
+    /* ================================================================== */
+
+    log.step('3 ter. Permissions effectives, par URL directe');
+
+    /** Pose ou retire un ajustement individuel sur le compte administrateur. */
+    const adjust = async (code, effect) => {
+      const { data: permission } = await service
+        .from('permissions')
+        .select('id')
+        .eq('code', code)
+        .maybeSingle();
+
+      if (!permission) throw new Error(`permission ${code} introuvable`);
+
+      if (effect === null) {
+        await service
+          .from('user_permissions')
+          .delete()
+          .eq('user_id', accounts.admin.id)
+          .eq('permission_id', permission.id);
+        return;
+      }
+
+      await service
+        .from('user_permissions')
+        .upsert(
+          { user_id: accounts.admin.id, permission_id: permission.id, effect },
+          { onConflict: 'user_id,permission_id' },
+        );
+    };
+
+    // --- Aucun droit : seul le tableau de bord s'ouvre ----------------------
+
+    const closedModules = [
+      ['/administration/commandes/', 'Commandes'],
+      ['/administration/paiements/', 'Paiements'],
+      ['/administration/clients/', 'Clients'],
+      ['/administration/parametres/', 'Paramètres'],
+      ['/administration/administrateurs/', 'Administrateurs'],
+      ['/administration/journal/', 'Journal'],
+    ];
+
+    for (const [path, label] of closedModules) {
+      const response = await visit(base, path, aal2Cookie);
+      check(
+        `sans permission, ${label} est introuvable par URL directe`,
+        response.status === 404,
+        `HTTP ${response.status}`,
+      );
+    }
+
+    const unknownRoute = await visit(base, '/administration/module-inexistant/', aal2Cookie);
+    check(
+      'une route d’administration inexistante répond 404',
+      unknownRoute.status === 404,
+      `HTTP ${unknownRoute.status}`,
+    );
+
+    // La barre latérale ne propose rien de ce qui est fermé.
+    check(
+      'la navigation ne propose aucun module fermé',
+      !withAal2.body.includes('/administration/commandes/') &&
+        !withAal2.body.includes('/administration/journal/'),
+    );
+
+    check(
+      'l’administration charge sa feuille de style dédiée',
+      [...withAal2.body.matchAll(/href="([^"]*\.css)"/g)].length >= 2,
+    );
+
+    // --- Un octroi ouvre son module, et lui seul ---------------------------
+
+    await adjust('orders.view', 'OCTROI');
+
+    const commandes = await visit(base, '/administration/commandes/', aal2Cookie);
+    check(
+      'un octroi de orders.view ouvre le module Commandes',
+      commandes.status === 200,
+      `HTTP ${commandes.status}`,
+    );
+    check(
+      'le module ouvert annonce qu’il reste à construire, sans donnée inventée',
+      commandes.body.includes('Module à construire'),
+    );
+
+    const paiements = await visit(base, '/administration/paiements/', aal2Cookie);
+    check(
+      'orders.view n’ouvre pas les Paiements',
+      paiements.status === 404,
+      `HTTP ${paiements.status}`,
+    );
+
+    const dashboardWithOrders = await visit(base, '/administration/', aal2Cookie);
+    check(
+      'la navigation propose désormais les Commandes',
+      dashboardWithOrders.body.includes('/administration/commandes/'),
+    );
+    check(
+      'la navigation ne propose toujours pas les Paiements',
+      !dashboardWithOrders.body.includes('/administration/paiements/'),
+    );
+
+    // --- Un retrait referme le module --------------------------------------
+
+    await adjust('orders.view', 'RETRAIT');
+
+    const afterRevoke = await visit(base, '/administration/commandes/', aal2Cookie);
+    check(
+      'un retrait individuel referme le module, session inchangée',
+      afterRevoke.status === 404,
+      `HTTP ${afterRevoke.status}`,
+    );
+
+    // --- Les modules système exigent leur propre permission ----------------
+
+    await adjust('orders.view', null);
+    await adjust('admins.view', 'OCTROI');
+
+    const administrateurs = await visit(base, '/administration/administrateurs/', aal2Cookie);
+    check(
+      'admins.view ouvre le module Administrateurs',
+      administrateurs.status === 200,
+      `HTTP ${administrateurs.status}`,
+    );
+    check(
+      'la liste des administrateurs est rendue',
+      administrateurs.body.includes('Comptes administratifs'),
+    );
+    check(
+      'sans admins.create, le formulaire d’invitation n’est pas servi',
+      !administrateurs.body.includes('Envoyer l’invitation'),
+      'le formulaire ne doit pas figurer dans le HTML',
+    );
+
+    const journalSansDroit = await visit(base, '/administration/journal/', aal2Cookie);
+    check(
+      'admins.view n’ouvre pas le Journal d’activité',
+      journalSansDroit.status === 404,
+      `HTTP ${journalSansDroit.status}`,
+    );
+
+    await adjust('audit.view', 'OCTROI');
+
+    const journal = await visit(base, '/administration/journal/', aal2Cookie);
+    check(
+      'audit.view ouvre le Journal d’activité',
+      journal.status === 200,
+      `HTTP ${journal.status}`,
+    );
+
+    // --- Remise à zéro : le compte repart sans aucun droit ------------------
+
+    await adjust('admins.view', null);
+    await adjust('audit.view', null);
+
+    const closedAgain = await visit(base, '/administration/administrateurs/', aal2Cookie);
+    check(
+      'le retrait des octrois referme tout, sans reconnexion',
+      closedAgain.status === 404,
+      `HTTP ${closedAgain.status}`,
+    );
+
+    log.step('3. Gardes de route — suite');
+
     // Nouvelle connexion par mot de passe seul : la session repart en AAL1,
     // alors même que le compte possède un facteur vérifié. C'est le scénario
     // exact du contournement par URL directe.

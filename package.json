@@ -15,6 +15,7 @@
     "db:configure": "node scripts/configure-auth.mjs",
     "db:verify": "node scripts/verify-security.mjs",
     "auth:verify": "node scripts/verify-auth.mjs",
+    "perms:verify": "node scripts/verify-permissions.mjs",
     "routes:verify": "node scripts/verify-routes.mjs"
   },
   "dependencies": {

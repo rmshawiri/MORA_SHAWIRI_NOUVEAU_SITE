@@ -26,6 +26,7 @@ const privateAreas = [
   '/espace-client/',
   '/espace-affilie/',
   '/administration/',
+  '/invitation/',
 ];
 
 export default function robots(): MetadataRoute.Robots {

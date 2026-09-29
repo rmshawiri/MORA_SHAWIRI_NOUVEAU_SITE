@@ -1,0 +1,603 @@
+/* ==========================================================================
+   MORA Shawiri — Espace d'administration
+
+   Feuille **séparée**, chargée uniquement par les routes `/administration/`.
+   Ni `globals.css` ni `auth.css` ne sont touchés : la décision D-13 le demande,
+   et la non-régression du site public en dépend. Aucune page publique ne charge
+   ce fichier.
+
+   Comme `auth.css`, cette feuille ne redéfinit **aucun jeton**. Couleurs,
+   typographies, espacements, rayons, ombres et durées viennent tous de
+   `globals.css`. Ce que l'on trouve ici n'est qu'un assemblage : le site
+   vitrine n'avait ni barre latérale, ni tableau de données, ni grille de
+   permissions.
+
+   Le § 133 du tableau de bord est explicite : « Aucune identité graphique
+   indépendante ne doit être créée. » L'administration ressemble donc au site
+   parce qu'elle en emprunte tout le vocabulaire — elle s'en distingue
+   seulement par sa densité, qu'un outil de travail impose et qu'une page
+   vitrine ne veut pas.
+
+   Structure : 1. Gabarit · 2. Barre latérale · 3. En-tête de page
+              4. Cartes et statistiques · 5. Tableaux · 6. Badges et états
+              7. Formulaires de permissions · 8. Responsive
+   ========================================================================== */
+
+/* ------------------------------------------------------------- 1. GABARIT */
+
+/* L'administration vit dans le `main` du gabarit racine, sous le même en-tête
+   et au-dessus du même pied de page que le reste du site. C'est délibéré : le
+   cadrage gèle l'existant, et lui superposer un second châssis obligerait à
+   toucher `src/app/layout.tsx`. */
+.admin {
+  padding-block: clamp(32px, 4vw, 56px);
+  /* Dégage les pastilles flottantes du `Dock` sur petit écran. */
+  padding-bottom: clamp(96px, 12vw, 120px);
+  background: var(--surface-section);
+  min-height: 60vh;
+}
+
+.admin__grid {
+  display: grid;
+  grid-template-columns: 264px minmax(0, 1fr);
+  gap: clamp(20px, 3vw, 40px);
+  align-items: start;
+}
+
+.admin__main {
+  min-width: 0;
+}
+
+.admin__main > * + * {
+  margin-top: var(--sp-6);
+}
+
+/* --------------------------------------------------- 2. BARRE LATÉRALE */
+
+.admin-nav {
+  position: sticky;
+  /* L'en-tête public est collant : la barre latérale se cale dessous. */
+  top: 96px;
+  background: var(--white);
+  border: 1px solid var(--border);
+  border-radius: var(--r-card);
+  box-shadow: var(--shadow-sm);
+  padding: var(--sp-4);
+  max-height: calc(100vh - 120px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.admin-nav__group + .admin-nav__group {
+  margin-top: var(--sp-5);
+}
+
+.admin-nav__title {
+  font-family: var(--font-display);
+  font-size: var(--text-caption);
+  font-weight: 700;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+  margin: 0 0 var(--sp-2);
+  padding-inline: var(--sp-2);
+}
+
+.admin-nav__link {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--sp-2);
+  padding: var(--sp-2) var(--sp-3);
+  border-radius: var(--r-btn);
+  color: var(--text-primary);
+  font-size: var(--text-small);
+  font-weight: 500;
+  line-height: 1.4;
+  transition: background var(--t-quick), color var(--t-quick);
+}
+
+.admin-nav__link:hover {
+  background: var(--gray-secondary);
+  color: var(--mora-blue);
+}
+
+.admin-nav__link[aria-current='page'] {
+  background: var(--mora-blue);
+  color: var(--text-on-brand);
+  font-weight: 600;
+}
+
+.admin-nav__link[aria-current='page']:hover {
+  background: var(--mora-blue-hover);
+  color: var(--text-on-brand);
+}
+
+/* Marque discrète d'un module dont l'écran reste à construire. Le § 171
+   interdit de simuler une fonctionnalité absente ; l'annoncer dès le menu
+   évite de faire croire à une page pleine. */
+.admin-nav__soon {
+  font-size: .75rem;
+  font-weight: 600;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+  flex: none;
+}
+
+.admin-nav__link[aria-current='page'] .admin-nav__soon {
+  color: var(--text-on-brand-muted);
+}
+
+/* ------------------------------------------------- 3. EN-TÊTE DE PAGE */
+
+.admin-head {
+  background: var(--white);
+  border: 1px solid var(--border);
+  border-radius: var(--r-card);
+  box-shadow: var(--shadow-sm);
+  padding: clamp(20px, 3vw, 32px);
+}
+
+.admin-head__top {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--sp-4);
+}
+
+.admin-head__eyebrow {
+  font-family: var(--font-display);
+  font-size: var(--text-caption);
+  font-weight: 700;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--mora-blue-soft);
+  margin: 0 0 var(--sp-2);
+}
+
+.admin-head h1 {
+  font-size: var(--text-h2);
+  margin: 0;
+}
+
+.admin-head__lead {
+  color: var(--text-secondary);
+  margin: var(--sp-3) 0 0;
+  max-width: 68ch;
+}
+
+/* Barre d'actualisation. Le prompt maître § 45-48 interdit tout rechargement
+   automatique : pas de `focus`, pas de `visibilitychange`, pas de `pageshow`.
+   La contrepartie est due à la personne qui travaille — savoir de quand
+   datent les chiffres qu'elle lit, et pouvoir les rafraîchir elle-même. */
+.admin-refresh {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-3);
+  flex: none;
+}
+
+.admin-refresh__stamp {
+  font-size: var(--text-caption);
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+/* ------------------------------------------- 4. CARTES ET STATISTIQUES */
+
+.admin-card {
+  background: var(--white);
+  border: 1px solid var(--border);
+  border-radius: var(--r-card);
+  box-shadow: var(--shadow-sm);
+  padding: clamp(20px, 3vw, 32px);
+}
+
+.admin-card__head {
+  margin-bottom: var(--sp-5);
+}
+
+.admin-card__head h2 {
+  font-size: var(--text-h3);
+  margin: 0 0 var(--sp-2);
+}
+
+.admin-card__head p {
+  color: var(--text-secondary);
+  margin: 0;
+}
+
+.admin-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: var(--sp-4);
+}
+
+.admin-stat {
+  background: var(--white);
+  border: 1px solid var(--border);
+  border-radius: var(--r-card);
+  box-shadow: var(--shadow-sm);
+  padding: var(--sp-5);
+}
+
+.admin-stat__label {
+  font-size: var(--text-caption);
+  font-weight: 600;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+  margin: 0 0 var(--sp-2);
+}
+
+.admin-stat__value {
+  font-family: var(--font-display);
+  font-size: var(--text-h2);
+  font-weight: 700;
+  line-height: 1.1;
+  color: var(--mora-blue);
+  margin: 0;
+}
+
+.admin-stat__note {
+  font-size: var(--text-caption);
+  color: var(--text-secondary);
+  margin: var(--sp-2) 0 0;
+}
+
+/* Liste descriptive compacte : état de session, détail d'une fiche. */
+.admin-meta {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: var(--sp-4);
+  margin: 0;
+}
+
+.admin-meta dt {
+  font-size: var(--text-caption);
+  font-weight: 600;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+  margin-bottom: var(--sp-1);
+}
+
+.admin-meta dd {
+  margin: 0;
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+
+/* --------------------------------------------------------- 5. TABLEAUX */
+
+/* Le tableau déborde horizontalement plutôt que de comprimer ses colonnes :
+   sur mobile, un tableau illisible ne vaut pas mieux qu'un tableau absent. */
+.admin-table-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--r-card);
+  background: var(--white);
+}
+
+.admin-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--text-small);
+}
+
+.admin-table th,
+.admin-table td {
+  padding: var(--sp-3) var(--sp-4);
+  text-align: left;
+  vertical-align: top;
+  border-bottom: 1px solid var(--border);
+}
+
+.admin-table thead th {
+  font-family: var(--font-display);
+  font-size: var(--text-caption);
+  font-weight: 700;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+  background: var(--gray-light);
+  white-space: nowrap;
+}
+
+.admin-table tbody tr:last-child th,
+.admin-table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.admin-table tbody tr:hover {
+  background: var(--gray-light);
+}
+
+.admin-table__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+}
+
+/* ------------------------------------------------ 6. BADGES ET ÉTATS */
+
+.admin-badge {
+  display: inline-block;
+  padding: 2px 10px;
+  border-radius: var(--r-pill);
+  font-size: var(--text-caption);
+  font-weight: 600;
+  line-height: 1.6;
+  white-space: nowrap;
+  background: var(--gray-secondary);
+  color: var(--text-secondary);
+}
+
+.admin-badge--ok {
+  background: rgba(0, 168, 89, .12);
+  color: #00713c;
+}
+
+.admin-badge--brand {
+  background: rgba(0, 51, 102, .1);
+  color: var(--mora-blue);
+}
+
+.admin-badge--gold {
+  background: rgba(255, 215, 0, .22);
+  color: #7a5c00;
+}
+
+.admin-badge--muted {
+  background: var(--gray-secondary);
+  color: var(--text-secondary);
+}
+
+.admin-badge--danger {
+  background: rgba(176, 0, 32, .1);
+  color: #8c0019;
+}
+
+/* État vide — § 128 : « Chaque section sans donnée doit afficher un état vide
+   clair. » Jamais un tableau aux cases barrées, jamais une donnée d'exemple. */
+.admin-empty {
+  text-align: center;
+  padding: clamp(32px, 5vw, 56px) var(--sp-5);
+  border: 1px dashed var(--border);
+  border-radius: var(--r-card);
+  background: var(--white);
+}
+
+.admin-empty__title {
+  font-family: var(--font-display);
+  font-size: var(--text-h3);
+  font-weight: 700;
+  margin: 0 0 var(--sp-2);
+}
+
+.admin-empty p {
+  color: var(--text-secondary);
+  margin: 0 auto;
+  max-width: 56ch;
+}
+
+/* Message d'erreur ou de confirmation. Le § 129 interdit d'exposer une trace
+   technique, une erreur SQL ou un secret : ces blocs ne portent que du texte
+   écrit pour être lu. */
+.admin-notice {
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--mora-blue);
+  border-radius: var(--r-btn);
+  background: var(--white);
+  padding: var(--sp-4) var(--sp-5);
+  font-size: var(--text-small);
+}
+
+.admin-notice--ok {
+  border-left-color: var(--growth-green);
+}
+
+.admin-notice--error {
+  border-left-color: #b00020;
+}
+
+.admin-notice p {
+  margin: 0;
+}
+
+.admin-notice p + p {
+  margin-top: var(--sp-2);
+}
+
+/* ------------------------------------- 7. FORMULAIRES ET PERMISSIONS */
+
+.admin-field {
+  display: block;
+}
+
+.admin-field + .admin-field {
+  margin-top: var(--sp-4);
+}
+
+.admin-field__label {
+  display: block;
+  font-weight: 600;
+  font-size: var(--text-small);
+  margin-bottom: var(--sp-2);
+}
+
+.admin-field__hint {
+  display: block;
+  font-size: var(--text-caption);
+  color: var(--text-secondary);
+  margin-top: var(--sp-2);
+}
+
+.admin-input {
+  width: 100%;
+  padding: var(--sp-3) var(--sp-4);
+  border: 1px solid var(--border);
+  border-radius: var(--r-btn);
+  background: var(--white);
+  transition: border-color var(--t-quick), box-shadow var(--t-quick);
+}
+
+.admin-input:focus {
+  border-color: var(--mora-blue);
+  box-shadow: 0 0 0 3px rgba(0, 51, 102, .12);
+  outline: none;
+}
+
+/* Grille des permissions : un domaine par bloc, une case par permission.
+   Le regroupement n'est pas décoratif — 64 cases en liste plate seraient
+   illisibles, et une case cochée par erreur est un droit accordé. */
+.admin-perms {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: var(--sp-5);
+}
+
+.admin-perms__group {
+  border: 1px solid var(--border);
+  border-radius: var(--r-card);
+  padding: var(--sp-4);
+  background: var(--gray-light);
+}
+
+.admin-perms__title {
+  font-family: var(--font-display);
+  font-size: var(--text-small);
+  font-weight: 700;
+  margin: 0 0 var(--sp-3);
+}
+
+.admin-perm {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--sp-3);
+  padding: var(--sp-2) 0;
+}
+
+.admin-perm + .admin-perm {
+  border-top: 1px solid var(--border);
+}
+
+.admin-perm input[type='checkbox'] {
+  margin-top: 4px;
+  width: 18px;
+  height: 18px;
+  flex: none;
+  accent-color: var(--mora-blue);
+}
+
+.admin-perm__body {
+  min-width: 0;
+}
+
+.admin-perm__label {
+  display: block;
+  font-size: var(--text-small);
+  font-weight: 500;
+  line-height: 1.4;
+}
+
+.admin-perm__code {
+  display: block;
+  font-family: ui-monospace, 'SFMono-Regular', 'Cascadia Code', Consolas, monospace;
+  font-size: .8125rem;
+  color: var(--text-secondary);
+  margin-top: 2px;
+  overflow-wrap: anywhere;
+}
+
+.admin-perm__origin {
+  margin-top: var(--sp-1);
+}
+
+/* Une permission critique se signale avant d'être cochée, pas après. */
+.admin-perm--critical .admin-perm__label::after {
+  content: ' • critique';
+  font-size: var(--text-caption);
+  font-weight: 700;
+  color: #8c0019;
+}
+
+.admin-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-3);
+  margin-top: var(--sp-6);
+}
+
+/* Bloc de confirmation d'une action irréversible — § 123. La formulation
+   explicite de la conséquence compte autant que le bouton. */
+.admin-confirm {
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--shawiri-gold);
+  border-radius: var(--r-btn);
+  background: var(--white);
+  padding: var(--sp-4) var(--sp-5);
+}
+
+.admin-confirm p {
+  margin: 0 0 var(--sp-3);
+  font-size: var(--text-small);
+}
+
+/* ------------------------------------------------------- 8. RESPONSIVE */
+
+/* Tablette : la barre latérale passe au-dessus du contenu et se déroule à
+   l'horizontale. Le § 130 demande que le tableau de bord reste utilisable sur
+   ordinateur, tablette **et** smartphone. */
+@media (max-width: 1080px) {
+  .admin__grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .admin-nav {
+    position: static;
+    max-height: none;
+    overflow: visible;
+  }
+
+  .admin-nav__group {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--sp-2);
+  }
+
+  .admin-nav__title {
+    width: 100%;
+    margin-bottom: 0;
+  }
+
+  .admin-nav__link {
+    border: 1px solid var(--border);
+  }
+}
+
+@media (max-width: 640px) {
+  .admin-head__top {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .admin-refresh {
+    justify-content: space-between;
+  }
+
+  .admin-perms {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  /* Un tableau étroit reste un tableau : on le laisse défiler plutôt que de
+     le replier en fiches, afin que les colonnes restent comparables. */
+  .admin-table th,
+  .admin-table td {
+    padding: var(--sp-3);
+  }
+}
