@@ -30,7 +30,13 @@ const allSql = [...sqlByFile.values()].join('\n');
  * Tables volontairement dépourvues de politique : RLS activée sans politique
  * équivaut à un refus total, ce qui est exactement l'intention.
  */
-const DENY_ALL_TABLES = new Set(['rate_limit_counters']);
+const DENY_ALL_TABLES = new Set([
+  'rate_limit_counters',
+  // Le compteur du Moteur de Documents. Aucune session ne doit pouvoir le lire
+  // ni l'écrire : seule `allocate_document_number()` y touche, sous verrou
+  // (prompt maître § 36 et § 38).
+  'document_sequences',
+]);
 
 function createdTables(sql: string): string[] {
   return [...sql.matchAll(/create table if not exists public\.([a-z_]+)/g)].map(

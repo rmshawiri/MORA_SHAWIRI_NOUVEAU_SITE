@@ -31,7 +31,7 @@ import { randomUUID } from 'node:crypto';
 
 import { createClient } from '@supabase/supabase-js';
 
-import { describeTarget, log, readFlag, resolveTarget } from './lib/config.mjs';
+import { describeTarget, log, readFlag, resolveAccessToken, resolveTarget, runSql } from './lib/config.mjs';
 import { totpCode, waitForFreshWindow } from './lib/totp.mjs';
 
 const TEST_EMAIL_DOMAIN = '@mora-shawiri.test';
@@ -1106,6 +1106,237 @@ async function serverActionChecks(target, base) {
 
 /* ======================================================= 5. balayage final */
 
+/* ================================================ 4 bis. téléchargement === */
+
+/**
+ * Téléchargement d'un document officiel, servi par HTTP.
+ *
+ * `verify-documents.mjs` prouve que RLS laisse passer le destinataire et
+ * refuse un tiers. Ce contrôle-ci prouve que la **route** respecte cette
+ * décision au lieu de la contourner — ce qu'une route servie par la clé à
+ * privilèges ferait sans que la base s'en aperçoive.
+ *
+ * Quatre situations, une seule réponse distincte : le destinataire reçoit son
+ * PDF, tout le reste reçoit un 404 indistinguable. Un 403 sur une référence
+ * existante confirmerait qu'elle existe.
+ */
+async function documentDownloadChecks(target, base) {
+  log.step('4 bis. Téléchargement d’un document officiel');
+
+  const accessToken = resolveAccessToken();
+  const service = createClient(target.url, target.secretKey, {
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
+
+  const storageKey = storageKeyFor(target.url);
+  const suffix = randomUUID().slice(0, 8);
+  const password = `Tst-${randomUUID()}`;
+  const TYPE = 'ZZROUT';
+
+  const accounts = {
+    owner: { email: `test.route.doc.${suffix}${TEST_EMAIL_DOMAIN}`, id: null },
+    other: { email: `test.route.tiers.${suffix}${TEST_EMAIL_DOMAIN}`, id: null },
+  };
+
+  let documentId = null;
+
+  try {
+    await runSql(
+      target,
+      accessToken,
+      `insert into public.document_types (code, label, entity_type, view_permission, issue_permission, sort_order)
+       values ('${TYPE}', 'Type de vérification (transitoire)', 'order', 'orders.view', 'orders.update', 9100)
+       on conflict (code) do nothing;`,
+    );
+
+    const roles = await service.from('roles').select('id, code');
+    const clientRole = (roles.data ?? []).find((row) => row.code === 'CLIENT')?.id;
+
+    for (const account of Object.values(accounts)) {
+      const created = await service.auth.admin.createUser({
+        email: account.email,
+        password,
+        email_confirm: true,
+        user_metadata: { full_name: 'Mohamed Ali' },
+      });
+      if (created.error) throw new Error(created.error.message);
+      account.id = created.data.user.id;
+
+      await service.from('user_roles').insert({ user_id: account.id, role_id: clientRole });
+    }
+
+    const { data: issued, error: issueError } = await service.rpc('issue_document', {
+      p_type: TYPE,
+      p_entity_type: 'order',
+      p_entity_id: null,
+      p_owner_id: accounts.owner.id,
+      p_subject_name: 'Mohamed Ali',
+      p_metadata: { origine: 'verification-routes-4D' },
+      p_replaces: null,
+    });
+
+    if (issueError || !issued) throw new Error(issueError?.message ?? 'émission impossible');
+    documentId = issued.id;
+
+    const path = `/api/documents/${issued.reference}/`;
+
+    /* --- Visiteur anonyme ------------------------------------------------ */
+
+    const anonymous = await fetch(`${base}${path}`, { redirect: 'manual' });
+    check(
+      'un visiteur anonyme ne télécharge aucun document',
+      anonymous.status === 404,
+      `HTTP ${anonymous.status}`,
+    );
+
+    /* --- Le destinataire ------------------------------------------------- */
+
+    const ownerAuth = createClient(target.url, target.publishableKey, {
+      auth: { persistSession: false, autoRefreshToken: false },
+    });
+    const ownerSignIn = await ownerAuth.auth.signInWithPassword({
+      email: accounts.owner.email,
+      password,
+    });
+    if (ownerSignIn.error) throw new Error(ownerSignIn.error.message);
+
+    const ownerCookie = sessionCookieHeader(storageKey, ownerSignIn.data.session);
+
+    const download = await fetch(`${base}${path}`, {
+      redirect: 'manual',
+      headers: { cookie: ownerCookie },
+    });
+
+    check('le destinataire reçoit sa pièce', download.status === 200, `HTTP ${download.status}`);
+    check(
+      'la réponse est bien un PDF',
+      download.headers.get('content-type') === 'application/pdf',
+      download.headers.get('content-type') ?? '',
+    );
+
+    const disposition = download.headers.get('content-disposition') ?? '';
+    check(
+      'le nom de fichier porte l’identifiant officiel',
+      disposition.includes(`${issued.reference}`),
+      disposition,
+    );
+    check(
+      'le nom de fichier porte le nom normalisé du § 42',
+      disposition.includes('Mohamed-Ali'),
+      disposition,
+    );
+    check(
+      'aucun caractère interdit dans le nom de fichier',
+      !/[/\\:*?"<>|]/.test(disposition.replace(/^attachment; filename="|"; filename\*=.*$/g, '')),
+      disposition,
+    );
+    check(
+      'un document privé n’est jamais mis en cache',
+      (download.headers.get('cache-control') ?? '').includes('no-store'),
+      download.headers.get('cache-control') ?? '',
+    );
+
+    const bytes = new Uint8Array(await download.arrayBuffer());
+    const header = String.fromCharCode(...bytes.slice(0, 8));
+    check('le fichier servi commence par l’en-tête PDF', header === '%PDF-1.4', header);
+    check('le fichier servi n’est pas vide', bytes.byteLength > 1000, `${bytes.byteLength} octets`);
+
+    /* --- Un tiers -------------------------------------------------------- */
+
+    const otherAuth = createClient(target.url, target.publishableKey, {
+      auth: { persistSession: false, autoRefreshToken: false },
+    });
+    const otherSignIn = await otherAuth.auth.signInWithPassword({
+      email: accounts.other.email,
+      password,
+    });
+    if (otherSignIn.error) throw new Error(otherSignIn.error.message);
+
+    const otherCookie = sessionCookieHeader(storageKey, otherSignIn.data.session);
+
+    const forbidden = await fetch(`${base}${path}`, {
+      redirect: 'manual',
+      headers: { cookie: otherCookie },
+    });
+    check(
+      'un autre client reçoit 404, pas 403 — l’existence n’est pas confirmée',
+      forbidden.status === 404,
+      `HTTP ${forbidden.status}`,
+    );
+
+    /* --- Références hors forme ------------------------------------------- */
+
+    for (const [label, value] of [
+      ['une référence inexistante', 'MORA-ZZROUT-Z9999'],
+      ['une référence mal formée', 'MORA-FACL-A1'],
+      ['une convention écartée par D-2', 'CMD-2026-0001'],
+      ['une tentative de traversée', '..%2F..%2Fetc%2Fpasswd'],
+    ]) {
+      const attempt = await fetch(`${base}/api/documents/${value}/`, {
+        redirect: 'manual',
+        headers: { cookie: ownerCookie },
+      });
+      check(`${label} donne 404`, attempt.status === 404, `HTTP ${attempt.status}`);
+    }
+
+    // La saisie en minuscules reste servie : le § 102 ne demande pas de punir
+    // un client de messagerie qui abaisse la casse d'une URL.
+    const lowercase = await fetch(`${base}/api/documents/${issued.reference.toLowerCase()}/`, {
+      redirect: 'manual',
+      headers: { cookie: ownerCookie },
+    });
+    check(
+      'la même référence en minuscules reste servie',
+      lowercase.status === 200,
+      `HTTP ${lowercase.status}`,
+    );
+  } finally {
+    if (documentId) {
+      await runSql(
+        target,
+        accessToken,
+        `update public.documents set status = 'ANNULE' where id = '${documentId}';`,
+      ).catch(() => undefined);
+    }
+
+    await runSql(target, accessToken, `delete from public.documents where doc_type = '${TYPE}';`)
+      .catch(() => undefined);
+    await runSql(target, accessToken, `delete from public.document_sequences where doc_type = '${TYPE}';`)
+      .catch(() => undefined);
+    await runSql(target, accessToken, `delete from public.document_types where code = '${TYPE}';`)
+      .catch(() => undefined);
+
+    for (const account of Object.values(accounts)) {
+      if (!account.id) continue;
+
+      // Le constructeur de requête PostgREST est « thenable » mais n'expose
+      // pas `.catch` : il faut l'attendre pour pouvoir intercepter.
+      try {
+        await service.from('user_roles').delete().eq('user_id', account.id);
+      } catch {
+        // Le balayage final ramassera ce qui resterait.
+      }
+
+      await service.auth.admin.deleteUser(account.id).catch(() => undefined);
+    }
+
+    const residue = await runSql(
+      target,
+      accessToken,
+      `select (select count(*) from public.document_types where code = '${TYPE}')::int as types,
+              (select count(*) from public.documents where doc_type = '${TYPE}')::int as documents;`,
+    ).catch(() => null);
+
+    check(
+      'le décor documentaire du contrôle est démonté',
+      residue?.[0]?.types === 0 && residue?.[0]?.documents === 0,
+      JSON.stringify(residue?.[0] ?? {}),
+    );
+  }
+}
+
+/* ========================================================================== */
+
 async function assertNoLeftovers(target) {
   log.step('5. Absence de résidu');
 
@@ -1167,6 +1398,7 @@ async function main() {
   try {
     await sessionRoutes(target, base);
     await serverActionChecks(target, base);
+    await documentDownloadChecks(target, base);
   } finally {
     await assertNoLeftovers(target);
   }

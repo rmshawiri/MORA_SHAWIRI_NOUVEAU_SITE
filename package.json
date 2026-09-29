@@ -16,6 +16,7 @@
     "db:verify": "node scripts/verify-security.mjs",
     "auth:verify": "node scripts/verify-auth.mjs",
     "perms:verify": "node scripts/verify-permissions.mjs",
+    "docs:verify": "node scripts/verify-documents.mjs",
     "routes:verify": "node scripts/verify-routes.mjs"
   },
   "dependencies": {

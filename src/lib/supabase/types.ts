@@ -6,9 +6,9 @@
  * une définition manuelle relue reste préférable à un fichier généré que
  * personne ne lit.
  *
- * Phases couvertes : 4A (identité, RBAC, système) et 4C (permissions
- * individuelles, invitations d'administrateurs). Chaque phase ultérieure
- * ajoute les siennes en même temps que sa migration.
+ * Phases couvertes : 4A (identité, RBAC, système), 4C (permissions
+ * individuelles, invitations d'administrateurs) et 4D (Moteur de Documents).
+ * Chaque phase ultérieure ajoute les siennes en même temps que sa migration.
  */
 
 export type Json = string | number | boolean | null | { [key: string]: Json } | Json[];
@@ -16,6 +16,9 @@ export type Json = string | number | boolean | null | { [key: string]: Json } | 
 export type ProfileStatus = 'ACTIF' | 'SUSPENDU' | 'DESACTIVE';
 export type SettingScope = 'PUBLIC' | 'PRIVE';
 export type AuditResult = 'SUCCES' | 'REFUS' | 'ECHEC';
+
+/** États d'un document officiel (migration 0005 § 3). */
+export type DocumentStatusValue = 'EMIS' | 'ANNULE' | 'REMPLACE';
 
 /** Sens d'un ajustement individuel de permission (migration 0004 § 1). */
 export type PermissionEffectValue = 'OCTROI' | 'RETRAIT';
@@ -99,6 +102,65 @@ export type AdminInvitationRow = {
   revoked_at: string | null;
   created_by: string | null;
   created_at: string;
+  updated_at: string;
+};
+
+/**
+ * Code documentaire officiel (prompt maître § 75).
+ *
+ * `view_permission` et `issue_permission` sont des codes du catalogue des 64
+ * figé en phase 4A : un document se lit et s'émet avec le droit du domaine
+ * métier auquel il appartient, sans permission `documents.*` inventée.
+ */
+export type DocumentTypeRow = {
+  code: string;
+  label: string;
+  entity_type: string;
+  view_permission: string;
+  issue_permission: string;
+  is_active: boolean;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
+};
+
+/**
+ * Document officiel émis (décision D-2, migration 0005).
+ *
+ * `reference` est immuable après émission — un déclencheur le garantit.
+ * `subject_name` est l'instantané du nom à l'émission : il sert au nom de
+ * fichier, jamais de clé (§ 77).
+ */
+export type DocumentRow = {
+  id: string;
+  reference: string;
+  doc_type: string;
+  series: string;
+  number: number;
+  entity_type: string;
+  entity_id: string | null;
+  owner_id: string | null;
+  subject_name: string | null;
+  status: DocumentStatusValue;
+  version: number;
+  replaces_id: string | null;
+  storage_path: string | null;
+  metadata: Json;
+  issued_at: string;
+  issued_by: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+/**
+ * Compteur transactionnel par type. Aucun rôle applicatif ne le lit : la table
+ * porte RLS sans politique. Le type existe pour l'outillage serveur.
+ */
+export type DocumentSequenceRow = {
+  doc_type: string;
+  series: string;
+  last_number: number;
+  allocated_count: number;
   updated_at: string;
 };
 
@@ -228,6 +290,33 @@ type AdminInvitationRelationships = [
   },
 ];
 
+type DocumentTypeRelationships = [
+  {
+    foreignKeyName: 'document_types_view_permission_fkey';
+    columns: ['view_permission'];
+    isOneToOne: false;
+    referencedRelation: 'permissions';
+    referencedColumns: ['code'];
+  },
+  {
+    foreignKeyName: 'document_types_issue_permission_fkey';
+    columns: ['issue_permission'];
+    isOneToOne: false;
+    referencedRelation: 'permissions';
+    referencedColumns: ['code'];
+  },
+];
+
+type DocumentRelationships = [
+  {
+    foreignKeyName: 'documents_doc_type_fkey';
+    columns: ['doc_type'];
+    isOneToOne: false;
+    referencedRelation: 'document_types';
+    referencedColumns: ['code'];
+  },
+];
+
 export type Database = {
   public: {
     Tables: {
@@ -269,6 +358,23 @@ export type Database = {
         Partial<AdminInvitationRow>,
         AdminInvitationRelationships
       >;
+      document_types: Table<
+        DocumentTypeRow,
+        Pick<
+          DocumentTypeRow,
+          'code' | 'label' | 'entity_type' | 'view_permission' | 'issue_permission'
+        > &
+          Partial<DocumentTypeRow>,
+        Partial<DocumentTypeRow>,
+        DocumentTypeRelationships
+      >;
+      /**
+       * Lecture seule côté application : aucun privilège d'écriture n'est
+       * accordé au rôle `authenticated`, et l'émission passe exclusivement par
+       * `issue_document()` (prompt maître § 36).
+       */
+      documents: Table<DocumentRow, never, Partial<DocumentRow>, DocumentRelationships>;
+      document_sequences: Table<DocumentSequenceRow, never, never>;
       settings: Table<
         SettingRow,
         Pick<SettingRow, 'key' | 'value' | 'label'> & Partial<SettingRow>
@@ -312,6 +418,31 @@ export type Database = {
       };
       session_is_aal2: {
         Args: Record<string, never>;
+        Returns: boolean;
+      };
+      /**
+       * Moteur de Documents (phase 4D). `allocate_document_number` n'apparaît
+       * pas ici : elle n'est exécutable que par `service_role`, et la déclarer
+       * laisserait croire qu'un appel applicatif est envisageable.
+       */
+      issue_document: {
+        Args: {
+          p_type: string;
+          p_entity_type?: string | null;
+          p_entity_id?: string | null;
+          p_owner_id?: string | null;
+          p_subject_name?: string | null;
+          p_metadata?: Json;
+          p_replaces?: string | null;
+        };
+        Returns: DocumentRow;
+      };
+      document_next_series: {
+        Args: { p_series: string };
+        Returns: string;
+      };
+      can_read_document_type: {
+        Args: { p_type: string };
         Returns: boolean;
       };
       bump_rate_limit: {
