@@ -217,9 +217,28 @@ async function publicIntegrity(base) {
 
   check('l’en-tête est présent', home.body.includes('class="site-header"'));
   check('le pied de page est présent', home.body.includes('site-footer'));
+  /**
+   * L'en-tête portait jusqu'ici l'exigence inverse : « aucun lien de compte ».
+   * Elle datait de la phase 4B, où l'authentification venait d'être livrée et
+   * où le site public devait rester rigoureusement gelé.
+   *
+   * Le propriétaire a tranché autrement lors de son contrôle visuel après la
+   * phase 4G : l'authentification existait sans qu'aucune porte ne la désigne,
+   * et il a demandé un accès explicite — c'est la seule exception accordée au
+   * gel de l'en-tête. Le contrôle est donc retourné : ce qui était interdit
+   * devient exigé, et rien d'autre ne change dans la barre.
+   */
   check(
-    'aucun lien de compte n’a été ajouté à l’en-tête',
-    !/site-header[\s\S]{0,4000}?\/connexion\//.test(home.body),
+    'l’en-tête propose la connexion',
+    /site-header[\s\S]*?\/connexion\//.test(home.body),
+  );
+  check(
+    'l’en-tête propose la création de compte',
+    /site-header[\s\S]*?\/inscription\//.test(home.body),
+  );
+  check(
+    'les deux appels à l’action du site sont intacts',
+    home.body.includes('Devis gratuit') && home.body.includes('Prendre rendez-vous'),
   );
 
   const affiliation = await visit(base, '/affiliation/');
@@ -380,6 +399,52 @@ async function sessionRoutes(target, base) {
     );
     check('le tableau de bord confirme le niveau AAL2', withAal2.body.includes('AAL2'));
 
+    /**
+     * Séparation du site public et de l'espace de pilotage.
+     *
+     * Jusqu'au contrôle visuel qui a suivi la phase 4G, l'administration
+     * héritait de l'habillage vitrine posé par le gabarit racine : barre de
+     * navigation publique, pied de page de huit colonnes, et pastille
+     * « Écrire sur WhatsApp » flottant par-dessus les écrans de travail. Pire,
+     * l'en-tête public est `position: fixed` et recouvrait le haut de chaque
+     * page d'administration.
+     *
+     * Ces trois contrôles portent sur le HTML réellement servi. Ils sont la
+     * garantie qu'aucune phase suivante ne remettra l'habillage public dans le
+     * back-office sans s'en apercevoir.
+     */
+    check(
+      'l’administration ne rend pas l’en-tête public',
+      !withAal2.body.includes('class="site-header"'),
+    );
+    check(
+      'l’administration ne rend pas le pied de page public',
+      !withAal2.body.includes('class="site-footer"'),
+    );
+    check(
+      'l’administration ne rend pas la pastille WhatsApp publique',
+      !withAal2.body.includes('class="dock"'),
+    );
+    // Et rien de tout cela ne voyage non plus dans la charge utile : le refus
+    // par `notFound()` est fréquent dans l'administration, et il doit rester
+    // dans l'espace de pilotage. Voir `(pilotage)/not-found.tsx`.
+    /**
+     * Réserve connue, et assumée.
+     *
+     * La charge utile d'une page d'administration contient encore le balisage
+     * de la **404 globale** du site, en-tête et pied de page compris : Next.js
+     * embarque cette limite dans chaque route, et elle doit continuer de
+     * porter l'habillage public puisqu'elle répond aussi aux adresses
+     * inexistantes du site vitrine. Ce balisage n'est jamais rendu — les trois
+     * contrôles ci-dessus le vérifient sur le document servi — et un refus
+     * survenu dans l'administration affiche désormais sa propre page
+     * introuvable, dans la coquille de pilotage.
+     */
+    check(
+      'l’administration rend sa propre coquille',
+      withAal2.body.includes('admin__grid') && withAal2.body.includes('admin-topbar'),
+    );
+
     /* ================================================================== */
     /*  Phase 4C — les permissions décident module par module              */
     /* ================================================================== */
@@ -436,6 +501,30 @@ async function sessionRoutes(target, base) {
         `HTTP ${response.status}`,
       );
     }
+
+    /**
+     * Le refus de permission est le chemin le plus fréquent de
+     * l'administration — le § 102 en fait la réponse normale à un module
+     * fermé. Il ne doit pas faire sortir de l'espace de pilotage pour
+     * retomber sur la 404 du site vitrine, en-tête, pied de page et bouton
+     * WhatsApp compris. Voir `(pilotage)/administration/not-found.tsx`.
+     *
+     * `visit()` ne lit le corps que d'une réponse 200 : cette page-ci répond
+     * 404 par construction, elle est donc relue ici.
+     */
+    const refus = await fetch(`${base}/administration/commandes/`, {
+      redirect: 'manual',
+      headers: { cookie: aal2Cookie },
+    });
+    const corpsRefus = await refus.text();
+
+    check(
+      'un refus de permission reste dans l’espace de pilotage',
+      corpsRefus.includes('admin-seule') &&
+        !corpsRefus.includes('class="site-header"') &&
+        !corpsRefus.includes('class="site-footer"') &&
+        !corpsRefus.includes('class="dock"'),
+    );
 
     const unknownRoute = await visit(base, '/administration/module-inexistant/', aal2Cookie);
     check(

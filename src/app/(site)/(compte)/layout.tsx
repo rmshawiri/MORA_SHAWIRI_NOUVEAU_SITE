@@ -19,9 +19,14 @@ import '@/styles/auth.css';
  * Les parenthèses du nom de dossier sont une convention Next.js : le groupe
  * n'apparaît pas dans les URLs. `/connexion/` reste `/connexion/`.
  *
- * L'en-tête, le pied de page et le dock restent ceux du site — ils viennent du
- * gabarit racine, qui n'est pas touché. Les écrans d'authentification
- * s'inscrivent dans le site plutôt que de former un univers à part.
+ * Ce groupe est imbriqué dans `(site)` : les écrans de compte gardent donc
+ * l'en-tête, le pied de page et les pastilles du site, comme la phase 4B
+ * l'avait voulu. Seule l'administration a quitté ce groupe, pour `(pilotage)`
+ * — elle n'utilise aucune classe d'`auth.css`, et elle n'a que faire de la
+ * navigation vitrine.
+ *
+ * Les écrans d'authentification s'inscrivent dans le site plutôt que de former
+ * un univers à part.
  */
 export const dynamic = 'force-dynamic';
 

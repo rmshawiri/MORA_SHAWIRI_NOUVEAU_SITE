@@ -4,6 +4,7 @@ import Image from 'next/image';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useCallback, useEffect, useRef, useState } from 'react';
+import HeaderAccount from '@/components/layout/HeaderAccount';
 import { mainNav } from '@/lib/site';
 
 /** Largeur au-delà de laquelle la navigation redevient horizontale (cf. CSS). */
@@ -86,7 +87,12 @@ export default function Header() {
   const isCurrent = (href: string) =>
     href === '/' ? pathname === '/' : pathname.startsWith(href);
 
-  const actions = (
+  /**
+   * Les deux appels à l'action du site, inchangés : mêmes libellés, mêmes
+   * destinations, même ordre. Ils sont rendus deux fois — une fois dans le
+   * tiroir mobile, une fois dans la barre de bureau — comme auparavant.
+   */
+  const cta = (
     <>
       <Link className="btn btn--light btn--quote" href="/contact/">
         Devis gratuit
@@ -141,10 +147,16 @@ export default function Header() {
               </li>
             ))}
           </ul>
-          <div className="header-actions">{actions}</div>
+          <div className="header-actions">
+            {cta}
+            <HeaderAccount variant="mobile" />
+          </div>
         </nav>
 
-        <div className="header-actions header-actions--desktop">{actions}</div>
+        <div className="header-actions header-actions--desktop">
+          <HeaderAccount variant="desktop" />
+          {cta}
+        </div>
       </div>
     </header>
   );

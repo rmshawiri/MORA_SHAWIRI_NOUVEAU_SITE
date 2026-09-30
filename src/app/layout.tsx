@@ -1,9 +1,6 @@
 import type { Metadata, Viewport } from 'next';
 import { Inter, Poppins } from 'next/font/google';
 import type { ReactNode } from 'react';
-import Dock from '@/components/layout/Dock';
-import Footer from '@/components/layout/Footer';
-import Header from '@/components/layout/Header';
 import JsonLd from '@/components/seo/JsonLd';
 import ScrollReveal from '@/components/ui/ScrollReveal';
 import { getSiteUrl } from '@/lib/env';
@@ -67,12 +64,12 @@ export default function RootLayout({ children }: { children: ReactNode }) {
         <a className="skip-link" href="#main">
           Aller au contenu principal
         </a>
-        <Header />
-        <main id="main" data-page-transition>
-          {children}
-        </main>
-        <Footer />
-        <Dock />
+        {/* Ni en-tête, ni pied de page, ni `<main>` ici : ce gabarit
+            s'applique à toutes les routes, administration comprise. L'habillage
+            du site vitrine appartient au groupe `(site)` ; l'espace de pilotage
+            a le sien dans `(pilotage)`. Voir `SiteChrome`. */}
+        {children}
+
         <ScrollReveal />
       </body>
     </html>

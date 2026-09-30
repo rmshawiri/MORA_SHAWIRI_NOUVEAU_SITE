@@ -27,11 +27,17 @@ function read(relative: string): string {
 
 const MIGRATION = read('supabase/migrations/20260930130000_catalogue_administrable.sql');
 
-/** Les trois pages publiques dont le catalogue alimente le rendu. */
+/**
+ * Les trois pages publiques dont le catalogue alimente le rendu.
+ *
+ * `(site)` est le groupe de routes qui porte l'habillage du site vitrine.
+ * Les parenthèses ne figurent dans aucune URL : `/boutique/` reste
+ * `/boutique/`.
+ */
 const CATALOGUE_PAGES = [
-  'src/app/page.tsx',
-  'src/app/boutique/page.tsx',
-  'src/app/contact/page.tsx',
+  'src/app/(site)/page.tsx',
+  'src/app/(site)/boutique/page.tsx',
+  'src/app/(site)/contact/page.tsx',
 ];
 
 /* ------------------------------------------------------- revalidation --- */

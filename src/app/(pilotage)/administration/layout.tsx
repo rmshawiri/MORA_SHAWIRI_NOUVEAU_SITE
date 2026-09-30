@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 import type { ReactNode } from 'react';
 
-import AdminNav from '@/components/admin/AdminNav';
+import AdminShell from '@/components/admin/AdminShell';
 import { requireAdminContext } from '@/lib/rbac/guards';
 import { allows } from '@/lib/rbac/effective';
 import { ADMIN_ROOT, visibleModules } from '@/lib/rbac/modules';
@@ -26,12 +26,21 @@ export const metadata: Metadata = {
  * **Chaque page appelle donc son propre garde**, sans exception. Le gabarit
  * protège la mise en page ; il ne protège pas les pages.
  *
- * ## Ce qui n'est pas touché
+ * ## L'habillage public s'arrête à la porte
  *
- * L'en-tête, le pied de page et le dock restent ceux du site : ils viennent du
- * gabarit racine, qui n'est pas modifié. `globals.css` non plus. La feuille
- * `admin.css` n'est chargée que d'ici, donc jamais par une page publique —
- * même règle que `auth.css` en phase 4B, et même raison : la décision D-13.
+ * L'en-tête, le pied de page et les pastilles flottantes du site vitrine ne
+ * sont plus rendus ici, et ne sont même plus construits : ils appartiennent au
+ * groupe de routes `(site)`, et l'administration vit dans `(pilotage)`. Les
+ * composants eux-mêmes sont intacts et servent toujours partout ailleurs —
+ * pages publiques et écrans de compte compris. L'espace de pilotage a sa
+ * propre coquille, `AdminShell` : barre latérale, contenu, et un tiroir de
+ * menu sur petit écran.
+ *
+ * La feuille `admin.css` n'est chargée que d'ici, donc jamais par une page
+ * publique — même règle que `auth.css` en phase 4B, et même raison : la
+ * décision D-13. C'est elle qui porte la densité propre à un outil de
+ * travail, en redéfinissant les jetons de `globals.css` **dans la portée de
+ * `.admin` seulement**.
  *
  * ## Le menu est filtré, ce n'est pas une protection
  *
@@ -46,14 +55,5 @@ export default async function AdministrationLayout({ children }: { children: Rea
   const { access } = await requireAdminContext(ADMIN_ROOT);
   const modules = visibleModules(access.permissions, allows);
 
-  return (
-    <div className="admin">
-      <div className="container">
-        <div className="admin__grid">
-          <AdminNav modules={modules} />
-          <div className="admin__main">{children}</div>
-        </div>
-      </div>
-    </div>
-  );
+  return <AdminShell modules={modules}>{children}</AdminShell>;
 }

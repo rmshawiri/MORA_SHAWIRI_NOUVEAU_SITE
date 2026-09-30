@@ -43,11 +43,28 @@ import { site } from '@/lib/site';
 // `catalogue-revalidation` vérifie, pour que la duplication ne dérive pas.
 export const revalidate = 300;
 
-export const metadata = pageMetadata({
-  title: 'MORA Shawiri — Agence digitale aux Comores | Sites web, branding & formations',
-  description: site.description,
-  path: '/',
-});
+const TITRE_ACCUEIL = 'MORA Shawiri — Agence digitale aux Comores | Sites web, branding & formations';
+
+export const metadata = {
+  ...pageMetadata({
+    title: TITRE_ACCUEIL,
+    description: site.description,
+    path: '/',
+  }),
+  /**
+   * Titre **absolu** : le gabarit `'%s | MORA Shawiri'` ne s'y applique pas.
+   *
+   * Tant que la page d'accueil était `src/app/page.tsx`, elle appartenait au
+   * segment racine — celui-là même qui déclare le gabarit — et Next.js ne
+   * l'appliquait donc pas. Depuis qu'elle vit dans le groupe `(site)`, elle
+   * est un segment enfant, et le titre gagnerait un « | MORA Shawiri »
+   * surnuméraire : le nom de la marque y figure déjà deux fois.
+   *
+   * `absolute` rétablit exactement le titre servi auparavant. La comparaison
+   * avant/après des routes publiques le vérifie caractère par caractère.
+   */
+  title: { absolute: TITRE_ACCUEIL },
+};
 
 const serviceIcons = {
   globe: Globe,

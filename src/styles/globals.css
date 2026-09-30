@@ -760,17 +760,21 @@ table.compare .no { color: #b9c0c9; }
 }
 
 .site-nav { margin-inline: auto; }
-.site-nav ul { display: flex; align-items: center; gap: var(--sp-1); }
+/* L'écart et le padding sont ceux qui s'appliquaient déjà sous 1280px : la
+   barre porte désormais un bouton de compte, et elle débordait déjà sans lui
+   (voir § 6.1). Les zones cliquables restent séparées, conformément au § 36 de
+   `02_RESPONSIVE_MOBILE.md`. */
+.site-nav ul { display: flex; align-items: center; gap: 2px; }
 .site-nav a {
   position: relative; display: block;
-  padding: 10px 13px; border-radius: 8px;
+  padding: 10px 10px; border-radius: 8px;
   font-family: var(--font-display); font-size: .9375rem; font-weight: 500;
   color: rgba(255, 255, 255, .86);
   white-space: nowrap;
 }
 .site-nav a:hover { color: var(--white); background: rgba(255, 255, 255, .08); }
 .site-nav a::after {
-  content: ""; position: absolute; left: 13px; right: 13px; bottom: 4px; height: 2px;
+  content: ""; position: absolute; left: 10px; right: 10px; bottom: 4px; height: 2px;
   background: var(--shawiri-gold); border-radius: 2px;
   transform: scaleX(0); transform-origin: left;
   transition: transform var(--t-medium);
@@ -803,6 +807,54 @@ table.compare .no { color: #b9c0c9; }
 .nav-toggle[aria-expanded="true"] span { background: transparent; }
 .nav-toggle[aria-expanded="true"] span::before { transform: translateY(6px) rotate(45deg); }
 .nav-toggle[aria-expanded="true"] span::after { transform: translateY(-6px) rotate(-45deg); }
+
+/* 6.1 Accès au compte — ajout de l'exception fonctionnelle
+   -----------------------------------------------------------------------
+   L'authentification existe depuis la phase 4B sans qu'aucune porte ne la
+   désigne. Ces règles sont **additives** : elles n'introduisent que des
+   sélecteurs nouveaux (`.header-account*`), et ne modifient aucune règle
+   existante du site public.
+
+   Une seule exception, juste en dessous : la barre d'en-tête était déjà
+   saturée — au-delà de 1180px, les actions débordaient de la gouttière du
+   conteneur, et à 1200px elles sortaient carrément de l'écran. Il fallait
+   donc libérer la largeur du nouveau bouton avant de l'ajouter. Le padding
+   horizontal des liens de navigation passe de 13 à 10 pixels et l'écart de
+   4 à 2 : ce sont exactement les valeurs déjà appliquées sous 1280px, donc
+   aucune valeur nouvelle n'entre dans le design system. */
+
+.header-account { position: relative; display: flex; align-items: center; flex: none; }
+
+.header-account__toggle {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 40px; height: 40px;
+  background: rgba(255, 255, 255, .1);
+  border: 1px solid rgba(255, 255, 255, .24);
+  border-radius: var(--r-btn);
+  color: var(--white); cursor: pointer;
+  transition: background var(--t-quick), border-color var(--t-quick);
+}
+.header-account__toggle:hover { background: rgba(255, 255, 255, .18); border-color: var(--white); }
+.header-account__toggle[aria-expanded="true"] { background: rgba(255, 255, 255, .2); border-color: var(--shawiri-gold); }
+
+.header-account__menu {
+  position: absolute; top: calc(100% + 12px); right: 0; z-index: 1200;
+  min-width: 208px;
+  display: flex; flex-direction: column;
+  padding: var(--sp-2);
+  background: var(--white);
+  border: 1px solid var(--border); border-radius: var(--r-card);
+  box-shadow: var(--shadow-lg);
+}
+.header-account__menu[hidden] { display: none; }
+
+.header-account__item {
+  display: block;
+  padding: 10px 12px; border-radius: 8px;
+  font-family: var(--font-display); font-size: .9375rem; font-weight: 500;
+  color: var(--mora-blue-deep); white-space: nowrap;
+}
+.header-account__item:hover { background: var(--gray-secondary); color: var(--mora-blue); }
 
 /* --------------------------------------------------------------- 7. SECTIONS */
 
@@ -1290,20 +1342,24 @@ main[data-page-transition] { animation: page-in 320ms var(--t-long) both; }
 }
 
 @media (max-width: 1280px) {
-  /* Un écart minimal subsiste entre les zones cliquables : deux liens ne doivent
-     jamais se toucher (`02_RESPONSIVE_MOBILE.md` § 36). Le padding est réduit
-     d'autant, la largeur totale de la barre reste donc inchangée. */
-  .site-nav ul { gap: 2px; }
-  .site-nav a { padding: 10px 10px; font-size: .9375rem; }
+  /* L'écart et le padding des liens sont désormais ceux de la règle de base
+     (voir § 6). Il ne reste ici que le resserrement des boutons d'action. */
   .header-actions--desktop .btn { padding: 0 14px; }
+
+  /* Priorité au rendez-vous : le devis reste accessible dans le pied de page.
+     La règle existait déjà, au seuil de 1180px. Elle remonte à 1280 parce que
+     la bande 1181-1280 était **déjà** en débordement avant l'ajout du bouton
+     de compte — à 1200px de large, le bouton « Prendre rendez-vous » sortait
+     de l'écran de trois pixels, et le compte l'en aurait sorti de cinquante.
+     Le levier n'est pas nouveau : c'est celui que la maquette prévoyait pour
+     exactement ce cas, appliqué cent pixels plus tôt. */
+  .header-actions--desktop .btn--quote { display: none; }
 }
 
 @media (max-width: 1180px) {
   .site-nav a { padding: 10px 8px; font-size: .875rem; }
   .brand__name small { display: none; }
   .header-inner { gap: var(--sp-4); }
-  /* Priorité au rendez-vous : le devis reste accessible dans le pied de page */
-  .header-actions--desktop .btn--quote { display: none; }
 }
 
 @media (max-width: 1024px) {

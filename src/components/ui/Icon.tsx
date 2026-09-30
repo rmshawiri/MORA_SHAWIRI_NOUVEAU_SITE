@@ -251,6 +251,22 @@ export const TrendingUp = (p: IconProps) => (
   </Stroke>
 );
 
+/**
+ * Silhouette dans un cercle : l'accès au compte.
+ *
+ * Conventionnelle au point d'être comprise sans légende, ce qui compte ici :
+ * la barre d'en-tête n'a pas la largeur d'un libellé écrit. Le sens reste
+ * néanmoins porté par un texte — le nom accessible du bouton et les libellés
+ * du menu qu'il ouvre.
+ */
+export const UserCircle = (p: IconProps) => (
+  <Stroke size={22} {...p}>
+    <circle cx="12" cy="12" r="9" />
+    <circle cx="12" cy="10" r="3.2" />
+    <path d="M6.2 18.4a6.4 6.4 0 0 1 11.6 0" />
+  </Stroke>
+);
+
 export const Users = (p: IconProps) => (
   <Stroke size={26} {...p}>
     <path d="M17 20v-2a3 3 0 0 0-3-3H8a3 3 0 0 0-3 3v2" />

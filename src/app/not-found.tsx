@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import SiteChrome from '@/components/layout/SiteChrome';
 import PageHero from '@/components/sections/PageHero';
 import { ArrowRight } from '@/components/ui/Icon';
 import { mainNav } from '@/lib/site';
@@ -9,10 +10,17 @@ export const metadata = {
   robots: { index: false, follow: true },
 };
 
-/** Page 404 : garde la charte du site et propose des chemins de sortie. */
+/**
+ * Page 404 : garde la charte du site et propose des chemins de sortie.
+ *
+ * Elle s'habille elle-même. Next.js rend la 404 globale dans le gabarit
+ * **racine**, hors de tout groupe de routes : sans `SiteChrome`, elle perdrait
+ * l'en-tête et le pied de page depuis que l'habillage a quitté la racine pour
+ * le groupe `(site)`. Le rendu reste donc rigoureusement celui d'avant.
+ */
 export default function NotFound() {
   return (
-    <>
+    <SiteChrome>
       <PageHero
         breadcrumb={[{ label: 'Accueil', href: '/' }, { label: 'Page introuvable' }]}
         eyebrow="Erreur 404"
@@ -39,6 +47,6 @@ export default function NotFound() {
           </div>
         </div>
       </section>
-    </>
+    </SiteChrome>
   );
 }

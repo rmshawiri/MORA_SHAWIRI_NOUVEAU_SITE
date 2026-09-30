@@ -28,7 +28,11 @@ import {
  */
 
 const PROJECT_ROOT = resolve(import.meta.dirname, '..', '..');
-const APP_DIR = resolve(PROJECT_ROOT, 'src', 'app');
+/**
+ * Les pages publiques vivent dans le groupe de routes `(site)`, qui porte
+ * l'habillage du site vitrine. Les parenthèses ne figurent dans aucune URL.
+ */
+const APP_DIR = resolve(PROJECT_ROOT, 'src', 'app', '(site)');
 const MIGRATIONS_DIR = resolve(PROJECT_ROOT, 'supabase', 'migrations');
 
 function readAllSql(): string {

@@ -24,7 +24,13 @@ import { PERMISSIONS } from '../../src/lib/rbac/catalogue';
 import { ADMIN_MODULES, ADMIN_ROOT, findModule, visibleModules } from '../../src/lib/rbac/modules';
 import { allows } from '../../src/lib/rbac/effective';
 
-const ADMIN_DIR = resolve(process.cwd(), 'src', 'app', '(compte)', 'administration');
+/**
+ * L'administration vit dans le groupe de routes `(pilotage)`, qui ne porte pas
+ * l'habillage du site vitrine — à la différence de `(site)`, où vivent les
+ * pages publiques et les écrans de compte. Les parenthèses ne figurent dans
+ * aucune URL : `/administration/` reste `/administration/`.
+ */
+const ADMIN_DIR = resolve(process.cwd(), 'src', 'app', '(pilotage)', 'administration');
 
 /** Segments de route réellement présents, hors segments dynamiques. */
 function routeSlugs(): string[] {
