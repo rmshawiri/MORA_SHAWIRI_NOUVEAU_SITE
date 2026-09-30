@@ -1652,6 +1652,262 @@ async function documentDownloadChecks(target, base) {
 
 /* ========================================================================== */
 
+/**
+ * Le parcours commercial, par HTTP — phase 4G.
+ *
+ * `verify-commerce.mjs` éprouve la RLS à travers PostgREST. Ce contrôle-ci
+ * éprouve **les pages**, sur le déploiement réel : ce qu'un client reçoit
+ * quand il ouvre l'adresse de sa commande, et ce qu'il reçoit quand il ouvre
+ * celle d'un autre.
+ *
+ * C'est le test IDOR au niveau où il se joue vraiment. Une politique correcte
+ * n'empêche pas une page de charger ses données par la clé à privilèges ; seul
+ * un appel HTTP avec la session d'un tiers le montre.
+ *
+ * Le décor consomme deux numéros CMCL, restitués à la fin comme le fait
+ * `verify-commerce.mjs`. Le point 40 du cadrage l'exige : les contrôles ne
+ * percent pas les suites de production.
+ */
+async function commerceRouteChecks(target, base) {
+  log.step('4 ter. Parcours commercial');
+
+  const accessToken = resolveAccessToken();
+  const service = createClient(target.url, target.secretKey, {
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
+
+  const storageKey = storageKeyFor(target.url);
+  const suffix = randomUUID().slice(0, 8);
+  const password = `Tst-${randomUUID()}`;
+
+  const accounts = {
+    owner: { email: `test.route.cmd.${suffix}${TEST_EMAIL_DOMAIN}`, id: null },
+    other: { email: `test.route.cmdb.${suffix}${TEST_EMAIL_DOMAIN}`, id: null },
+  };
+
+  const orders = [];
+
+  const sequenceBefore = await runSql(
+    target,
+    accessToken,
+    `select doc_type, series, last_number, allocated_count
+       from public.document_sequences where doc_type = 'CMCL';`,
+  ).catch(() => null);
+
+  try {
+    const roles = await service.from('roles').select('id, code');
+    const clientRole = (roles.data ?? []).find((row) => row.code === 'CLIENT')?.id;
+
+    for (const account of Object.values(accounts)) {
+      const created = await service.auth.admin.createUser({
+        email: account.email,
+        password,
+        email_confirm: true,
+        user_metadata: { full_name: 'Contrôle Parcours' },
+      });
+      if (created.error) throw new Error(created.error.message);
+      account.id = created.data.user.id;
+
+      await service.from('user_roles').insert({ user_id: account.id, role_id: clientRole });
+    }
+
+    for (const account of Object.values(accounts)) {
+      const { data, error } = await service.rpc('create_manual_order', {
+        p_user_id: account.id,
+        p_items: [
+          { designation: 'Contrôle de parcours', unit_price: 6000, quantity: 1 },
+        ],
+        p_fees: 0,
+        p_note: 'verif-routes — donnée de contrôle',
+      });
+      if (error) throw new Error(error.message);
+      orders.push(data);
+    }
+
+    const [ownerOrder, otherOrder] = orders;
+
+    const signIn = async (email) => {
+      const client = createClient(target.url, target.publishableKey, {
+        auth: { persistSession: false, autoRefreshToken: false },
+      });
+      const result = await client.auth.signInWithPassword({ email, password });
+      if (result.error) throw new Error(result.error.message);
+      return sessionCookieHeader(storageKey, result.data.session);
+    };
+
+    const ownerCookie = await signIn(accounts.owner.email);
+    const otherCookie = await signIn(accounts.other.email);
+
+    /* --- Le titulaire voit sa commande ----------------------------------- */
+
+    const own = await visit(base, `/espace-client/commandes/${ownerOrder.reference}/`, ownerCookie);
+    check('le client ouvre sa commande', own.status === 200, `HTTP ${own.status}`);
+    check('la page porte la référence de la commande', own.body.includes(ownerOrder.reference));
+    check(
+      'la page annonce le montant réel',
+      own.body.includes('6') && own.body.includes('KMF'),
+    );
+    check(
+      'la page propose de déclarer un paiement',
+      own.body.includes('Déclarer mon paiement'),
+    );
+    check(
+      'la page dit que déclarer ne vaut pas confirmation',
+      own.body.includes('ne vaut pas') || own.body.includes('vérifiée par MORA Shawiri'),
+    );
+    check(
+      'aucun moyen inactif n’est proposé au client',
+      !own.body.includes('Wakati') && !own.body.includes('PayPal'),
+    );
+
+    const dashboard = await visit(base, '/espace-client/', ownerCookie);
+    check(
+      'l’espace client liste la commande',
+      dashboard.body.includes(ownerOrder.reference),
+      `HTTP ${dashboard.status}`,
+    );
+
+    /* --- Le test IDOR ----------------------------------------------------- */
+
+    const foreign = await visit(
+      base,
+      `/espace-client/commandes/${otherOrder.reference}/`,
+      ownerCookie,
+    );
+    check(
+      'la commande d’un autre client donne 404, pas 403',
+      foreign.status === 404,
+      `HTTP ${foreign.status}`,
+    );
+
+    const reverse = await visit(
+      base,
+      `/espace-client/commandes/${ownerOrder.reference}/`,
+      otherCookie,
+    );
+    check('le contrôle vaut dans les deux sens', reverse.status === 404, `HTTP ${reverse.status}`);
+
+    for (const [label, value] of [
+      ['une référence inexistante', 'MORA-CMCL-Z9999'],
+      ['une référence mal formée', 'MORA-CMCL-A1'],
+      ['une convention écartée par D-2', 'CMD-2026-0001'],
+      ['une tentative de traversée', '..%2F..%2Fetc%2Fpasswd'],
+    ]) {
+      const attempt = await visit(base, `/espace-client/commandes/${value}/`, ownerCookie);
+      check(`${label} donne 404 sur une commande`, attempt.status === 404, `HTTP ${attempt.status}`);
+    }
+
+    /* --- L'administration reste fermée à un client ------------------------ */
+
+    const adminOrders = await visit(base, '/administration/commandes/', ownerCookie);
+    check(
+      'un client n’ouvre pas le module Commandes',
+      adminOrders.status === 404 || redirectsTo(adminOrders, '/connexion/'),
+      `HTTP ${adminOrders.status}`,
+    );
+
+    const adminOrder = await visit(
+      base,
+      `/administration/commandes/${ownerOrder.reference}/`,
+      ownerCookie,
+    );
+    check(
+      'un client n’ouvre pas la fiche administrative de sa propre commande',
+      adminOrder.status === 404 || redirectsTo(adminOrder, '/connexion/'),
+      `HTTP ${adminOrder.status}`,
+    );
+  } finally {
+    /* --- Démontage --------------------------------------------------------- */
+
+    /*
+     * Les commandes d'abord, les pièces ensuite.
+     *
+     * L'ordre inverse échoue, et pour une bonne raison : `orders.document_id`
+     * est déclaré `on delete set null`, si bien qu'effacer la pièce tente de
+     * modifier la commande — ce que `tg_orders_identity_immutable` refuse,
+     * l'identité d'une commande étant gelée après création (§ 5, § 91).
+     *
+     * Ce n'est pas un défaut : en exploitation, un document émis ne se
+     * supprime jamais. Seul un démontage de contrôle rencontre le cas, et il
+     * lui suffit de procéder dans le bon sens.
+     */
+    for (const order of orders) {
+      try {
+        await service.from('order_events').delete().eq('order_id', order.id);
+        await service.from('order_status_history').delete().eq('order_id', order.id);
+        await service.from('order_items').delete().eq('order_id', order.id);
+        await service.from('orders').delete().eq('id', order.id);
+      } catch {
+        // Le balayage final ramassera ce qui resterait.
+      }
+
+      await runSql(
+        target,
+        accessToken,
+        `update public.documents set status = 'ANNULE'
+          where entity_type = 'order' and entity_id = '${order.id}';`,
+      ).catch(() => undefined);
+      await runSql(
+        target,
+        accessToken,
+        `delete from public.documents where entity_type = 'order' and entity_id = '${order.id}';`,
+      ).catch(() => undefined);
+    }
+
+    // La suite CMCL est rendue telle qu'elle a été trouvée.
+    const previous = sequenceBefore?.[0] ?? null;
+    await runSql(
+      target,
+      accessToken,
+      previous === null
+        ? `delete from public.document_sequences where doc_type = 'CMCL';`
+        : `update public.document_sequences
+              set series = '${previous.series}',
+                  last_number = ${previous.last_number},
+                  allocated_count = ${previous.allocated_count}
+            where doc_type = 'CMCL';`,
+    ).catch(() => undefined);
+
+    for (const account of Object.values(accounts)) {
+      if (!account.id) continue;
+      try {
+        await service.from('user_roles').delete().eq('user_id', account.id);
+      } catch {
+        // Idem.
+      }
+      await service.auth.admin.deleteUser(account.id).catch(() => undefined);
+    }
+
+    const after = await runSql(
+      target,
+      accessToken,
+      `select doc_type, series, last_number, allocated_count
+         from public.document_sequences where doc_type = 'CMCL';`,
+    ).catch(() => null);
+
+    check(
+      'la suite CMCL est rendue telle qu’elle a été trouvée',
+      JSON.stringify(after?.[0] ?? null) === JSON.stringify(previous),
+      `avant ${JSON.stringify(previous)} — après ${JSON.stringify(after?.[0] ?? null)}`,
+    );
+
+    const residue = await runSql(
+      target,
+      accessToken,
+      `select (select count(*) from public.orders)::int as commandes,
+              (select count(*) from public.documents where doc_type = 'CMCL')::int as pieces;`,
+    ).catch(() => null);
+
+    check(
+      'le décor commercial du contrôle est démonté',
+      residue?.[0]?.commandes === 0 && residue?.[0]?.pieces === 0,
+      JSON.stringify(residue?.[0] ?? {}),
+    );
+  }
+}
+
+/* ========================================================================== */
+
 async function assertNoLeftovers(target) {
   log.step('5. Absence de résidu');
 
@@ -1714,6 +1970,7 @@ async function main() {
     await sessionRoutes(target, base);
     await serverActionChecks(target, base);
     await documentDownloadChecks(target, base);
+    await commerceRouteChecks(target, base);
   } finally {
     await assertNoLeftovers(target);
   }
