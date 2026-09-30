@@ -87,12 +87,41 @@ test('aucune politique n\'est ouverte au rôle « public »', () => {
   assert.deepEqual(openPolicies, [], 'une politique cible le rôle public');
 });
 
-test('le rôle anonyme ne reçoit de droits que sur les paramètres', () => {
-  const grantsToAnon = [...allSql.matchAll(/grant\s+([a-z,\s]+?)\s+on\s+public\.([a-z_]+)\s+to\s+([^;]+);/g)]
-    .filter((match) => /\banon\b/.test(match[3]!))
-    .map((match) => match[2]!);
+/**
+ * Tables que le visiteur non connecté peut atteindre.
+ *
+ * La liste s'est allongée en phase 4E, et c'est une décision, pas une dérive :
+ * la Boutique lit désormais son catalogue en base, donc le rôle anonyme doit
+ * pouvoir atteindre les trois tables qui la composent. Ce que RLS filtre
+ * ensuite — seules les lignes publiées, seules les catégories actives — reste
+ * entier ; un privilège de table n'a jamais valu autorisation de lire une
+ * ligne.
+ *
+ * Ajouter une entrée ici doit rester un acte délibéré. C'est tout l'intérêt du
+ * test : il échoue dès qu'une migration ouvre une table de plus au public,
+ * fût-ce par inadvertance.
+ */
+const ANON_READABLE_TABLES = ['categories', 'products', 'services', 'settings'];
 
-  assert.deepEqual([...new Set(grantsToAnon)], ['settings']);
+test('le rôle anonyme ne reçoit que la lecture, et seulement sur les tables publiques', () => {
+  const grantsToAnon = [
+    ...allSql.matchAll(/grant\s+([a-z,\s]+?)\s+on\s+public\.([a-z_]+)\s+to\s+([^;]+);/g),
+  ].filter((match) => /\banon\b/.test(match[3]!));
+
+  assert.deepEqual(
+    [...new Set(grantsToAnon.map((match) => match[2]!))].sort(),
+    ANON_READABLE_TABLES,
+  );
+
+  // Et jamais autre chose que la lecture : un `insert` accordé au rôle anonyme
+  // ouvrirait l'écriture à n'importe quel visiteur, politique RLS ou non.
+  for (const match of grantsToAnon) {
+    assert.deepEqual(
+      match[1]!.split(',').map((privilege) => privilege.trim()),
+      ['select'],
+      `le rôle anonyme reçoit autre chose que la lecture sur public.${match[2]}`,
+    );
+  }
 });
 
 test('toute fonction SECURITY DEFINER fige son search_path', () => {
@@ -113,6 +142,39 @@ test('toute fonction SECURITY DEFINER fige son search_path', () => {
   }
 
   assert.ok(checked >= 5, `trop peu de fonctions SECURITY DEFINER analysées (${checked})`);
+});
+
+/**
+ * Une fonction `SECURITY DEFINER` s'exécute sous l'identité de son
+ * propriétaire : `current_user` y vaut `postgres`, quelle que soit la session
+ * qui l'a déclenchée. Or `is_privileged_db_role()` interroge précisément
+ * `current_user` pour reconnaître une migration ou la clé de service.
+ *
+ * Combiner les deux produit un garde-fou qui répond « requête privilégiée » à
+ * tout le monde, et ne refuse donc jamais rien — une porte dont le verrou
+ * s'ouvre pour quiconque frappe. Le défaut est silencieux : le SQL se lit
+ * correctement, la fonction s'installe sans un mot, et rien ne signale que le
+ * contrôle est mort. Il a été introduit puis détecté pendant la phase 4E, par
+ * `scripts/verify-catalogue.mjs` ; ce test est ce qui l'empêchera de revenir.
+ */
+test('un garde-fou qui interroge le rôle courant n\'est jamais SECURITY DEFINER', () => {
+  const functions = [...allSql.matchAll(/create or replace function public\.([a-z_]+)\(([\s\S]*?)\$\$;/g)];
+
+  let checked = 0;
+
+  for (const match of functions) {
+    const body = match[0]!;
+    if (!/is_privileged_db_role\(\)/.test(body)) continue;
+    if (match[1] === 'is_privileged_db_role') continue;
+
+    checked += 1;
+    assert.ok(
+      !/security definer/i.test(body),
+      `public.${match[1]} interroge is_privileged_db_role() en SECURITY DEFINER : le contrôle serait inopérant`,
+    );
+  }
+
+  assert.ok(checked >= 3, `trop peu de garde-fous analysés (${checked})`);
 });
 
 test('le journal d\'audit n\'accepte ni modification ni suppression', () => {

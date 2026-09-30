@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { ArrowRight, Check, Whatsapp } from '@/components/ui/Icon';
 import { CONTACT_BUDGETS, CONTACT_SUBJECTS } from '@/content/contact';
-import { findOffer } from '@/content/offers';
+import type { OfferContext } from '@/lib/catalogue/public';
 import { site, whatsappLink } from '@/lib/site';
 
 type Status = 'idle' | 'sending' | 'sent' | 'error';
@@ -74,7 +74,17 @@ const GENERIC_ERROR =
  * confirmation, comme copie facultative, sous la forme d'un lien cliqué par le
  * visiteur — jamais d'une fenêtre ouverte par le script.
  */
-export default function ContactForm() {
+type ContactFormProps = {
+  /**
+   * Catalogue réduit aux trois valeurs que ce formulaire utilise, fourni par
+   * la page serveur. Depuis la phase 4E, l'offre vient de la base : la lire
+   * ici depuis `@/content/offers` renverrait au visiteur un titre que
+   * l'administration aurait pu changer entre-temps.
+   */
+  offers: readonly OfferContext[];
+};
+
+export default function ContactForm({ offers }: ContactFormProps) {
   const [values, setValues] = useState<Values>(EMPTY);
   const [errors, setErrors] = useState<Partial<Record<FieldName, string>>>({});
   const [status, setStatus] = useState<Status>('idle');
@@ -90,7 +100,8 @@ export default function ContactForm() {
 
   // Contexte transmis par une carte d'offre : `?offre=<identifiant>`.
   const search = useSyncExternalStore(subscribeToSearch, getSearch, getServerSearch);
-  const offer = findOffer(new URLSearchParams(search).get('offre')) ?? null;
+  const requested = new URLSearchParams(search).get('offre');
+  const offer = (requested ? offers.find((entry) => entry.id === requested) : undefined) ?? null;
 
   /** Besoin effectif : le choix du visiteur, sinon celui de l'offre consultée. */
   const subject = values.sujet || offer?.requestSubject || CONTACT_SUBJECTS[0]!.value;

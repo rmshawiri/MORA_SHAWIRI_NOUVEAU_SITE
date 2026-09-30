@@ -395,6 +395,7 @@ async function sessionRoutes(target, base) {
       ['/administration/parametres/', 'Paramètres'],
       ['/administration/administrateurs/', 'Administrateurs'],
       ['/administration/journal/', 'Journal'],
+      ['/administration/catalogue/', 'Catalogue'],
     ];
 
     for (const [path, label] of closedModules) {
@@ -503,6 +504,90 @@ async function sessionRoutes(target, base) {
       'audit.view ouvre le Journal d’activité',
       journal.status === 200,
       `HTTP ${journal.status}`,
+    );
+
+    // --- Le Catalogue, livré par la phase 4E --------------------------------
+    //
+    // Le module réunit plusieurs permissions, et c'est ce qui rend le contrôle
+    // intéressant : ouvrir la page ne donne pas le droit d'écrire, et le droit
+    // d'écrire ne donne pas celui de publier. On vérifie les trois paliers par
+    // l'URL, puisque c'est par là qu'on les contournerait.
+
+    await adjust('admins.view', null);
+    await adjust('audit.view', null);
+    await adjust('services.view', 'OCTROI');
+
+    const catalogue = await visit(base, '/administration/catalogue/', aal2Cookie);
+    check(
+      'services.view ouvre le module Catalogue',
+      catalogue.status === 200,
+      `HTTP ${catalogue.status}`,
+    );
+    check('le catalogue liste les offres réelles', catalogue.body.includes('Offres'));
+    check(
+      'les quatorze prestations sont servies depuis la base',
+      catalogue.body.includes('Création de logo professionnel'),
+    );
+    check(
+      'sans services.create, le formulaire de création n’est pas servi',
+      !catalogue.body.includes('Créer le brouillon'),
+      'le formulaire ne doit pas figurer dans le HTML',
+    );
+
+    const fiche = await visit(base, '/administration/catalogue/logo/', aal2Cookie);
+    check(
+      'la fiche d’une offre s’ouvre avec services.view',
+      fiche.status === 200,
+      `HTTP ${fiche.status}`,
+    );
+    check(
+      'sans services.publish, aucun bouton de publication n’est servi',
+      !fiche.body.includes('Retirer du site'),
+    );
+    check(
+      'la fiche explique le droit manquant plutôt que de se taire',
+      fiche.body.includes('services.publish'),
+    );
+
+    const inconnue = await visit(base, '/administration/catalogue/offre-inexistante/', aal2Cookie);
+    check(
+      'une offre inexistante répond 404',
+      inconnue.status === 404,
+      `HTTP ${inconnue.status}`,
+    );
+
+    await adjust('services.create', 'OCTROI');
+
+    const avecCreation = await visit(base, '/administration/catalogue/', aal2Cookie);
+    check(
+      'services.create fait apparaître le formulaire de création',
+      avecCreation.body.includes('Créer le brouillon'),
+    );
+
+    await adjust('services.publish', 'OCTROI');
+
+    const avecPublication = await visit(base, '/administration/catalogue/logo/', aal2Cookie);
+    check(
+      'services.publish fait apparaître le retrait du site',
+      avecPublication.body.includes('Retirer du site'),
+    );
+
+    await adjust('services.view', null);
+    await adjust('services.create', null);
+    await adjust('services.publish', null);
+
+    const catalogueFerme = await visit(base, '/administration/catalogue/', aal2Cookie);
+    check(
+      'le retrait des octrois referme le Catalogue',
+      catalogueFerme.status === 404,
+      `HTTP ${catalogueFerme.status}`,
+    );
+
+    const ficheFermee = await visit(base, '/administration/catalogue/logo/', aal2Cookie);
+    check(
+      'la fiche d’offre se referme elle aussi',
+      ficheFermee.status === 404,
+      `HTTP ${ficheFermee.status}`,
     );
 
     // --- Remise à zéro : le compte repart sans aucun droit ------------------

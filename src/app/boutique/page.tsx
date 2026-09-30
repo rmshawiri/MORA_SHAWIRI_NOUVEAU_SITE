@@ -8,9 +8,23 @@ import SectionHead from '@/components/sections/SectionHead';
 import Steps from '@/components/sections/Steps';
 import JsonLd from '@/components/seo/JsonLd';
 import { ArrowRight } from '@/components/ui/Icon';
-import { offers, serviceGroups } from '@/content/offers';
+import { getPublicCatalogue } from '@/lib/catalogue/public';
+import type { Offer } from '@/content/offers';
 import { getSiteUrl } from '@/lib/env';
 import { breadcrumbSchema, jsonLdGraph, pageMetadata } from '@/lib/seo';
+
+/**
+ * Le catalogue vient désormais de la base (phase 4E). La page reste
+ * pré-rendue : `getPublicCatalogue()` n'ouvre aucun cookie, donc Next.js peut
+ * la générer au build puis la régénérer toutes les cinq minutes. Le visiteur
+ * reçoit du HTML statique comme avant la bascule ; une modification faite en
+ * administration apparaît au cycle suivant.
+ */
+// Next.js exige ici un littéral : la valeur est lue par analyse statique, pas
+// à l'exécution, et une constante importée est refusée au build. Elle doit
+// donc rester égale à CATALOGUE_REVALIDATE_SECONDS — ce que le test
+// `catalogue-revalidation` vérifie, pour que la duplication ne dérive pas.
+export const revalidate = 300;
 
 export const metadata = pageMetadata({
   title: 'Boutique — Quatorze prestations prêtes à démarrer',
@@ -39,7 +53,7 @@ const orderSteps = [
 ];
 
 /** Catalogue des offres au format schema.org, prix officiels compris. */
-function offerCatalogSchema() {
+function offerCatalogSchema(offers: readonly Offer[]) {
   const siteUrl = getSiteUrl();
   return {
     '@type': 'OfferCatalog',
@@ -71,7 +85,9 @@ function offerCatalogSchema() {
   };
 }
 
-export default function BoutiquePage() {
+export default async function BoutiquePage() {
+  const { offers, groups } = await getPublicCatalogue();
+
   return (
     <>
       <JsonLd
@@ -80,7 +96,7 @@ export default function BoutiquePage() {
             { label: 'Accueil', path: '/' },
             { label: 'Boutique', path: '/boutique/' },
           ]),
-          offerCatalogSchema(),
+          offerCatalogSchema(offers),
         ])}
       />
 
@@ -101,7 +117,7 @@ export default function BoutiquePage() {
             lead="Retrouvez les prestations MORA Shawiri actuellement disponibles à la commande ou à la demande, regroupées par famille de besoin."
           />
 
-          {serviceGroups.map((group) => (
+          {groups.map((group) => (
             <div className="offer-group" key={group.id}>
               <h3 className="offer-group__title">{group.title}</h3>
               <div className="grid grid--3 reveal-group">

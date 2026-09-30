@@ -165,7 +165,7 @@ export const ADMIN_MODULES = [
     label: 'Catalogue',
     summary: 'Services et produits de la Boutique, prix, visuels, publication.',
     permission: 'services.view',
-    status: 'A_VENIR',
+    status: 'DISPONIBLE',
     group: 'CONTENU',
     phase: '4E',
   },

@@ -7,7 +7,8 @@
  * personne ne lit.
  *
  * Phases couvertes : 4A (identité, RBAC, système), 4C (permissions
- * individuelles, invitations d'administrateurs) et 4D (Moteur de Documents).
+ * individuelles, invitations d'administrateurs), 4D (Moteur de Documents) et
+ * 4E (catalogue administrable).
  * Chaque phase ultérieure ajoute les siennes en même temps que sa migration.
  */
 
@@ -205,6 +206,111 @@ export type AuditLogRow = {
   created_at: string;
 };
 
+/* ========================================================================== */
+/*  CATALOGUE — migration 0006 (phase 4E)                                     */
+/* ========================================================================== */
+
+/** Cycle de vie d'une offre (09_ADMINISTRATION/00 § 28-32). */
+export type CatalogueStatus = 'BROUILLON' | 'PUBLIE' | 'NON_PUBLIE' | 'ARCHIVE';
+
+/** Univers auquel une catégorie appartient (09_ADMINISTRATION/00 § 2). */
+export type CategoryKind = 'SERVICE' | 'PRODUIT';
+
+/** Parcours commercial de l'offre (plan § 8 ; commerce en ligne § 112). */
+export type CommercialMode = 'purchase' | 'quote' | 'appointment' | 'whatsapp';
+
+export type CategoryRow = {
+  id: string;
+  slug: string;
+  name: string;
+  kind: CategoryKind;
+  description: string | null;
+  sort_order: number;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+};
+
+export type ServiceRow = {
+  id: string;
+  slug: string;
+  category_id: string;
+  title: string;
+  tag: string;
+  featured_tag: string | null;
+  short_description: string;
+  description: string;
+  benefits: string[];
+  price_label: string;
+  price_note: string;
+  /** `numeric` : PostgREST le renvoie en chaîne pour ne rien perdre en route. */
+  price_amount: string | null;
+  currency: string;
+  image_path: string;
+  image_alt: string | null;
+  cta_label: string;
+  request_subject: string;
+  internal_href: string | null;
+  commercial_mode: CommercialMode;
+  status: CatalogueStatus;
+  show_in_services: boolean;
+  show_in_shop: boolean;
+  is_featured: boolean;
+  featured_order: number | null;
+  sort_order: number;
+  affiliate_eligible: boolean;
+  affiliate_max_rate: string | null;
+  published_at: string | null;
+  created_at: string;
+  updated_at: string;
+  created_by: string | null;
+  updated_by: string | null;
+};
+
+export type ProductRow = {
+  id: string;
+  slug: string;
+  category_id: string;
+  title: string;
+  tag: string;
+  short_description: string;
+  description: string;
+  benefits: string[];
+  price_label: string;
+  price_note: string;
+  price_amount: string | null;
+  currency: string;
+  image_path: string;
+  image_alt: string | null;
+  cta_label: string;
+  commercial_mode: CommercialMode;
+  stock_quantity: number | null;
+  status: CatalogueStatus;
+  show_in_shop: boolean;
+  is_featured: boolean;
+  featured_order: number | null;
+  sort_order: number;
+  affiliate_eligible: boolean;
+  affiliate_max_rate: string | null;
+  published_at: string | null;
+  created_at: string;
+  updated_at: string;
+  created_by: string | null;
+  updated_by: string | null;
+};
+
+export type ProductFileRow = {
+  id: string;
+  product_id: string;
+  label: string;
+  storage_path: string;
+  content_type: string | null;
+  size_bytes: number | null;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
+};
+
 type Relationship = {
   foreignKeyName: string;
   columns: readonly string[];
@@ -317,6 +423,57 @@ type DocumentRelationships = [
   },
 ];
 
+/**
+ * Écritures du catalogue.
+ *
+ * PostgREST **lit** un `numeric` en chaîne, pour ne perdre aucune décimale en
+ * route, mais il en **accepte** l'écriture sous forme de nombre. Les deux sens
+ * n'ont donc pas le même type, et confondre les deux obligerait chaque
+ * appelant à convertir un montant en texte avant de l'envoyer — une
+ * conversion de plus, donc une occasion de plus de se tromper de virgule.
+ */
+type NumericWrite = number | string | null;
+
+export type ServiceWrite = Omit<Partial<ServiceRow>, 'price_amount' | 'affiliate_max_rate'> & {
+  price_amount?: NumericWrite;
+  affiliate_max_rate?: NumericWrite;
+};
+
+export type ProductWrite = Omit<Partial<ProductRow>, 'price_amount' | 'affiliate_max_rate'> & {
+  price_amount?: NumericWrite;
+  affiliate_max_rate?: NumericWrite;
+};
+
+type ServiceRelationships = [
+  {
+    foreignKeyName: 'services_category_id_fkey';
+    columns: ['category_id'];
+    isOneToOne: false;
+    referencedRelation: 'categories';
+    referencedColumns: ['id'];
+  },
+];
+
+type ProductRelationships = [
+  {
+    foreignKeyName: 'products_category_id_fkey';
+    columns: ['category_id'];
+    isOneToOne: false;
+    referencedRelation: 'categories';
+    referencedColumns: ['id'];
+  },
+];
+
+type ProductFileRelationships = [
+  {
+    foreignKeyName: 'product_files_product_id_fkey';
+    columns: ['product_id'];
+    isOneToOne: false;
+    referencedRelation: 'products';
+    referencedColumns: ['id'];
+  },
+];
+
 export type Database = {
   public: {
     Tables: {
@@ -375,6 +532,59 @@ export type Database = {
        */
       documents: Table<DocumentRow, never, Partial<DocumentRow>, DocumentRelationships>;
       document_sequences: Table<DocumentSequenceRow, never, never>;
+      categories: Table<
+        CategoryRow,
+        Pick<CategoryRow, 'slug' | 'name' | 'kind'> & Partial<CategoryRow>,
+        Partial<CategoryRow>
+      >;
+      /**
+       * `published_at` n'est pas laissé à l'application : le déclencheur
+       * `catalogue_publication_guard` l'écrit, et exige `services.publish`
+       * pour toute entrée ou sortie du statut PUBLIE.
+       */
+      services: Table<
+        ServiceRow,
+        Pick<
+          ServiceRow,
+          | 'slug'
+          | 'category_id'
+          | 'title'
+          | 'tag'
+          | 'short_description'
+          | 'description'
+          | 'price_label'
+          | 'image_path'
+          | 'cta_label'
+          | 'request_subject'
+        > &
+          ServiceWrite,
+        ServiceWrite,
+        ServiceRelationships
+      >;
+      products: Table<
+        ProductRow,
+        Pick<
+          ProductRow,
+          | 'slug'
+          | 'category_id'
+          | 'title'
+          | 'tag'
+          | 'short_description'
+          | 'description'
+          | 'price_label'
+          | 'image_path'
+          | 'cta_label'
+        > &
+          ProductWrite,
+        ProductWrite,
+        ProductRelationships
+      >;
+      product_files: Table<
+        ProductFileRow,
+        Pick<ProductFileRow, 'product_id' | 'label' | 'storage_path'> & Partial<ProductFileRow>,
+        Partial<ProductFileRow>,
+        ProductFileRelationships
+      >;
       settings: Table<
         SettingRow,
         Pick<SettingRow, 'key' | 'value' | 'label'> & Partial<SettingRow>
@@ -443,6 +653,11 @@ export type Database = {
       };
       can_read_document_type: {
         Args: { p_type: string };
+        Returns: boolean;
+      };
+      /** Catalogue complet, brouillons compris (migration 0006 § 1). */
+      can_view_catalogue: {
+        Args: Record<string, never>;
         Returns: boolean;
       };
       bump_rate_limit: {

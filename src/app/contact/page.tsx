@@ -5,8 +5,20 @@ import PageHero from '@/components/sections/PageHero';
 import SectionHead from '@/components/sections/SectionHead';
 import JsonLd from '@/components/seo/JsonLd';
 import { ArrowRight, Clock, Mail, MapPin, Phone, socialIcons } from '@/components/ui/Icon';
+import { getPublicCatalogue, toOfferContexts } from '@/lib/catalogue/public';
 import { breadcrumbSchema, jsonLdGraph, pageMetadata } from '@/lib/seo';
 import { site, socials, whatsappLink } from '@/lib/site';
+
+/**
+ * Le formulaire présélectionne le besoin à partir de `?offre=`. Ce contexte
+ * vient désormais du catalogue en base ; la page reste pré-rendue, comme la
+ * Boutique et l'accueil.
+ */
+// Next.js exige ici un littéral : la valeur est lue par analyse statique, pas
+// à l'exécution, et une constante importée est refusée au build. Elle doit
+// donc rester égale à CATALOGUE_REVALIDATE_SECONDS — ce que le test
+// `catalogue-revalidation` vérifie, pour que la duplication ne dérive pas.
+export const revalidate = 300;
 
 export const metadata = pageMetadata({
   title: 'Contact — Parlons de votre projet',
@@ -17,7 +29,10 @@ export const metadata = pageMetadata({
 
 const WHATSAPP_MESSAGE = 'Bonjour MORA Shawiri, j’aimerais discuter de mon projet.';
 
-export default function ContactPage() {
+export default async function ContactPage() {
+  const { offers } = await getPublicCatalogue();
+  const offerContexts = toOfferContexts(offers);
+
   return (
     <>
       <JsonLd
@@ -47,7 +62,7 @@ export default function ContactPage() {
                 par e-mail. Vous pourrez ensuite, si vous le souhaitez, en envoyer une copie sur
                 WhatsApp.
               </p>
-              <ContactForm />
+              <ContactForm offers={offerContexts} />
             </div>
 
             <div className="split__body reveal">

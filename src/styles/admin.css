@@ -552,6 +552,99 @@
 /* Tablette : la barre latérale passe au-dessus du contenu et se déroule à
    l'horizontale. Le § 130 demande que le tableau de bord reste utilisable sur
    ordinateur, tablette **et** smartphone. */
+/* ----------------------------------- 8. FORMULAIRES DU CATALOGUE (4E)
+
+   Le module Catalogue saisit une vingtaine de champs par offre, là où
+   l'invitation d'un administrateur en demandait trois. Une colonne unique
+   imposerait un défilement interminable ; la grille regroupe ce qui se lit
+   ensemble, et retombe à une colonne sur petit écran — le § 109 exige que les
+   opérations essentielles restent faisables au téléphone.
+
+   Rien ici ne touche le site public : `admin.css` n'est chargée que par le
+   gabarit d'administration. */
+
+.admin-form + .admin-form {
+  margin-top: var(--sp-6);
+  padding-top: var(--sp-6);
+  border-top: 1px solid var(--border);
+}
+
+.admin-form__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: var(--sp-4) var(--sp-5);
+}
+
+/* Dans une grille, chaque champ porte déjà son espacement : la marge
+   verticale héritée de `.admin-field + .admin-field` ferait double emploi et
+   désalignerait les lignes. */
+.admin-form__grid .admin-field + .admin-field {
+  margin-top: 0;
+}
+
+.admin-form .admin-form__grid + .admin-field,
+.admin-form .admin-field + .admin-form__grid,
+.admin-form .admin-form__grid + .admin-form__grid {
+  margin-top: var(--sp-4);
+}
+
+.admin-input--area {
+  min-height: 7rem;
+  resize: vertical;
+  font: inherit;
+  line-height: 1.6;
+}
+
+.admin-fieldset {
+  margin: var(--sp-5) 0 0;
+  padding: var(--sp-4);
+  border: 1px solid var(--border);
+  border-radius: var(--r-card);
+  background: var(--gray-light);
+}
+
+.admin-fieldset legend {
+  font-family: var(--font-display);
+  font-size: var(--text-small);
+  font-weight: 700;
+  padding: 0 var(--sp-2);
+}
+
+.admin-check {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--sp-3);
+  padding: var(--sp-2) 0;
+}
+
+.admin-check + .admin-check {
+  border-top: 1px solid var(--border);
+}
+
+.admin-check input[type='checkbox'] {
+  margin-top: 4px;
+  width: 18px;
+  height: 18px;
+  flex: none;
+  accent-color: var(--mora-blue);
+}
+
+.admin-check small {
+  display: block;
+  font-size: var(--text-caption);
+  color: var(--text-secondary);
+  margin-top: 2px;
+}
+
+/* Un champ en lecture seule doit se voir : sans cela, un administrateur sans
+   droit d'écriture croirait saisir, et perdrait son travail à l'envoi. */
+.admin-input[readonly],
+.admin-input:disabled {
+  background: var(--gray-light);
+  color: var(--text-secondary);
+  cursor: not-allowed;
+}
+
 @media (max-width: 1080px) {
   .admin__grid {
     grid-template-columns: minmax(0, 1fr);
@@ -590,7 +683,8 @@
     justify-content: space-between;
   }
 
-  .admin-perms {
+  .admin-perms,
+  .admin-form__grid {
     grid-template-columns: minmax(0, 1fr);
   }
 

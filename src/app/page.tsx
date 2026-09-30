@@ -33,9 +33,20 @@ import {
   serviceHighlights,
   whyPoints,
 } from '@/content/home';
-import { featuredOffers } from '@/content/offers';
+import { getPublicCatalogue } from '@/lib/catalogue/public';
 import { faqSchema, jsonLdGraph, pageMetadata } from '@/lib/seo';
 import { site } from '@/lib/site';
+
+/**
+ * Les trois offres mises en avant viennent de la base depuis la phase 4E.
+ * Même raisonnement que pour la Boutique : lecture sans cookie, donc page
+ * toujours pré-rendue, régénérée toutes les cinq minutes.
+ */
+// Next.js exige ici un littéral : la valeur est lue par analyse statique, pas
+// à l'exécution, et une constante importée est refusée au build. Elle doit
+// donc rester égale à CATALOGUE_REVALIDATE_SECONDS — ce que le test
+// `catalogue-revalidation` vérifie, pour que la duplication ne dérive pas.
+export const revalidate = 300;
 
 export const metadata = pageMetadata({
   title: 'MORA Shawiri — Agence digitale aux Comores | Sites web, branding & formations',
@@ -59,7 +70,9 @@ const commitmentIcons = {
   sparkles: Sparkles,
 } as const;
 
-export default function HomePage() {
+export default async function HomePage() {
+  const { featured } = await getPublicCatalogue();
+
   return (
     <>
       <JsonLd data={jsonLdGraph([faqSchema(homeFaq)])} />
@@ -236,7 +249,7 @@ export default function HomePage() {
             lead="Quatorze prestations prêtes à démarrer, de la création de logo au développement d’applications. Les prix définis sont affichés ; les projets sur mesure sont chiffrés selon votre besoin réel."
           />
           <div className="grid grid--3 reveal-group">
-            {featuredOffers.map((offer) => (
+            {featured.map((offer) => (
               <OfferCard key={offer.id} offer={offer} variant="compact" />
             ))}
           </div>

@@ -36,3 +36,6 @@ yarn-error.log*
 
 # typescript
 *.tsbuildinfo
+
+# captures de non-régression publique (scripts/verify-public.mjs)
+/.snapshots
