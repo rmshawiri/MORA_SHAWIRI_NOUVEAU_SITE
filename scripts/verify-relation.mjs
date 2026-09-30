@@ -1053,16 +1053,52 @@ async function cleanUp(admin, target, accessToken, state, before) {
     await admin.from('quotes').delete().in('quote_request_id', requestIds);
   }
 
-  // Les documents émis pour ces devis : `documents` refuse la suppression d'un
-  // document émis. On passe donc par la clé de service en SQL direct, comme la
-  // phase 4D le fait pour ses propres contrôles.
+  // Les documents émis pour ces devis. Un document émis ne se supprime pas :
+  // il faut d'abord l'annuler, règle posée en phase 4D et que ce démontage
+  // applique à lui-même — comme le fait `verify-documents.mjs`.
+  const subjects = `('Contrôle Relation', 'Contrôle Rendez-vous')`;
+
+  await runSql(
+    target,
+    accessToken,
+    `update public.documents set status = 'ANNULE'
+      where doc_type = 'DVCL' and subject_name in ${subjects};`,
+  ).catch(() => {});
+
   await runSql(
     target,
     accessToken,
     `delete from public.documents
-      where doc_type = 'DVCL'
-        and subject_name in ('Contrôle Relation', 'Contrôle Rendez-vous');`,
+      where doc_type = 'DVCL' and subject_name in ${subjects};`,
   ).catch(() => {});
+
+  /*
+   * Et l'on rend les compteurs tels qu'on les a trouvés.
+   *
+   * C'est le point que la phase 4D avait vu venir et que ce script a d'abord
+   * manqué : « consommer 10 000 numéros sur FACL percerait un trou de 10 000
+   * factures dans une suite comptable réelle ». Ici le trou était plus petit,
+   * mais de même nature — les premiers devis réels de MORA Shawiri auraient
+   * commencé après une poignée de numéros de contrôle.
+   *
+   * Les trois suites de la relation client sont donc restituées à leur valeur
+   * d'avant l'exécution. Ce n'est légitime que parce que les documents et les
+   * lignes qui portaient ces numéros viennent d'être supprimés : aucune
+   * référence vivante ne les cite plus.
+   */
+  for (const [docType, sequence] of Object.entries(before.sequences)) {
+    await runSql(
+      target,
+      accessToken,
+      sequence === null
+        ? `delete from public.document_sequences where doc_type = '${docType}';`
+        : `update public.document_sequences
+              set series = '${sequence.series}',
+                  last_number = ${sequence.last_number},
+                  allocated_count = ${sequence.allocated_count}
+            where doc_type = '${docType}';`,
+    ).catch(() => {});
+  }
 
   if (state.availabilityIds.length > 0) {
     await admin
@@ -1124,6 +1160,41 @@ async function cleanUp(admin, target, accessToken, state, before) {
     quotes === before.quotes,
     `${quotes} contre ${before.quotes}`,
   );
+
+  // Et l'invariant qui compte le plus : la numérotation commerciale est
+  // exactement celle d'avant. Aucun trou n'a été percé dans une suite réelle.
+  const after = await runSql(
+    target,
+    accessToken,
+    `select doc_type, series, last_number, allocated_count
+       from public.document_sequences
+      where doc_type in ('DMCL', 'RVCL', 'DVCL')
+      order by doc_type;`,
+  ).catch(() => null);
+
+  const restored = Object.fromEntries((after ?? []).map((row) => [row.doc_type, row]));
+
+  for (const docType of ['DMCL', 'RVCL', 'DVCL']) {
+    const expected = before.sequences[docType];
+    const actual = restored[docType] ?? null;
+
+    check(
+      `la suite ${docType} est rendue telle qu’elle a été trouvée`,
+      JSON.stringify(expected) === JSON.stringify(actual ?? null),
+      `avant ${JSON.stringify(expected)} — après ${JSON.stringify(actual ?? null)}`,
+    );
+  }
+
+  const { data: leftovers } = await admin
+    .from('documents')
+    .select('reference')
+    .in('subject_name', ['Contrôle Relation', 'Contrôle Rendez-vous']);
+
+  check(
+    'aucun document de contrôle ne subsiste',
+    (leftovers ?? []).length === 0,
+    (leftovers ?? []).map((row) => row.reference).join(', '),
+  );
 }
 
 /* ========================================================================== */
@@ -1148,7 +1219,23 @@ async function main() {
     admin.from('quotes').select('id', { count: 'exact', head: true }),
   ]);
 
-  const before = { availabilities: availabilitiesBefore ?? 0, quotes: quotesBefore ?? 0 };
+  // L'état des trois suites de la relation client, pour les restituer à la fin.
+  const sequenceRows = await runSql(
+    accessToken ? target : target,
+    accessToken,
+    `select doc_type, series, last_number, allocated_count
+       from public.document_sequences
+      where doc_type in ('DMCL', 'RVCL', 'DVCL');`,
+  ).catch(() => []);
+
+  const sequences = { DMCL: null, RVCL: null, DVCL: null };
+  for (const row of sequenceRows ?? []) sequences[row.doc_type] = row;
+
+  const before = {
+    availabilities: availabilitiesBefore ?? 0,
+    quotes: quotesBefore ?? 0,
+    sequences,
+  };
 
   const state = {
     burstReferences: [],
