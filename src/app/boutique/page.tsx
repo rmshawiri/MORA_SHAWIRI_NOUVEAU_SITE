@@ -11,6 +11,7 @@ import { ArrowRight } from '@/components/ui/Icon';
 import { getPublicCatalogue } from '@/lib/catalogue/public';
 import type { Offer } from '@/content/offers';
 import { getSiteUrl } from '@/lib/env';
+import { getContenus } from '@/lib/contenus/public';
 import { breadcrumbSchema, jsonLdGraph, pageMetadata } from '@/lib/seo';
 
 /**
@@ -86,7 +87,12 @@ function offerCatalogSchema(offers: readonly Offer[]) {
 }
 
 export default async function BoutiquePage() {
-  const { offers, groups } = await getPublicCatalogue();
+  // Catalogue (4E-1) et contenus (4E-2) sont indépendants : les lire en
+  // parallèle évite d'additionner leurs latences sur une page publique.
+  const [{ offers, groups }, contenus] = await Promise.all([
+    getPublicCatalogue(),
+    getContenus(),
+  ]);
 
   return (
     <>
@@ -102,20 +108,13 @@ export default async function BoutiquePage() {
 
       <PageHero
         breadcrumb={[{ label: 'Accueil', href: '/' }, { label: 'Boutique' }]}
-        eyebrow="Boutique"
-        title="Quatorze prestations prêtes à démarrer"
-        lead="Site web, application mobile, SaaS, identité visuelle, visuels produits, organisation, conseil et formation : choisissez la prestation qui débloque votre prochaine étape. Les prix définis sont affichés ; les projets sur mesure sont chiffrés selon votre besoin réel."
+        {...contenus.texte('boutique.hero')}
       />
 
       {/* Univers 1 — Services (`08_BOUTIQUE.md` § 7 et § 8) */}
       <section className="section" aria-labelledby="services-title">
         <div className="container">
-          <SectionHead
-            eyebrow="Nos services"
-            title="Les prestations actuellement disponibles"
-            titleId="services-title"
-            lead="Retrouvez les prestations MORA Shawiri actuellement disponibles à la commande ou à la demande, regroupées par famille de besoin."
-          />
+          <SectionHead {...contenus.texte('boutique.services')} titleId="services-title" />
 
           {groups.map((group) => (
             <div className="offer-group" key={group.id}>
@@ -133,13 +132,7 @@ export default async function BoutiquePage() {
       {/* Univers 2 — Produits (`08_BOUTIQUE.md` § 23-24) : aucun produit au lancement. */}
       <section className="section section--alt" aria-labelledby="produits-title">
         <div className="container">
-          <SectionHead
-            eyebrow="Nos produits"
-            title="De nouveaux produits arrivent bientôt"
-            titleId="produits-title"
-            lead="Les produits MORA Shawiri ne sont pas encore disponibles. La boutique sera progressivement enrichie avec de nouvelles ressources et offres."
-            center
-          />
+          <SectionHead {...contenus.texte('boutique.produits')} titleId="produits-title" center />
           <div className="btn-row" style={{ justifyContent: 'center' }}>
             <Link className="btn btn--gold" href="/services/">
               Découvrir nos services <ArrowRight />
@@ -150,12 +143,7 @@ export default async function BoutiquePage() {
 
       <section className="section" aria-labelledby="commande-title">
         <div className="container">
-          <SectionHead
-            eyebrow="Comment commander"
-            title="Votre prestation lancée en quatre étapes simples"
-            titleId="commande-title"
-            center
-          />
+          <SectionHead {...contenus.texte('boutique.commander')} titleId="commande-title" center />
           <Steps items={orderSteps} />
           <div
             className="card card--brand reveal"
@@ -226,10 +214,7 @@ export default async function BoutiquePage() {
       </section>
 
       <CtaBand
-        title="Une question sur une offre ?"
-        text="Nous vous aidons à choisir la prestation adaptée à votre situation, sans frais et sans engagement."
-        primaryLabel="Nous contacter"
-        whatsappMessage="Bonjour MORA Shawiri, j’ai une question sur une offre de votre boutique."
+        {...contenus.texte('boutique.cta')}
       />
     </>
   );

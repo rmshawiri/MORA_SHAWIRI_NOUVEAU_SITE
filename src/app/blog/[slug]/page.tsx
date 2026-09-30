@@ -7,22 +7,36 @@ import PostCard from '@/components/sections/PostCard';
 import SectionHead from '@/components/sections/SectionHead';
 import JsonLd from '@/components/seo/JsonLd';
 import { ArrowRight } from '@/components/ui/Icon';
-import { getPost, postBody, postPath, posts, relatedPosts } from '@/content/posts';
+import { postPath, type Post } from '@/content/posts';
+import { getPublicArticle, getPublicBlog, relatedFrom } from '@/lib/contenus/blog';
 import { getSiteUrl } from '@/lib/env';
 import { breadcrumbSchema, jsonLdGraph, pageMetadata } from '@/lib/seo';
 import { site } from '@/lib/site';
 
 type PageProps = { params: Promise<{ slug: string }> };
 
-/** Les quatre articles sont connus à la compilation : génération statique. */
-export function generateStaticParams() {
+/**
+ * Articles pré-rendus au build.
+ *
+ * Lus en base depuis la phase 4E-2, avec repli sur ceux du code : une base
+ * injoignable au moment du build ne doit pas produire un site sans blog.
+ *
+ * `dynamicParams` reste à sa valeur par défaut (`true`). C'est voulu : un
+ * article publié après le déploiement est alors rendu à la demande, puis mis en
+ * cache — il apparaît donc sans redéploiement, ce qui est précisément l'objet de
+ * la phase. Un slug inexistant, lui, reçoit un 404 par `notFound()`.
+ */
+export async function generateStaticParams() {
+  const { posts } = await getPublicBlog();
   return posts.map((post) => ({ slug: post.slug }));
 }
 
 export async function generateMetadata({ params }: PageProps) {
   const { slug } = await params;
-  const post = getPost(slug);
-  if (!post) return {};
+  const article = await getPublicArticle(slug);
+  if (!article) return {};
+
+  const { post } = article;
 
   return pageMetadata({
     title: post.title,
@@ -32,9 +46,7 @@ export async function generateMetadata({ params }: PageProps) {
   });
 }
 
-function articleSchema(slug: string) {
-  const post = getPost(slug);
-  if (!post) return null;
+function articleSchema(post: Post) {
   const siteUrl = getSiteUrl();
 
   return {
@@ -54,12 +66,19 @@ function articleSchema(slug: string) {
 
 export default async function BlogPostPage({ params }: PageProps) {
   const { slug } = await params;
-  const post = getPost(slug);
-  if (!post) notFound();
 
-  const blocks = postBody(slug);
-  const related = relatedPosts(slug);
-  const schema = articleSchema(slug);
+  // L'article et le fil sont lus en parallèle : le fil ne sert qu'aux
+  // suggestions de fin de lecture, il n'a pas à attendre l'article.
+  const [article, blog] = await Promise.all([getPublicArticle(slug), getPublicBlog()]);
+
+  // Un article non publié n'est pas « masqué » : RLS ne renvoie pas la ligne,
+  // donc il n'existe pas pour cette session. Connaître son slug ne donne rien
+  // (point 14 du cadrage).
+  if (!article) notFound();
+
+  const { post, body: blocks } = article;
+  const related = relatedFrom(blog.posts, slug);
+  const schema = articleSchema(post);
 
   return (
     <>

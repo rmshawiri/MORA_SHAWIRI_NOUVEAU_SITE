@@ -3,6 +3,7 @@ import PageHero from '@/components/sections/PageHero';
 import SectionHead from '@/components/sections/SectionHead';
 import JsonLd from '@/components/seo/JsonLd';
 import { Check, Clock, Mail, MapPin } from '@/components/ui/Icon';
+import { getContenus } from '@/lib/contenus/public';
 import { breadcrumbSchema, jsonLdGraph, pageMetadata } from '@/lib/seo';
 import { site, whatsappLink } from '@/lib/site';
 
@@ -36,7 +37,15 @@ const facts = [
   },
 ];
 
-export default function RendezVousPage() {
+// Next.js exige ici un littéral : la valeur est lue par analyse statique, pas
+// à l'exécution, et une constante importée est refusée au build. Elle doit donc
+// rester égale à CONTENUS_REVALIDATE_SECONDS — ce que le test
+// `contenus-revalidation` vérifie, pour que la duplication ne dérive pas.
+export const revalidate = 300;
+
+export default async function RendezVousPage() {
+  const contenus = await getContenus();
+
   return (
     <>
       <JsonLd
@@ -50,16 +59,13 @@ export default function RendezVousPage() {
 
       <PageHero
         breadcrumb={[{ label: 'Accueil', href: '/' }, { label: 'Prendre rendez-vous' }]}
-        eyebrow="Rendez-vous"
-        title="Réservez votre échange en moins de deux minutes"
-        lead="Répondez à quelques questions, une à la fois. À la fin, votre demande nous est transmise et vous recevez un accusé de réception par e-mail — nous confirmons le créneau sous 24 h ouvrées."
+        {...contenus.texte('rendez-vous.hero')}
       />
 
       <section className="section" aria-labelledby="rdv-title">
         <div className="container">
           <SectionHead
-            eyebrow="Prise de rendez-vous"
-            title="Dites-nous l’essentiel, nous préparons l’échange"
+            {...contenus.texte('rendez-vous.section')}
             titleId="rdv-title"
             lead="Aucune inscription, aucun formulaire interminable : une conversation guidée, et vous gardez la main sur chaque réponse."
           />

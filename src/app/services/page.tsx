@@ -7,7 +7,9 @@ import PageHero from '@/components/sections/PageHero';
 import SectionHead from '@/components/sections/SectionHead';
 import JsonLd from '@/components/seo/JsonLd';
 import { ArrowRight, Cart, ChartBars, Database, Globe, GraduationCap, Palette } from '@/components/ui/Icon';
-import { audiences, emphasizedRows, formulaRows, servicePoles, servicesFaq } from '@/content/services';
+import { audiences, emphasizedRows, formulaRows, servicePoles } from '@/content/services';
+import { getPublicFaq } from '@/lib/contenus/faq';
+import { getContenus } from '@/lib/contenus/public';
 import { getSiteUrl } from '@/lib/env';
 import { breadcrumbSchema, faqSchema, jsonLdGraph, pageMetadata } from '@/lib/seo';
 
@@ -46,7 +48,15 @@ function servicesSchema() {
   };
 }
 
-export default function ServicesPage() {
+// Next.js exige ici un littéral : la valeur est lue par analyse statique, pas
+// à l'exécution, et une constante importée est refusée au build. Elle doit donc
+// rester égale à CONTENUS_REVALIDATE_SECONDS — ce que le test
+// `contenus-revalidation` vérifie, pour que la duplication ne dérive pas.
+export const revalidate = 300;
+
+export default async function ServicesPage() {
+  const [contenus, faq] = await Promise.all([getContenus(), getPublicFaq()]);
+
   return (
     <>
       <JsonLd
@@ -56,25 +66,18 @@ export default function ServicesPage() {
             { label: 'Services', path: '/services/' },
           ]),
           servicesSchema(),
-          faqSchema(servicesFaq),
+          faqSchema(faq.services),
         ])}
       />
 
       <PageHero
         breadcrumb={[{ label: 'Accueil', href: '/' }, { label: 'Services' }]}
-        eyebrow="Nos services"
-        title="Toutes les expertises numériques, un seul partenaire"
-        lead="Du premier logo à l’organisation de vos données, MORA Shawiri couvre l’ensemble de vos besoins numériques. Vous gagnez du temps, de la cohérence et de la performance."
+        {...contenus.texte('services.hero')}
       />
 
       <section className="section" aria-labelledby="poles-title">
         <div className="container">
-          <SectionHead
-            eyebrow="Six pôles d’expertise"
-            title="Ce que nous faisons, concrètement"
-            titleId="poles-title"
-            lead="Chaque pôle peut être mobilisé seul ou combiné aux autres dans un accompagnement global."
-          />
+          <SectionHead {...contenus.texte('services.poles')} titleId="poles-title" />
           <div className="grid grid--2 reveal-group">
             {servicePoles.map((pole) => {
               const PoleIcon = poleIcons[pole.icon];
@@ -98,13 +101,7 @@ export default function ServicesPage() {
 
       <section className="section section--alt" aria-labelledby="formules-title">
         <div className="container">
-          <SectionHead
-            eyebrow="Tableau comparatif"
-            title="Trois niveaux d’accompagnement, un objectif : votre performance"
-            titleId="formules-title"
-            lead="Des formules lisibles pour choisir en connaissance de cause. Chaque formule est ajustée sur devis selon votre projet."
-            center
-          />
+          <SectionHead {...contenus.texte('services.formules')} titleId="formules-title" center />
           <div className="compare-wrap reveal">
             <table className="compare">
               <caption className="sr-only">
@@ -188,22 +185,12 @@ export default function ServicesPage() {
 
       <section className="section section--alt" aria-labelledby="faq-title">
         <div className="container">
-          <SectionHead
-            eyebrow="FAQ services"
-            title="Avant de démarrer, ce qu’il faut savoir"
-            titleId="faq-title"
-            center
-          />
-          <Faq items={servicesFaq} />
+          <SectionHead {...contenus.texte('services.faq')} titleId="faq-title" center />
+          <Faq items={faq.services} />
         </div>
       </section>
 
-      <CtaBand
-        title="Quel service correspond à votre projet ?"
-        text="Décrivez-nous votre besoin : nous recommandons la solution la plus rentable, devis gratuit à l’appui."
-        primaryLabel="Demander un devis gratuit"
-        whatsappMessage="Bonjour MORA Shawiri, je souhaite être conseillé sur le service adapté à mon projet."
-      />
+      <CtaBand {...contenus.texte('services.cta')} />
     </>
   );
 }

@@ -6,6 +6,7 @@ import SectionHead from '@/components/sections/SectionHead';
 import JsonLd from '@/components/seo/JsonLd';
 import { ArrowRight, Clock, Mail, MapPin, Phone, socialIcons } from '@/components/ui/Icon';
 import { getPublicCatalogue, toOfferContexts } from '@/lib/catalogue/public';
+import { getContenus } from '@/lib/contenus/public';
 import { breadcrumbSchema, jsonLdGraph, pageMetadata } from '@/lib/seo';
 import { site, socials, whatsappLink } from '@/lib/site';
 
@@ -30,7 +31,7 @@ export const metadata = pageMetadata({
 const WHATSAPP_MESSAGE = 'Bonjour MORA Shawiri, j’aimerais discuter de mon projet.';
 
 export default async function ContactPage() {
-  const { offers } = await getPublicCatalogue();
+  const [{ offers }, contenus] = await Promise.all([getPublicCatalogue(), getContenus()]);
   const offerContexts = toOfferContexts(offers);
 
   return (
@@ -46,9 +47,7 @@ export default async function ContactPage() {
 
       <PageHero
         breadcrumb={[{ label: 'Accueil', href: '/' }, { label: 'Contact' }]}
-        eyebrow="Contact"
-        title="Parlons de votre projet"
-        lead="Décrivez votre besoin en quelques lignes. Nous répondons sous 24 h et vous recevez un devis détaillé sous 48 h — gratuitement et sans engagement."
+        {...contenus.texte('contact.hero')}
       />
 
       <section className="section">
@@ -118,8 +117,7 @@ export default async function ContactPage() {
       <section className="section section--alt" aria-labelledby="reseaux-title">
         <div className="container">
           <SectionHead
-            eyebrow="Nos réseaux"
-            title="Suivez notre travail au quotidien"
+            {...contenus.texte('contact.reseaux')}
             titleId="reseaux-title"
             lead="Réalisations, conseils et coulisses de nos projets, publiés régulièrement."
             center
@@ -145,9 +143,7 @@ export default async function ContactPage() {
       {/* Le CTA principal pointait auparavant vers /contact/ — c'est-à-dire vers
           la page déjà affichée. Il propose désormais l'étape suivante réelle. */}
       <CtaBand
-        title="Vous préférez un échange de vive voix ?"
-        text="Le premier échange est gratuit et sans engagement. Il éclaire souvent la décision à lui seul."
-        primaryLabel="Prendre rendez-vous"
+        {...contenus.texte('contact.cta')}
         primaryHref="/rendez-vous/"
         currentPath="/contact/"
         whatsappMessage="Bonjour MORA Shawiri, j’ai une question sur vos prestations."

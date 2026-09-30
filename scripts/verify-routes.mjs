@@ -396,6 +396,7 @@ async function sessionRoutes(target, base) {
       ['/administration/administrateurs/', 'Administrateurs'],
       ['/administration/journal/', 'Journal'],
       ['/administration/catalogue/', 'Catalogue'],
+      ['/administration/contenus/', 'Contenus'],
     ];
 
     for (const [path, label] of closedModules) {
@@ -588,6 +589,115 @@ async function sessionRoutes(target, base) {
       'la fiche d’offre se referme elle aussi',
       ficheFermee.status === 404,
       `HTTP ${ficheFermee.status}`,
+    );
+
+    // --- Les Contenus, livrés par la phase 4E-2 -----------------------------
+    //
+    // Même logique de paliers que le Catalogue, et le même point d'attention :
+    // ouvrir la page ne donne pas le droit d'écrire, écrire ne donne pas le
+    // droit de publier. Le contrôle passe par l'URL, puisque c'est par là qu'on
+    // contournerait un bouton masqué.
+
+    await adjust('content.view', 'OCTROI');
+
+    const contenus = await visit(base, '/administration/contenus/', aal2Cookie);
+    check(
+      'content.view ouvre le module Contenus',
+      contenus.status === 200,
+      `HTTP ${contenus.status}`,
+    );
+    check(
+      'les emplacements de texte sont listés depuis le registre',
+      contenus.body.includes('Textes du site'),
+    );
+    check(
+      'la FAQ reprise est servie depuis la base',
+      contenus.body.includes('Questions de la page d’accueil'),
+    );
+    check(
+      'les articles repris sont servis depuis la base',
+      contenus.body.includes('echec-prospection-client'),
+    );
+    check(
+      'la médiathèque inventoriée est servie depuis la base',
+      contenus.body.includes('offre-logo.webp'),
+    );
+
+    const bloc = await visit(base, '/administration/contenus/bloc/accueil/hero/', aal2Cookie);
+    check(
+      'la fiche d’un bloc s’ouvre avec content.view',
+      bloc.status === 200,
+      `HTTP ${bloc.status}`,
+    );
+    check(
+      'sans content.publish, aucun bouton de publication n’est servi',
+      !bloc.body.includes('Rétablir le texte d’origine'),
+    );
+    check(
+      'la fiche de bloc nomme le droit manquant plutôt que de se taire',
+      bloc.body.includes('content.publish'),
+    );
+
+    const blocInconnu = await visit(
+      base,
+      '/administration/contenus/bloc/accueil/inexistant/',
+      aal2Cookie,
+    );
+    check(
+      'une clé de bloc absente du registre répond 404',
+      blocInconnu.status === 404,
+      `HTTP ${blocInconnu.status}`,
+    );
+
+    const articleInconnu = await visit(
+      base,
+      '/administration/contenus/article/article-inexistant/',
+      aal2Cookie,
+    );
+    check(
+      'un article inexistant répond 404',
+      articleInconnu.status === 404,
+      `HTTP ${articleInconnu.status}`,
+    );
+
+    await adjust('content.publish', 'OCTROI');
+
+    const blocAvecPublication = await visit(
+      base,
+      '/administration/contenus/bloc/accueil/hero/',
+      aal2Cookie,
+    );
+    // Le contrôle porte sur la **disparition de l'avertissement**, et non sur
+    // l'apparition d'un bouton : ce bloc n'a ni surcharge ni brouillon, donc
+    // aucune transition n'a lieu d'être proposée. Une première version de ce
+    // contrôle cherchait le bouton et échouait pour cette raison — alors que le
+    // comportement était correct.
+    check(
+      'content.publish fait disparaître l’avertissement de publication',
+      !blocAvecPublication.body.includes(
+        'La mise en ligne et le retrait exigent la permission',
+      ),
+    );
+    check(
+      'la fiche continue d’annoncer content.update, toujours manquant',
+      blocAvecPublication.body.includes('content.update'),
+    );
+
+    await adjust('content.view', null);
+    await adjust('content.publish', null);
+
+    const contenusFerme = await visit(base, '/administration/contenus/', aal2Cookie);
+    check(
+      'le retrait des octrois referme les Contenus',
+      contenusFerme.status === 404,
+      `HTTP ${contenusFerme.status}`,
+    );
+
+    const blocFerme = await visit(base, '/administration/contenus/bloc/accueil/hero/', aal2Cookie);
+    check(
+      'la fiche de bloc se referme elle aussi',
+      blocFerme.status === 404,
+      `HTTP ${blocFerme.status}`,
     );
 
     // --- Remise à zéro : le compte repart sans aucun droit ------------------

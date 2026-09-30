@@ -8,6 +8,7 @@ import Testimonials from '@/components/sections/Testimonials';
 import Timeline from '@/components/sections/Timeline';
 import JsonLd from '@/components/seo/JsonLd';
 import { ArrowRight } from '@/components/ui/Icon';
+import { getContenus } from '@/lib/contenus/public';
 import { breadcrumbSchema, jsonLdGraph, pageMetadata } from '@/lib/seo';
 
 export const metadata = pageMetadata({
@@ -78,7 +79,15 @@ const journey = [
   },
 ];
 
-export default function AboutPage() {
+// Next.js exige ici un littéral : la valeur est lue par analyse statique, pas
+// à l'exécution, et une constante importée est refusée au build. Elle doit donc
+// rester égale à CONTENUS_REVALIDATE_SECONDS — ce que le test
+// `contenus-revalidation` vérifie, pour que la duplication ne dérive pas.
+export const revalidate = 300;
+
+export default async function AboutPage() {
+  const contenus = await getContenus();
+
   return (
     <>
       <JsonLd
@@ -92,9 +101,7 @@ export default function AboutPage() {
 
       <PageHero
         breadcrumb={[{ label: 'Accueil', href: '/' }, { label: 'Qui sommes-nous' }]}
-        eyebrow="Qui sommes-nous"
-        title="Une équipe comorienne, des standards internationaux"
-        lead="MORA Shawiri est née d’une conviction : les organisations des Comores méritent des outils numériques du même niveau que les meilleures agences internationales — conçus ici, pour votre réalité."
+        {...contenus.texte('qui-sommes-nous.hero')}
       />
 
       <section className="section" aria-labelledby="fondateur-title">
@@ -202,8 +209,7 @@ export default function AboutPage() {
       <section className="section" aria-labelledby="valeurs-title">
         <div className="container">
           <SectionHead
-            eyebrow="Nos valeurs"
-            title="Ce qui guide chacune de nos décisions"
+            {...contenus.texte('qui-sommes-nous.valeurs')}
             titleId="valeurs-title"
             center
           />
@@ -241,16 +247,13 @@ export default function AboutPage() {
       </section>
 
       <Testimonials
-        eyebrow="Ils témoignent"
-        title="La parole à nos clients"
+        {...contenus.texte('qui-sommes-nous.temoignages')}
         titleId="temoignages-about"
+        items={contenus.liste('transversal.temoignages')}
       />
 
       <CtaBand
-        title="Faisons connaissance"
-        text="Racontez-nous votre projet lors d’un premier échange gratuit, à Moroni ou en visioconférence."
-        primaryLabel="Demander un devis gratuit"
-        whatsappMessage="Bonjour MORA Shawiri, j’aimerais en savoir plus sur votre accompagnement."
+        {...contenus.texte('qui-sommes-nous.cta')}
       />
     </>
   );

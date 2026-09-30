@@ -25,15 +25,10 @@ import {
   Shield,
   Sparkles,
 } from '@/components/ui/Icon';
-import {
-  commitments,
-  homeFaq,
-  marqueeItems,
-  method,
-  serviceHighlights,
-  whyPoints,
-} from '@/content/home';
 import { getPublicCatalogue } from '@/lib/catalogue/public';
+import { getPublicFaq } from '@/lib/contenus/faq';
+import { getContenus } from '@/lib/contenus/public';
+import { renderTitre } from '@/lib/contenus/titre';
 import { faqSchema, jsonLdGraph, pageMetadata } from '@/lib/seo';
 import { site } from '@/lib/site';
 
@@ -71,20 +66,31 @@ const commitmentIcons = {
 } as const;
 
 export default async function HomePage() {
-  const { featured } = await getPublicCatalogue();
+  // Deux lectures, en parallèle : le catalogue (4E-1) et les contenus (4E-2).
+  // Les enchaîner doublerait la latence de la page pour aucune raison — elles
+  // ne dépendent pas l'une de l'autre.
+  const [{ featured }, contenus, faq] = await Promise.all([
+    getPublicCatalogue(),
+    getContenus(),
+    getPublicFaq(),
+  ]);
+
+  const hero = contenus.texte('accueil.hero');
+  const expertises = contenus.liste('accueil.liste-expertises');
+  const engagements = contenus.liste('accueil.liste-engagements');
+  const etapes = contenus.liste('accueil.liste-methode');
+  const bandeau = contenus.liste('accueil.liste-bandeau');
+  const pourquoi = contenus.liste('accueil.liste-pourquoi');
+  const avis = contenus.liste('transversal.temoignages');
 
   return (
     <>
-      <JsonLd data={jsonLdGraph([faqSchema(homeFaq)])} />
+      <JsonLd data={jsonLdGraph([faqSchema(faq.accueil)])} />
 
       <Hero
-        eyebrow="Agence digitale — Moroni, Union des Comores"
-        title={
-          <>
-            Le Choix Optimal pour votre <span className="hl-gold">Performance</span>
-          </>
-        }
-        lead="Sites web, boutiques en ligne, identité visuelle, organisation des données et formations : MORA Shawiri conçoit les outils numériques qui rendent votre organisation visible, crédible et efficace."
+        eyebrow={hero.eyebrow}
+        title={renderTitre(hero.title)}
+        lead={hero.lead}
         actions={
           <>
             <Link className="btn btn--gold btn--lg" href="/contact/">
@@ -130,19 +136,13 @@ export default async function HomePage() {
         }
       />
 
-      <Marquee items={marqueeItems} />
+      <Marquee items={bandeau} />
 
       <section className="section" aria-labelledby="services-title">
         <div className="container">
-          <SectionHead
-            eyebrow="Nos expertises"
-            title="Des solutions digitales qui font grandir votre organisation"
-            titleId="services-title"
-            lead="Un seul partenaire pour concevoir, lancer et faire performer votre présence numérique — du premier logo à la formation de vos équipes."
-            center
-          />
+          <SectionHead {...contenus.texte('accueil.expertises')} titleId="services-title" center />
           <div className="grid grid--3 reveal-group">
-            {serviceHighlights.map((service) => {
+            {expertises.map((service) => {
               const ServiceIcon = serviceIcons[service.icon];
               return (
                 <article className="card card--accent" key={service.id}>
@@ -175,7 +175,7 @@ export default async function HomePage() {
                 internationales.
               </p>
               <CheckList
-                items={whyPoints.map((point) => (
+                items={pourquoi.map((point) => (
                   <span key={point.strong}>
                     <strong>{point.strong}</strong> {point.text}
                   </span>
@@ -206,15 +206,13 @@ export default async function HomePage() {
       <section className="section section--brand" aria-labelledby="preuves-title">
         <div className="container">
           <SectionHead
-            eyebrow="Nos engagements"
-            title="Ce que vous obtenez en travaillant avec nous"
+            {...contenus.texte('accueil.engagements')}
             titleId="preuves-title"
-            lead="Pas de promesses chiffrées invérifiables : des engagements de méthode, tenus sur chaque projet."
             center
             onBrand
           />
           <div className="proof-grid reveal-group">
-            {commitments.map((item) => {
+            {engagements.map((item) => {
               const CommitmentIcon = commitmentIcons[item.icon];
               return (
                 <article className="proof" key={item.title}>
@@ -230,24 +228,14 @@ export default async function HomePage() {
 
       <section className="section" aria-labelledby="methode-title">
         <div className="container">
-          <SectionHead
-            eyebrow="Notre méthode"
-            title="Du premier échange aux premiers résultats"
-            titleId="methode-title"
-            center
-          />
-          <Steps items={method} />
+          <SectionHead {...contenus.texte('accueil.methode')} titleId="methode-title" center />
+          <Steps items={etapes} />
         </div>
       </section>
 
       <section className="section section--alt" aria-labelledby="boutique-title">
         <div className="container">
-          <SectionHead
-            eyebrow="Boutique"
-            title="Nos offres les plus demandées"
-            titleId="boutique-title"
-            lead="Quatorze prestations prêtes à démarrer, de la création de logo au développement d’applications. Les prix définis sont affichés ; les projets sur mesure sont chiffrés selon votre besoin réel."
-          />
+          <SectionHead {...contenus.texte('accueil.boutique')} titleId="boutique-title" />
           <div className="grid grid--3 reveal-group">
             {featured.map((offer) => (
               <OfferCard key={offer.id} offer={offer} variant="compact" />
@@ -262,28 +250,19 @@ export default async function HomePage() {
       </section>
 
       <Testimonials
-        title="Ils nous font confiance pour leur croissance"
+        {...contenus.texte('accueil.temoignages')}
         titleId="temoignages-title"
+        items={avis}
       />
 
       <section className="section section--alt" aria-labelledby="faq-title">
         <div className="container">
-          <SectionHead
-            eyebrow="Questions fréquentes"
-            title="Vos questions, nos réponses directes"
-            titleId="faq-title"
-            center
-          />
-          <Faq items={homeFaq} />
+          <SectionHead {...contenus.texte('accueil.faq')} titleId="faq-title" center />
+          <Faq items={faq.accueil} />
         </div>
       </section>
 
-      <CtaBand
-        title="Prêt à passer au niveau supérieur ?"
-        text="Décrivez-nous votre projet : vous recevez un diagnostic et un devis gratuit sous 48 h."
-        primaryLabel="Demander un devis gratuit"
-        whatsappMessage="Bonjour MORA Shawiri, je souhaite un devis pour mon projet digital."
-      />
+      <CtaBand {...contenus.texte('accueil.cta')} />
     </>
   );
 }

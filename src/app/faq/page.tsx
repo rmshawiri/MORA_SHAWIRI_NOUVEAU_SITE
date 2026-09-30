@@ -5,7 +5,8 @@ import PageHero from '@/components/sections/PageHero';
 import SectionHead from '@/components/sections/SectionHead';
 import JsonLd from '@/components/seo/JsonLd';
 import { ArrowRight } from '@/components/ui/Icon';
-import { faqAllItems, faqCategories } from '@/content/faq';
+import { getPublicFaq } from '@/lib/contenus/faq';
+import { getContenus } from '@/lib/contenus/public';
 import { breadcrumbSchema, faqSchema, jsonLdGraph, pageMetadata } from '@/lib/seo';
 
 export const metadata = pageMetadata({
@@ -15,7 +16,15 @@ export const metadata = pageMetadata({
   path: '/faq/',
 });
 
-export default function FaqPage() {
+// Next.js exige ici un littéral : la valeur est lue par analyse statique, pas
+// à l'exécution, et une constante importée est refusée au build. Elle doit donc
+// rester égale à CONTENUS_REVALIDATE_SECONDS — ce que le test
+// `contenus-revalidation` vérifie, pour que la duplication ne dérive pas.
+export const revalidate = 300;
+
+export default async function FaqPage() {
+  const [contenus, faq] = await Promise.all([getContenus(), getPublicFaq()]);
+
   return (
     <>
       <JsonLd
@@ -24,28 +33,20 @@ export default function FaqPage() {
             { label: 'Accueil', path: '/' },
             { label: 'FAQ', path: '/faq/' },
           ]),
-          faqSchema(faqAllItems),
+          faqSchema(faq.all),
         ])}
       />
 
       <PageHero
         breadcrumb={[{ label: 'Accueil', href: '/' }, { label: 'FAQ' }]}
-        eyebrow="Questions fréquentes"
-        title="Vos questions, nos réponses"
-        lead="Tarifs, demandes de devis, rendez-vous, formation, offres visuelles, affiliation : voici les réponses aux questions qui nous sont le plus souvent posées. Si la vôtre n’y figure pas, écrivez-nous — nous y répondrons directement."
+        {...contenus.texte('faq.hero')}
       />
 
       <section className="section" aria-labelledby="faq-title">
         <div className="container">
-          <SectionHead
-            eyebrow="FAQ"
-            title="Tout ce qu’il faut savoir avant de nous solliciter"
-            titleId="faq-title"
-            lead="Les réponses ci-dessous reprennent les informations officielles de MORA Shawiri. Elles sont mises à jour dès qu’une offre, un tarif ou un parcours évolue."
-            center
-          />
+          <SectionHead {...contenus.texte('faq.principale')} titleId="faq-title" center />
 
-          {faqCategories.map((category) => (
+          {faq.categories.map((category) => (
             <div className="faq-group" key={category.id}>
               <h2 className="faq-group__title" id={`faq-${category.id}`}>
                 {category.title}
@@ -58,13 +59,7 @@ export default function FaqPage() {
 
       <section className="section section--alt" aria-labelledby="faq-suite-title">
         <div className="container">
-          <SectionHead
-            eyebrow="Vous ne trouvez pas votre réponse ?"
-            title="Nous répondons directement"
-            titleId="faq-suite-title"
-            lead="Une question précise, une situation particulière, un doute sur l’offre à choisir : expliquez-nous simplement votre besoin."
-            center
-          />
+          <SectionHead {...contenus.texte('faq.suite')} titleId="faq-suite-title" center />
           <div className="btn-row" style={{ justifyContent: 'center' }}>
             <Link className="btn btn--gold btn--lg" href="/contact/">
               Nous contacter <ArrowRight />
@@ -77,10 +72,7 @@ export default function FaqPage() {
       </section>
 
       <CtaBand
-        title="Un projet, une question, un doute ?"
-        text="Le premier échange est gratuit et sans engagement. Il éclaire souvent la décision à lui seul."
-        primaryLabel="Demander un devis gratuit"
-        whatsappMessage="Bonjour MORA Shawiri, j’ai une question après avoir consulté votre FAQ."
+        {...contenus.texte('faq.cta')}
       />
     </>
   );

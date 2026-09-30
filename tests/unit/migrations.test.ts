@@ -90,18 +90,37 @@ test('aucune politique n\'est ouverte au rôle « public »', () => {
 /**
  * Tables que le visiteur non connecté peut atteindre.
  *
- * La liste s'est allongée en phase 4E, et c'est une décision, pas une dérive :
- * la Boutique lit désormais son catalogue en base, donc le rôle anonyme doit
- * pouvoir atteindre les trois tables qui la composent. Ce que RLS filtre
- * ensuite — seules les lignes publiées, seules les catégories actives — reste
- * entier ; un privilège de table n'a jamais valu autorisation de lire une
- * ligne.
+ * La liste s'est allongée en phase 4E-1, puis en 4E-2, et chaque fois c'est une
+ * décision, pas une dérive :
+ *
+ *   * **4E-1** — la Boutique lit son catalogue en base : `categories`,
+ *     `services`, `products` ;
+ *   * **4E-2** — les pages lisent leurs textes, la FAQ et les articles en
+ *     base : `content_blocks`, `faq_categories`, `faq_items`, `content_posts`.
+ *
+ * Ce que RLS filtre ensuite reste entier — seules les lignes publiées, seules
+ * les catégories actives, seules les surcharges en ligne. Un privilège de table
+ * n'a jamais valu autorisation de lire une ligne.
+ *
+ * **`media_assets` n'y figure pas, et ne doit pas y figurer.** Les visuels sont
+ * servis par Next.js ou par Storage : le site n'a aucun besoin de lire cette
+ * table pour les afficher, et l'ouvrir exposerait un inventaire — noms internes,
+ * poids, classement — qui ne sert pas au visiteur.
  *
  * Ajouter une entrée ici doit rester un acte délibéré. C'est tout l'intérêt du
  * test : il échoue dès qu'une migration ouvre une table de plus au public,
  * fût-ce par inadvertance.
  */
-const ANON_READABLE_TABLES = ['categories', 'products', 'services', 'settings'];
+const ANON_READABLE_TABLES = [
+  'categories',
+  'content_blocks',
+  'content_posts',
+  'faq_categories',
+  'faq_items',
+  'products',
+  'services',
+  'settings',
+];
 
 test('le rôle anonyme ne reçoit que la lecture, et seulement sur les tables publiques', () => {
   const grantsToAnon = [

@@ -24,6 +24,8 @@ import {
   WhatsappOutline,
 } from '@/components/ui/Icon';
 import { getSiteUrl } from '@/lib/env';
+import { getContenus } from '@/lib/contenus/public';
+import { renderTitre } from '@/lib/contenus/titre';
 import { breadcrumbSchema, faqSchema, jsonLdGraph, pageMetadata } from '@/lib/seo';
 import { site, whatsappLink } from '@/lib/site';
 
@@ -226,7 +228,16 @@ function courseSchema() {
   };
 }
 
-export default function FormationPage() {
+// Next.js exige ici un littéral : la valeur est lue par analyse statique, pas
+// à l'exécution, et une constante importée est refusée au build. Elle doit donc
+// rester égale à CONTENUS_REVALIDATE_SECONDS — ce que le test
+// `contenus-revalidation` vérifie, pour que la duplication ne dérive pas.
+export const revalidate = 300;
+
+export default async function FormationPage() {
+  const contenus = await getContenus();
+  const hero = contenus.texte('formation.hero');
+
   return (
     <>
       <JsonLd
@@ -241,13 +252,9 @@ export default function FormationPage() {
       />
 
       <Hero
-        eyebrow="Formation professionnelle · Présentiel ou à distance"
-        title={
-          <>
-            Maîtriser la <span className="hl-gold">Prospection</span> et la Relation Client
-          </>
-        }
-        lead="Apprenez à aborder un prospect sans hésiter, à conduire l’échange avec assurance, à convaincre sans brader vos prix — et à transformer un premier accord en relation client durable."
+        eyebrow={hero.eyebrow}
+        title={renderTitre(hero.title)}
+        lead={hero.lead}
         actions={
           <>
             <a
@@ -263,11 +270,7 @@ export default function FormationPage() {
             </a>
           </>
         }
-        proof={[
-          'Manuel de formation remis',
-          'Exercices et mises en situation',
-          'Certificat de participation',
-        ]}
+        proof={hero.proof}
         media={
           <div className="pv-duo">
             <figure>
@@ -353,10 +356,8 @@ export default function FormationPage() {
       <section className="section section--alt" aria-labelledby="problemes-title">
         <div className="container">
           <SectionHead
-            eyebrow="Les blocages que nous entendons chaque semaine"
-            title="Si vous vous reconnaissez ici, cette formation est faite pour vous"
+            {...contenus.texte('formation.problemes')}
             titleId="problemes-title"
-            lead="Ces situations n’ont rien à voir avec un manque de sérieux. Elles viennent d’un manque de méthode — et la méthode, cela s’apprend."
             center
           />
           <div className="grid grid--3 reveal-group">
@@ -373,8 +374,7 @@ export default function FormationPage() {
       <section className="section section--brand" aria-labelledby="benefices-title">
         <div className="container">
           <SectionHead
-            eyebrow="Ce que vous en retirez"
-            title="Des bénéfices concrets, mesurables sur votre activité"
+            {...contenus.texte('formation.benefices')}
             titleId="benefices-title"
             center
             onBrand
@@ -394,8 +394,7 @@ export default function FormationPage() {
       <section className="section" aria-labelledby="competences-title">
         <div className="container">
           <SectionHead
-            eyebrow="Compétences acquises"
-            title="Six compétences travaillées pendant la formation"
+            {...contenus.texte('formation.competences')}
             titleId="competences-title"
             center
           />
@@ -416,10 +415,8 @@ export default function FormationPage() {
       <section className="section section--alt" id="programme" aria-labelledby="programme-title">
         <div className="container">
           <SectionHead
-            eyebrow="Programme détaillé"
-            title="Six modules, du premier contact à la fidélisation"
+            {...contenus.texte('formation.programme')}
             titleId="programme-title"
-            lead="Chaque module associe apports méthodologiques, modèles réutilisables et mise en pratique immédiate."
           />
           <Timeline items={modules} revealClass="reveal-group" />
         </div>
@@ -469,8 +466,7 @@ export default function FormationPage() {
       <section className="section section--alt" aria-labelledby="public-title">
         <div className="container">
           <SectionHead
-            eyebrow="Pour qui&nbsp;?"
-            title="Une formation utile à tous ceux qui doivent convaincre"
+            {...contenus.texte('formation.public')}
             titleId="public-title"
             center
           />
@@ -568,8 +564,7 @@ export default function FormationPage() {
       <section className="section" aria-labelledby="modalites-title">
         <div className="container">
           <SectionHead
-            eyebrow="Modalités de participation"
-            title="Deux façons de suivre la formation"
+            {...contenus.texte('formation.modalites')}
             titleId="modalites-title"
             center
           />
@@ -630,8 +625,7 @@ export default function FormationPage() {
       <section className="section section--alt" aria-labelledby="faq-title">
         <div className="container">
           <SectionHead
-            eyebrow="Questions fréquentes"
-            title="Ce que les participants demandent avant de s’inscrire"
+            {...contenus.texte('formation.faq')}
             titleId="faq-title"
             center
           />

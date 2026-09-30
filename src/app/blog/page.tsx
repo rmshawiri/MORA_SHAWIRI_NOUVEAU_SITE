@@ -5,7 +5,8 @@ import PostCard from '@/components/sections/PostCard';
 import SectionHead from '@/components/sections/SectionHead';
 import JsonLd from '@/components/seo/JsonLd';
 import { ArrowRight, Mail } from '@/components/ui/Icon';
-import { posts } from '@/content/posts';
+import { getPublicBlog } from '@/lib/contenus/blog';
+import { getContenus } from '@/lib/contenus/public';
 import { breadcrumbSchema, jsonLdGraph, pageMetadata } from '@/lib/seo';
 
 export const metadata = pageMetadata({
@@ -24,7 +25,15 @@ const topics = [
   'Formation & autonomie',
 ];
 
-export default function BlogPage() {
+// Next.js exige ici un littéral : la valeur est lue par analyse statique, pas
+// à l'exécution, et une constante importée est refusée au build. Elle doit donc
+// rester égale à CONTENUS_REVALIDATE_SECONDS — ce que le test
+// `contenus-revalidation` vérifie, pour que la duplication ne dérive pas.
+export const revalidate = 300;
+
+export default async function BlogPage() {
+  const [contenus, blog] = await Promise.all([getContenus(), getPublicBlog()]);
+
   return (
     <>
       <JsonLd
@@ -38,16 +47,14 @@ export default function BlogPage() {
 
       <PageHero
         breadcrumb={[{ label: 'Accueil', href: '/' }, { label: 'Blog' }]}
-        eyebrow="Blog & conseils"
-        title="Des conseils applicables, pas des théories"
-        lead="Nous partageons ce que nous observons sur le terrain auprès des entrepreneurs et PME des Comores : ce qui fonctionne, ce qui coûte cher, et par quoi commencer."
+        {...contenus.texte('blog.hero')}
       />
 
       <section className="section" aria-labelledby="articles-title">
         <div className="container">
-          <SectionHead eyebrow="Derniers articles" title="À lire en ce moment" titleId="articles-title" />
+          <SectionHead {...contenus.texte('blog.articles')} titleId="articles-title" />
           <div className="grid grid--3 reveal-group">
-            {posts.map((post) => (
+            {blog.posts.map((post) => (
               <PostCard key={post.slug} post={post} />
             ))}
           </div>
@@ -90,10 +97,7 @@ export default function BlogPage() {
       </section>
 
       <CtaBand
-        title="Passer de la lecture à l’action"
-        text="Un diagnostic gratuit permet d’identifier les deux ou trois chantiers les plus rentables pour votre organisation."
-        primaryLabel="Demander un devis gratuit"
-        whatsappMessage="Bonjour MORA Shawiri, je souhaite un diagnostic pour mon organisation."
+        {...contenus.texte('blog.cta')}
       />
     </>
   );

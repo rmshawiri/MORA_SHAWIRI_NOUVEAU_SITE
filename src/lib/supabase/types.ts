@@ -7,8 +7,8 @@
  * personne ne lit.
  *
  * Phases couvertes : 4A (identité, RBAC, système), 4C (permissions
- * individuelles, invitations d'administrateurs), 4D (Moteur de Documents) et
- * 4E (catalogue administrable).
+ * individuelles, invitations d'administrateurs), 4D (Moteur de Documents),
+ * 4E-1 (catalogue administrable) et 4E-2 (gestion des contenus).
  * Chaque phase ultérieure ajoute les siennes en même temps que sa migration.
  */
 
@@ -335,6 +335,16 @@ type Table<
  * Relations déclarées pour que les jointures imbriquées de PostgREST
  * (`select('roles(code)')`) soient typées plutôt que devinées.
  */
+type FaqItemRelationships = [
+  {
+    foreignKeyName: 'faq_items_category_id_fkey';
+    columns: ['category_id'];
+    isOneToOne: false;
+    referencedRelation: 'faq_categories';
+    referencedColumns: ['id'];
+  },
+];
+
 type UserRoleRelationships = [
   {
     foreignKeyName: 'user_roles_role_id_fkey';
@@ -433,6 +443,108 @@ type DocumentRelationships = [
  * conversion de plus, donc une occasion de plus de se tromper de virgule.
  */
 type NumericWrite = number | string | null;
+
+/* ----------------------------------------- 4E-2 — gestion des contenus --- */
+
+/** Statuts éditoriaux, communs à tout le site (07_GESTION_CONTENUS § 60). */
+export type ContentStatusValue = 'BROUILLON' | 'PUBLIE' | 'NON_PUBLIE' | 'ARCHIVE';
+
+/** Nature d'un bloc éditorial, telle que déclarée au registre du code. */
+export type ContentBlockKind = 'HERO' | 'PAGE_HERO' | 'SECTION' | 'CTA' | 'LIST';
+
+/** Surface d'affichage d'une catégorie de FAQ (§ 47, « FAQ par page »). */
+export type FaqSurface = 'FAQ' | 'ACCUEIL' | 'SERVICES';
+
+/** Origine d'un média : fichier servi par Next.js, ou objet Storage (D-22 = A). */
+export type MediaKind = 'LOCAL' | 'STORAGE';
+
+/**
+ * Surcharge d'un bloc éditorial.
+ *
+ * `published_fields` à `null` signifie « la valeur du registre fait foi » —
+ * c'est l'état normal, pas une absence de donnée.
+ */
+export type ContentBlockRow = {
+  id: string;
+  key: string;
+  kind: ContentBlockKind;
+  page_slug: string;
+  published_fields: Json | null;
+  draft_fields: Json | null;
+  published_at: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type FaqCategoryRow = {
+  id: string;
+  slug: string;
+  title: string;
+  surface: FaqSurface;
+  sort_order: number;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+};
+
+export type FaqItemRow = {
+  id: string;
+  category_id: string;
+  question: string;
+  answer: string;
+  sort_order: number;
+  status: ContentStatusValue;
+  published_at: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type ContentPostRow = {
+  id: string;
+  slug: string;
+  category: string;
+  title: string;
+  lead: string;
+  excerpt: string;
+  author: string | null;
+  published_on: string | null;
+  date_label: string | null;
+  reading_time: string | null;
+  cover_path: string | null;
+  cover_width: number | null;
+  cover_height: number | null;
+  cta_title: string | null;
+  cta_text: string | null;
+  cta_label: string | null;
+  cta_href: string | null;
+  related: string[];
+  body: Json;
+  seo_title: string | null;
+  seo_description: string | null;
+  sort_order: number;
+  status: ContentStatusValue;
+  published_at: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type MediaAssetRow = {
+  id: string;
+  kind: MediaKind;
+  bucket: string | null;
+  path: string;
+  title: string;
+  alt_text: string | null;
+  description: string | null;
+  category: string | null;
+  mime_type: string | null;
+  byte_size: number | null;
+  width: number | null;
+  height: number | null;
+  is_decorative: boolean;
+  created_at: string;
+  updated_at: string;
+};
 
 export type ServiceWrite = Omit<Partial<ServiceRow>, 'price_amount' | 'affiliate_max_rate'> & {
   price_amount?: NumericWrite;
@@ -584,6 +696,38 @@ export type Database = {
         Pick<ProductFileRow, 'product_id' | 'label' | 'storage_path'> & Partial<ProductFileRow>,
         Partial<ProductFileRow>,
         ProductFileRelationships
+      >;
+      /**
+       * `published_at` n'est écrit ni lu par l'application : le déclencheur
+       * `contenus_publication_guard` s'en charge, et exige `content.publish`
+       * pour toute mise en ligne ou tout retrait.
+       */
+      content_blocks: Table<
+        ContentBlockRow,
+        Pick<ContentBlockRow, 'key' | 'kind' | 'page_slug'> & Partial<ContentBlockRow>,
+        Partial<ContentBlockRow>
+      >;
+      faq_categories: Table<
+        FaqCategoryRow,
+        Pick<FaqCategoryRow, 'slug' | 'title'> & Partial<FaqCategoryRow>,
+        Partial<FaqCategoryRow>
+      >;
+      faq_items: Table<
+        FaqItemRow,
+        Pick<FaqItemRow, 'category_id' | 'question' | 'answer'> & Partial<FaqItemRow>,
+        Partial<FaqItemRow>,
+        FaqItemRelationships
+      >;
+      content_posts: Table<
+        ContentPostRow,
+        Pick<ContentPostRow, 'slug' | 'category' | 'title' | 'lead' | 'excerpt'> &
+          Partial<ContentPostRow>,
+        Partial<ContentPostRow>
+      >;
+      media_assets: Table<
+        MediaAssetRow,
+        Pick<MediaAssetRow, 'kind' | 'path' | 'title'> & Partial<MediaAssetRow>,
+        Partial<MediaAssetRow>
       >;
       settings: Table<
         SettingRow,
