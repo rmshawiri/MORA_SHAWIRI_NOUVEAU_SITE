@@ -54,11 +54,17 @@ const GENERIC_ERROR =
  * Prise de rendez-vous conversationnelle.
  *
  * Une question à la fois, réponses modifiables, récapitulatif final, puis envoi
- * réel vers la route serveur `/api/contact` : la demande est notifiée à l'équipe
- * et un accusé de réception part vers le demandeur (`08_EMAILS` § 15). La
- * confirmation n'est affichée qu'après un succès avéré ; WhatsApp est proposé
- * ensuite, comme copie facultative. Aucune donnée n'est stockée : l'état du
- * questionnaire vit uniquement dans la page.
+ * réel vers la route serveur `/api/contact` : la demande est enregistrée
+ * (phase 4F), notifiée à l'équipe, et un accusé de réception part vers le
+ * demandeur (`08_EMAILS` § 15). La confirmation n'est affichée qu'après un
+ * succès avéré ; WhatsApp est proposé ensuite, comme copie facultative.
+ *
+ * L'état du questionnaire, lui, vit toujours uniquement dans la page : rien
+ * n'est transmis avant que le visiteur ait cliqué, comme le dit `doneNote`.
+ *
+ * Le parcours est inchangé depuis sa validation : mêmes questions, même ordre,
+ * mêmes libellés, même récapitulatif. La phase 4F n'ajoute que trois valeurs à
+ * la charge utile, invisibles pour le visiteur — voir `send()`.
  */
 export default function AppointmentWizard() {
   const [index, setIndex] = useState(0);
@@ -167,6 +173,20 @@ export default function AppointmentWizard() {
       message: answers.contexte ?? '—',
       details,
       website: '',
+      /**
+       * Phase 4F. Les trois réponses qui deviennent des colonnes en base.
+       *
+       * Elles figurent déjà, mot pour mot, dans `details` — donc dans l'e-mail
+       * et dans le récapitulatif affiché. Ce qui change est la forme : le
+       * récapitulatif montre « lundi 5 octobre 2026 », qui se lit bien mais ne
+       * se trie pas. `drafts.date` porte la même date en ISO, telle que le
+       * champ l'a produite, et c'est elle que l'administration pourra filtrer.
+       *
+       * Aucune question, aucun libellé, aucune étape ne change.
+       */
+      rdvDateIso: drafts.date ?? '',
+      rdvCreneau: answers.creneau ?? '',
+      rdvFormat: answers.format ?? '',
     };
 
     try {

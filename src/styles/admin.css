@@ -695,3 +695,129 @@
     padding: var(--sp-3);
   }
 }
+
+
+/* ===========================================================================
+   RELATION CLIENT — phase 4F
+   ---------------------------------------------------------------------------
+   Six blocs, sur les mêmes jetons que le reste de l'administration (D-13) :
+   aucune couleur, aucune graisse et aucune fonte n'est introduite ici, et
+   `globals.css` n'est pas touché.
+   =========================================================================== */
+
+/* Fiche de lecture : libellé puis valeur. Un `dl` et non un tableau, parce
+   qu'il s'agit de paires et non de lignes comparables entre elles. */
+.admin-def {
+  display: grid;
+  grid-template-columns: minmax(180px, auto) minmax(0, 1fr);
+  gap: var(--sp-3) var(--sp-5);
+  margin: 0 0 var(--sp-5);
+}
+
+/* Les paires enveloppées dans un `div` — la forme que React impose pour une
+   clé de liste — doivent reprendre la grille du parent. */
+.admin-def > div {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: subgrid;
+}
+
+.admin-def dt {
+  color: var(--text-secondary);
+  font-size: var(--text-caption);
+  margin: 0;
+}
+
+.admin-def dd {
+  margin: 0;
+}
+
+/* Texte long écrit par un tiers : message d'un visiteur, note interne.
+   `pre-wrap` conserve les retours à la ligne que le demandeur a voulus — le
+   plan exige que le message libre soit « conservé intégralement », et cela
+   vaut aussi pour sa mise en forme. `overflow-wrap` empêche une URL collée
+   d'élargir la carte. */
+.admin-longtext {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  background: var(--white);
+  border: 1px solid var(--border);
+  border-radius: var(--r-btn);
+  padding: var(--sp-4);
+  margin: 0 0 var(--sp-5);
+}
+
+/* Historique métier. Chronologique, du plus ancien au plus récent : on lit
+   l'histoire d'une demande dans le sens où elle s'est déroulée. */
+.admin-timeline {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: var(--sp-4);
+}
+
+.admin-timeline li {
+  border-left: 2px solid var(--border);
+  padding-left: var(--sp-4);
+}
+
+.admin-timeline__when,
+.admin-timeline__who {
+  color: var(--text-secondary);
+  font-size: var(--text-caption);
+  margin: 0;
+}
+
+.admin-timeline__what {
+  margin: 0 0 var(--sp-1);
+}
+
+.admin-notes {
+  list-style: none;
+  margin: 0 0 var(--sp-5);
+  padding: 0;
+  display: grid;
+  gap: var(--sp-5);
+}
+
+/* Repli d'une action secondaire — l'annulation motivée. Un `details` native
+   plutôt qu'un état React : il fonctionne sans script et les lecteurs d'écran
+   l'annoncent correctement. */
+.admin-details {
+  border: 1px solid var(--border);
+  border-radius: var(--r-btn);
+  padding: var(--sp-4);
+  margin-top: var(--sp-5);
+}
+
+.admin-details summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+
+/* Bas de carte : une action de plus, séparée de ce qu'elle concerne. */
+.admin-card__foot {
+  border-top: 1px solid var(--border);
+  margin-top: var(--sp-6);
+  padding-top: var(--sp-5);
+}
+
+.admin-card__foot h3 {
+  font-size: var(--text-body);
+  margin: 0 0 var(--sp-2);
+}
+
+@media (max-width: 640px) {
+  /* Deux colonnes de 180px ne tiennent pas sur un téléphone : la valeur passe
+     sous son libellé. */
+  .admin-def,
+  .admin-def > div {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--sp-1);
+  }
+
+  .admin-def > div {
+    margin-bottom: var(--sp-3);
+  }
+}

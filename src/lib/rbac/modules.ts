@@ -115,7 +115,7 @@ export const ADMIN_MODULES = [
     label: 'Demandes et devis',
     summary: 'Demandes reçues, devis émis, acceptations et refus.',
     permission: 'quotes.view',
-    status: 'A_VENIR',
+    status: 'DISPONIBLE',
     group: 'ACTIVITE',
     phase: '4F',
   },
@@ -123,9 +123,9 @@ export const ADMIN_MODULES = [
     slug: 'rendez-vous',
     href: `${ADMIN_ROOT}rendez-vous/`,
     label: 'Rendez-vous',
-    summary: 'Calendrier, disponibilités, créneaux et historique.',
+    summary: 'Demandes reçues, créneaux confirmés, disponibilités et historique.',
     permission: 'appointments.view',
-    status: 'A_VENIR',
+    status: 'DISPONIBLE',
     group: 'ACTIVITE',
     phase: '4F',
   },
@@ -137,7 +137,11 @@ export const ADMIN_MODULES = [
     permission: 'users.view',
     status: 'A_VENIR',
     group: 'ACTIVITE',
-    phase: '4F',
+    // Corrigé en 4F : le plan de développement range `03_GESTION_CLIENTS` dans
+    // la phase 4I, avec les espaces client et affilié, et non en 4F. L'étiquette
+    // n'ouvrait aucun droit — le module reste `A_VENIR` — mais elle annonçait
+    // une livraison qui n'était pas prévue là.
+    phase: '4I',
   },
   {
     slug: 'affiliation',

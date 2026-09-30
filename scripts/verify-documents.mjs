@@ -66,6 +66,9 @@ const TEST_TYPE = 'ZZTEST';
 const CONCURRENT_TYPE = 'ZZCONC';
 const TEST_TYPES = [TEST_TYPE, CONCURRENT_TYPE];
 
+/** Instantané des suites réelles au démarrage. Voir le bilan final. */
+let sequencesBefore = '[]';
+
 const TEST_DOMAIN = 'mora-shawiri.test';
 const PASSWORD = `Verif-4D-${randomUUID()}`;
 
@@ -212,15 +215,31 @@ async function checkSchema(target, accessToken) {
   const types = await runSql(
     target,
     accessToken,
-    `select code, view_permission, issue_permission from public.document_types order by sort_order;`,
+    `select code, view_permission, issue_permission, is_reference_only from public.document_types order by sort_order;`,
   );
 
-  const codes = (types ?? []).map((row) => row.code).filter((code) => !TEST_TYPES.includes(code));
+  const real = (types ?? []).filter((row) => !TEST_TYPES.includes(row.code));
+
+  // Les sept codes documentaires du § 75, et eux seuls, émettent une pièce.
+  const issuing = real.filter((row) => row.is_reference_only === false).map((row) => row.code);
 
   check(
     'les sept types du § 75 sont en base, et eux seuls',
-    codes.join(',') === 'DVCL,CMCL,ACCL,BLCL,FACL,AVCL,COMAF',
-    codes.join(','),
+    issuing.join(',') === 'DVCL,CMCL,ACCL,BLCL,FACL,AVCL,COMAF',
+    issuing.join(','),
+  );
+
+  // La phase 4F a ajouté deux codes qui **numérotent** une entité métier sans
+  // émettre de document : une demande et un rendez-vous (décision B2). Ils
+  // partagent l'allocateur, jamais la table `documents`. Ce contrôle vérifie
+  // qu'ils restent deux, et qu'aucun autre code ne se glisse dans cette
+  // catégorie sans décision.
+  const referenceOnly = real.filter((row) => row.is_reference_only === true).map((row) => row.code);
+
+  check(
+    'les deux codes de numérotation métier sont ceux de la phase 4F',
+    referenceOnly.sort().join(',') === 'DMCL,RVCL',
+    referenceOnly.join(','),
   );
 
   check(
@@ -764,6 +783,17 @@ async function main() {
 
   await checkSchema(target, accessToken);
 
+  // L'état des suites réelles avant toute chose : c'est à lui que le bilan
+  // final se compare, pour prouver que ce contrôle n'a percé aucun trou dans
+  // une numérotation de production.
+  sequencesBefore = JSON.stringify(
+    (await runSql(
+      target,
+      accessToken,
+      `select doc_type, allocated_count from public.document_sequences order by doc_type;`,
+    ).catch(() => [])) ?? [],
+  );
+
   const admin = createClient(target.url, target.secretKey, {
     auth: { persistSession: false, autoRefreshToken: false },
   });
@@ -851,16 +881,27 @@ async function main() {
 
     check('aucun compte de test ne subsiste', leftovers.length === 0, `${leftovers.length} trouvé(s)`);
 
+    // Ce contrôle a longtemps exigé qu'aucun compteur réel n'existe : avant la
+    // phase 4F, aucun chemin de production n'émettait quoi que ce soit, et un
+    // compteur en service n'aurait pu venir que d'un test mal rangé.
+    //
+    // Depuis 4F, l'émission d'un devis est un acte réel — et les demandes et
+    // rendez-vous consomment leurs propres suites. Exiger zéro reviendrait à
+    // interdire au système de fonctionner. Ce qui doit rester vrai, c'est que
+    // **ce script** ne consomme rien sur une suite réelle : il compare donc
+    // l'état d'après à celui qu'il a relevé avant de commencer.
     const real = await runSql(
       target,
       accessToken,
-      `select count(*)::int as total from public.document_sequences;`,
+      `select doc_type, allocated_count from public.document_sequences order by doc_type;`,
     ).catch(() => null);
 
+    const after = JSON.stringify(real ?? []);
+
     check(
-      'aucun numéro n’a été consommé sur un type réel',
-      real?.[0]?.total === 0,
-      `${real?.[0]?.total} compteur(s) réel(s) en service`,
+      'aucun numéro n’a été consommé sur un type réel par ce contrôle',
+      after === sequencesBefore,
+      `avant ${sequencesBefore} — après ${after}`,
     );
   }
 }

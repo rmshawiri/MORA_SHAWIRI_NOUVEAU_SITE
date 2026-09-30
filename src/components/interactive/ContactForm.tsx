@@ -162,6 +162,17 @@ export default function ContactForm({ offers }: ContactFormProps) {
       offre: offer?.title ?? '',
       message: values.message.trim(),
       website: honeypot,
+      /**
+       * Phase 4F. Le slug de l'offre consultée, pour que la demande
+       * enregistrée soit reliée à la bonne prestation du catalogue plutôt
+       * qu'à un titre recopié — un titre change, une clé non.
+       *
+       * Rien de visible n'est ajouté : cette valeur est déjà dans l'URL, que
+       * le formulaire lit depuis toujours pour présélectionner le besoin. Elle
+       * est de toute façon revérifiée côté serveur contre une offre
+       * réellement publiée, et ignorée sinon.
+       */
+      offreSlug: offer?.id ?? '',
     };
 
     try {
@@ -476,9 +487,9 @@ export default function ContactForm({ offers }: ContactFormProps) {
       )}
 
       <p className="form__note">
-        Ce site fonctionne sans base de données : vos informations ne sont pas stockées et ne sont
-        transmises à aucun tiers. Elles servent uniquement à nous faire parvenir votre demande et à
-        vous répondre.
+        Votre demande est enregistrée pour en assurer le suivi, et n’est transmise à aucun tiers.
+        Vos informations servent uniquement à vous répondre, et sont conservées douze mois après
+        notre dernier échange.
       </p>
     </form>
   );

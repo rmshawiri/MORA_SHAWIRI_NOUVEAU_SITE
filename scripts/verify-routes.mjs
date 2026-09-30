@@ -397,6 +397,8 @@ async function sessionRoutes(target, base) {
       ['/administration/journal/', 'Journal'],
       ['/administration/catalogue/', 'Catalogue'],
       ['/administration/contenus/', 'Contenus'],
+      ['/administration/demandes/', 'Demandes et devis'],
+      ['/administration/rendez-vous/', 'Rendez-vous'],
     ];
 
     for (const [path, label] of closedModules) {
@@ -470,9 +472,85 @@ async function sessionRoutes(target, base) {
       `HTTP ${afterRevoke.status}`,
     );
 
-    // --- Les modules système exigent leur propre permission ----------------
+    // --- Relation client : deux modules, deux permissions (phase 4F) -------
 
     await adjust('orders.view', null);
+    await adjust('quotes.view', 'OCTROI');
+
+    const demandes = await visit(base, '/administration/demandes/', aal2Cookie);
+    check(
+      'quotes.view ouvre le module Demandes et devis',
+      demandes.status === 200,
+      `HTTP ${demandes.status}`,
+    );
+    check(
+      'le module annonce l’état réel de la base, sans donnée inventée',
+      demandes.body.includes('Aucune demande enregistrée') ||
+        demandes.body.includes('demande(s) enregistrée(s)'),
+    );
+    check(
+      'sans quotes.manage, le module le dit plutôt que de proposer un bouton',
+      demandes.body.includes('quotes.manage'),
+    );
+
+    const rendezVousSansDroit = await visit(base, '/administration/rendez-vous/', aal2Cookie);
+    check(
+      'quotes.view n’ouvre pas les Rendez-vous',
+      rendezVousSansDroit.status === 404,
+      `HTTP ${rendezVousSansDroit.status}`,
+    );
+
+    // Test IDOR : une référence inexistante — ou hors de portée — rend la même
+    // réponse qu'une route inconnue. Elle n'apprend pas qu'une fiche existe.
+    const fantome = await visit(base, '/administration/demandes/MORA-DMCL-Z9999/', aal2Cookie);
+    check(
+      'une référence de demande inexistante répond 404',
+      fantome.status === 404,
+      `HTTP ${fantome.status}`,
+    );
+
+    await adjust('quotes.view', null);
+    await adjust('appointments.view', 'OCTROI');
+
+    const rendezVous = await visit(base, '/administration/rendez-vous/', aal2Cookie);
+    check(
+      'appointments.view ouvre le module Rendez-vous',
+      rendezVous.status === 200,
+      `HTTP ${rendezVous.status}`,
+    );
+    check(
+      'les disponibilités sont annoncées vides tant que rien n’est déclaré',
+      rendezVous.body.includes('Aucune disponibilité déclarée') ||
+        rendezVous.body.includes('Nature'),
+    );
+    check(
+      'sans appointments.manage, la déclaration de disponibilité n’est pas servie',
+      !rendezVous.body.includes('Ajouter la disponibilité'),
+      'le formulaire ne doit pas figurer dans le HTML',
+    );
+
+    const ficheFantome = await visit(
+      base,
+      '/administration/rendez-vous/00000000-0000-4000-8000-000000000000/',
+      aal2Cookie,
+    );
+    check(
+      'un identifiant de rendez-vous inexistant répond 404',
+      ficheFantome.status === 404,
+      `HTTP ${ficheFantome.status}`,
+    );
+
+    const demandesSansDroit = await visit(base, '/administration/demandes/', aal2Cookie);
+    check(
+      'appointments.view n’ouvre pas les Demandes',
+      demandesSansDroit.status === 404,
+      `HTTP ${demandesSansDroit.status}`,
+    );
+
+    await adjust('appointments.view', null);
+
+    // --- Les modules système exigent leur propre permission ----------------
+
     await adjust('admins.view', 'OCTROI');
 
     const administrateurs = await visit(base, '/administration/administrateurs/', aal2Cookie);

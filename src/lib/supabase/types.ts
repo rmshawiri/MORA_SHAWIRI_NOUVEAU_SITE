@@ -8,7 +8,8 @@
  *
  * Phases couvertes : 4A (identité, RBAC, système), 4C (permissions
  * individuelles, invitations d'administrateurs), 4D (Moteur de Documents),
- * 4E-1 (catalogue administrable) et 4E-2 (gestion des contenus).
+ * 4E-1 (catalogue administrable), 4E-2 (gestion des contenus) et 4F (relation
+ * client : demandes, devis et rendez-vous).
  * Chaque phase ultérieure ajoute les siennes en même temps que sa migration.
  */
 
@@ -546,6 +547,206 @@ export type MediaAssetRow = {
   updated_at: string;
 };
 
+/* ------------------------------------------------- 4F — relation client --- */
+
+/**
+ * Statuts d'une demande — `03_ESPACE_CLIENT.md` § 26, décision C1.
+ * Les documents donnent deux listes incompatibles, toutes deux qualifiées
+ * d'« exemples » ; chacune est affectée à l'entité qui lui correspond.
+ */
+export type QuoteRequestStatus =
+  | 'NOUVELLE'
+  | 'EN_ETUDE'
+  | 'DEVIS_ENVOYE'
+  | 'ACCEPTEE'
+  | 'REFUSEE'
+  | 'TERMINEE'
+  | 'ANNULEE';
+
+/** Statuts d'un devis émis — `05_TABLEAU_DE_BORD_ADMINISTRATEUR.md` § 39. */
+export type QuoteStatus = 'BROUILLON' | 'ENVOYE' | 'ACCEPTE' | 'REFUSE' | 'EXPIRE' | 'ANNULE';
+
+/** Statuts d'un rendez-vous — `02_PRISE_DE_RENDEZ_VOUS.md` § 59. */
+export type AppointmentStatus = 'EN_ATTENTE' | 'CONFIRME' | 'ANNULE' | 'TERMINE';
+
+/** Canal du rendez-vous — § 35-39. */
+export type AppointmentChannel =
+  | 'SUR_PLACE'
+  | 'TELEPHONE'
+  | 'VISIOCONFERENCE'
+  | 'WHATSAPP'
+  | 'AUTRE';
+
+/** Nature d'une disponibilité administrée — § 85-88. */
+export type AvailabilityKind = 'OUVERTURE' | 'EXCEPTION' | 'BLOCAGE';
+
+export type QuoteRequestEventKind =
+  | 'CREATION'
+  | 'STATUT'
+  | 'DEVIS_CREE'
+  | 'DEVIS_STATUT'
+  | 'AFFECTATION'
+  | 'NOTE';
+
+export type AppointmentEventKind =
+  | 'CREATION'
+  | 'STATUT'
+  | 'REPROGRAMMATION'
+  | 'AFFECTATION'
+  | 'NOTE';
+
+export type LeadRow = {
+  id: string;
+  email: string;
+  full_name: string;
+  phone: string | null;
+  user_id: string | null;
+  request_count: number;
+  first_seen_at: string;
+  last_seen_at: string;
+  created_at: string;
+  updated_at: string;
+};
+
+export type QuoteRequestRow = {
+  id: string;
+  reference: string;
+  lead_id: string;
+  user_id: string | null;
+  service_id: string | null;
+  offer_title: string | null;
+  subject: string;
+  budget_label: string | null;
+  message: string;
+  organisation: string | null;
+  details: Json;
+  status: QuoteRequestStatus;
+  source: string | null;
+  assigned_to: string | null;
+  created_at: string;
+  updated_at: string;
+  closed_at: string | null;
+};
+
+export type QuoteRow = {
+  id: string;
+  quote_request_id: string;
+  reference: string | null;
+  document_id: string | null;
+  service_id: string | null;
+  /** `numeric` en base : lu comme chaîne, jamais comme flottant. */
+  amount: string;
+  currency: string;
+  summary: string;
+  status: QuoteStatus;
+  valid_until: string | null;
+  sent_at: string | null;
+  responded_at: string | null;
+  created_at: string;
+  updated_at: string;
+  created_by: string | null;
+  updated_by: string | null;
+};
+
+export type QuoteRequestEventRow = {
+  id: number;
+  quote_request_id: string;
+  kind: QuoteRequestEventKind;
+  from_status: string | null;
+  to_status: string | null;
+  quote_reference: string | null;
+  note: string | null;
+  actor_id: string | null;
+  actor_label: string | null;
+  created_at: string;
+};
+
+export type AppointmentRow = {
+  id: string;
+  reference: string | null;
+  lead_id: string;
+  user_id: string | null;
+  quote_request_id: string | null;
+  service_id: string | null;
+  subject: string;
+  channel: AppointmentChannel;
+  channel_label: string | null;
+  requested_date: string | null;
+  requested_slot: string | null;
+  scheduled_at: string | null;
+  scheduled_end: string | null;
+  timezone: string;
+  budget_label: string | null;
+  message: string | null;
+  details: Json;
+  status: AppointmentStatus;
+  cancel_reason: string | null;
+  source: string | null;
+  assigned_to: string | null;
+  confirmed_at: string | null;
+  cancelled_at: string | null;
+  completed_at: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type AppointmentEventRow = {
+  id: number;
+  appointment_id: string;
+  kind: AppointmentEventKind;
+  from_status: string | null;
+  to_status: string | null;
+  scheduled_at_before: string | null;
+  scheduled_at_after: string | null;
+  note: string | null;
+  actor_id: string | null;
+  actor_label: string | null;
+  created_at: string;
+};
+
+export type AppointmentAvailabilityRow = {
+  id: string;
+  kind: AvailabilityKind;
+  weekday: number | null;
+  on_date: string | null;
+  starts_at: string | null;
+  ends_at: string | null;
+  label: string | null;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+  created_by: string | null;
+  updated_by: string | null;
+};
+
+export type RelationNoteRow = {
+  id: string;
+  quote_request_id: string | null;
+  appointment_id: string | null;
+  body: string;
+  author_id: string | null;
+  author_label: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+/**
+ * Colonnes réellement modifiables par une session.
+ *
+ * La migration retire `reference`, `document_id` et `sent_at` du privilège de
+ * colonne : les proposer ici laisserait croire qu'une mise à jour directe est
+ * envisageable, alors que seule `send_quote` peut les écrire.
+ */
+export type QuoteWrite = {
+  service_id?: string | null;
+  amount?: NumericWrite;
+  currency?: string;
+  summary?: string;
+  valid_until?: string | null;
+  status?: QuoteStatus;
+  responded_at?: string | null;
+};
+
 export type ServiceWrite = Omit<Partial<ServiceRow>, 'price_amount' | 'affiliate_max_rate'> & {
   price_amount?: NumericWrite;
   affiliate_max_rate?: NumericWrite;
@@ -582,6 +783,124 @@ type ProductFileRelationships = [
     columns: ['product_id'];
     isOneToOne: false;
     referencedRelation: 'products';
+    referencedColumns: ['id'];
+  },
+];
+
+/* ------------------------------------------------- 4F — relation client --- */
+
+type QuoteRequestRelationships = [
+  {
+    foreignKeyName: 'quote_requests_lead_id_fkey';
+    columns: ['lead_id'];
+    isOneToOne: false;
+    referencedRelation: 'leads';
+    referencedColumns: ['id'];
+  },
+  {
+    foreignKeyName: 'quote_requests_service_id_fkey';
+    columns: ['service_id'];
+    isOneToOne: false;
+    referencedRelation: 'services';
+    referencedColumns: ['id'];
+  },
+  {
+    foreignKeyName: 'quote_requests_assigned_to_fkey';
+    columns: ['assigned_to'];
+    isOneToOne: false;
+    referencedRelation: 'profiles';
+    referencedColumns: ['id'];
+  },
+];
+
+type QuoteRelationships = [
+  {
+    foreignKeyName: 'quotes_quote_request_id_fkey';
+    columns: ['quote_request_id'];
+    isOneToOne: false;
+    referencedRelation: 'quote_requests';
+    referencedColumns: ['id'];
+  },
+  {
+    foreignKeyName: 'quotes_document_id_fkey';
+    columns: ['document_id'];
+    isOneToOne: false;
+    referencedRelation: 'documents';
+    referencedColumns: ['id'];
+  },
+  {
+    foreignKeyName: 'quotes_service_id_fkey';
+    columns: ['service_id'];
+    isOneToOne: false;
+    referencedRelation: 'services';
+    referencedColumns: ['id'];
+  },
+];
+
+type QuoteRequestEventRelationships = [
+  {
+    foreignKeyName: 'quote_request_events_quote_request_id_fkey';
+    columns: ['quote_request_id'];
+    isOneToOne: false;
+    referencedRelation: 'quote_requests';
+    referencedColumns: ['id'];
+  },
+];
+
+type AppointmentRelationships = [
+  {
+    foreignKeyName: 'appointments_lead_id_fkey';
+    columns: ['lead_id'];
+    isOneToOne: false;
+    referencedRelation: 'leads';
+    referencedColumns: ['id'];
+  },
+  {
+    foreignKeyName: 'appointments_quote_request_id_fkey';
+    columns: ['quote_request_id'];
+    isOneToOne: false;
+    referencedRelation: 'quote_requests';
+    referencedColumns: ['id'];
+  },
+  {
+    foreignKeyName: 'appointments_service_id_fkey';
+    columns: ['service_id'];
+    isOneToOne: false;
+    referencedRelation: 'services';
+    referencedColumns: ['id'];
+  },
+  {
+    foreignKeyName: 'appointments_assigned_to_fkey';
+    columns: ['assigned_to'];
+    isOneToOne: false;
+    referencedRelation: 'profiles';
+    referencedColumns: ['id'];
+  },
+];
+
+type AppointmentEventRelationships = [
+  {
+    foreignKeyName: 'appointment_events_appointment_id_fkey';
+    columns: ['appointment_id'];
+    isOneToOne: false;
+    referencedRelation: 'appointments';
+    referencedColumns: ['id'];
+  },
+];
+
+type RelationNoteRelationships = [
+  {
+    foreignKeyName: 'relation_notes_quote_request_id_fkey';
+    columns: ['quote_request_id'];
+    isOneToOne: false;
+    referencedRelation: 'quote_requests';
+    referencedColumns: ['id'];
+  },
+  {
+    foreignKeyName: 'relation_notes_appointment_id_fkey';
+    columns: ['appointment_id'];
+    isOneToOne: false;
+    referencedRelation: 'appointments';
     referencedColumns: ['id'];
   },
 ];
@@ -739,6 +1058,85 @@ export type Database = {
         Pick<RateLimitCounterRow, 'bucket' | 'subject_hash' | 'window_start'> &
           Partial<RateLimitCounterRow>
       >;
+
+      /* ----------------------------------------- 4F — relation client --- */
+
+      /**
+       * `Insert` vaut `never` pour les quatre tables dont la création ne passe
+       * pas par une session : prospects, demandes et rendez-vous naissent des
+       * fonctions `submit_*`, les historiques des déclencheurs. Le type dit
+       * donc la même chose que le privilège de table — un `insert()` sur ces
+       * tables ne compile pas, au lieu d'échouer à l'exécution.
+       */
+      leads: Table<LeadRow, never, never>;
+      quote_requests: Table<
+        QuoteRequestRow,
+        never,
+        Partial<
+          Pick<
+            QuoteRequestRow,
+            | 'service_id'
+            | 'offer_title'
+            | 'subject'
+            | 'budget_label'
+            | 'organisation'
+            | 'details'
+            | 'status'
+            | 'source'
+            | 'assigned_to'
+            | 'closed_at'
+          >
+        >,
+        QuoteRequestRelationships
+      >;
+      quotes: Table<
+        QuoteRow,
+        Pick<QuoteRow, 'quote_request_id'> & { amount: NumericWrite } & QuoteWrite,
+        QuoteWrite,
+        QuoteRelationships
+      >;
+      quote_request_events: Table<QuoteRequestEventRow, never, never, QuoteRequestEventRelationships>;
+      appointments: Table<
+        AppointmentRow,
+        never,
+        Partial<
+          Pick<
+            AppointmentRow,
+            | 'quote_request_id'
+            | 'service_id'
+            | 'subject'
+            | 'channel'
+            | 'channel_label'
+            | 'requested_date'
+            | 'requested_slot'
+            | 'scheduled_at'
+            | 'scheduled_end'
+            | 'timezone'
+            | 'budget_label'
+            | 'message'
+            | 'details'
+            | 'status'
+            | 'cancel_reason'
+            | 'source'
+            | 'assigned_to'
+            | 'cancelled_at'
+            | 'completed_at'
+          >
+        >,
+        AppointmentRelationships
+      >;
+      appointment_events: Table<AppointmentEventRow, never, never, AppointmentEventRelationships>;
+      appointment_availabilities: Table<
+        AppointmentAvailabilityRow,
+        Pick<AppointmentAvailabilityRow, 'kind'> & Partial<AppointmentAvailabilityRow>,
+        Partial<AppointmentAvailabilityRow>
+      >;
+      relation_notes: Table<
+        RelationNoteRow,
+        Pick<RelationNoteRow, 'body'> & Partial<RelationNoteRow>,
+        Partial<Pick<RelationNoteRow, 'body'>>,
+        RelationNoteRelationships
+      >;
     };
     Views: Record<never, never>;
     Functions: {
@@ -834,6 +1232,82 @@ export type Database = {
           p_metadata?: Json;
         };
         Returns: number;
+      };
+
+      /* ----------------------------------------- 4F — relation client --- */
+
+      /**
+       * Les deux portes publiques. `relation_upsert_lead` et
+       * `relation_rate_limit_ok` n'apparaissent pas : réservées à
+       * `service_role`, les déclarer laisserait croire qu'un appel applicatif
+       * est envisageable — la même règle que pour `allocate_document_number`.
+       *
+       * Aucun paramètre ne porte d'identifiant d'utilisateur : le rattachement
+       * est lu dans `auth.uid()` à l'intérieur de la fonction.
+       */
+      submit_quote_request: {
+        Args: {
+          p_full_name: string;
+          p_email: string;
+          p_phone?: string | null;
+          p_organisation?: string | null;
+          p_subject?: string | null;
+          p_budget?: string | null;
+          p_message?: string | null;
+          p_service_slug?: string | null;
+          p_offer_title?: string | null;
+          p_details?: Json;
+          p_source?: string | null;
+          p_client_hash?: string | null;
+        };
+        Returns: { reference: string; duplicate: boolean }[];
+      };
+      submit_appointment_request: {
+        Args: {
+          p_full_name: string;
+          p_email: string;
+          p_phone?: string | null;
+          p_organisation?: string | null;
+          p_subject?: string | null;
+          p_channel_label?: string | null;
+          p_requested_date?: string | null;
+          p_requested_slot?: string | null;
+          p_budget?: string | null;
+          p_message?: string | null;
+          p_service_slug?: string | null;
+          p_details?: Json;
+          p_source?: string | null;
+          p_client_hash?: string | null;
+        };
+        Returns: { created: boolean; duplicate: boolean }[];
+      };
+      confirm_appointment: {
+        Args: {
+          p_appointment_id: string;
+          p_scheduled_at: string;
+          p_scheduled_end: string;
+        };
+        Returns: AppointmentRow;
+      };
+      send_quote: {
+        Args: { p_quote_id: string };
+        Returns: QuoteRow;
+      };
+      appointment_slot_is_open: {
+        Args: { p_start: string; p_end: string };
+        Returns: boolean;
+      };
+      can_view_demandes: {
+        Args: Record<string, never>;
+        Returns: boolean;
+      };
+      can_view_rendez_vous: {
+        Args: Record<string, never>;
+        Returns: boolean;
+      };
+      can_view_prospects: {
+        Args: Record<string, never>;
+        Returns: boolean;
       };
     };
     Enums: Record<never, never>;

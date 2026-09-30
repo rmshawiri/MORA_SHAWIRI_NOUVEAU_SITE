@@ -253,10 +253,10 @@ export const legalDocuments: readonly LegalDocument[] = [
 
         <h2>3. Formulaires, demandes et rendez-vous</h2>
         <p>
-          Le site ne dispose d’aucune base de données : les informations que vous saisissez ne sont
-          pas stockées sur le site. Elles sont transmises par courriel à MORA Shawiri au moment où
-          vous envoyez votre demande, et un accusé de réception vous est adressé à l’adresse que
-          vous avez indiquée.
+          Les informations que vous saisissez sont enregistrées afin d’assurer le suivi de votre
+          demande. Elles sont également transmises par courriel à MORA Shawiri au moment où vous
+          envoyez votre demande, et un accusé de réception vous est adressé à l’adresse que vous
+          avez indiquée.
         </p>
         <p>
           Ces informations sont utilisées exclusivement pour vous répondre, établir un devis et
@@ -308,8 +308,9 @@ export const legalDocuments: readonly LegalDocument[] = [
         <p>
           Vos données sont traitées par l’équipe de MORA Shawiri. Elles ne sont ni cédées ni louées
           à des tiers. Elles peuvent être communiquées à un prestataire technique intervenant pour
-          notre compte — hébergement du site, acheminement des courriels — tenu à la même
-          confidentialité, ou à une autorité compétente sur demande légale.
+          notre compte — hébergement du site par <strong>Vercel Inc.</strong>, hébergement de la
+          base de données par <strong>Supabase</strong>, acheminement des courriels — tenu à la
+          même confidentialité, ou à une autorité compétente sur demande légale.
         </p>
 
         <h2>10. Sécurité</h2>
