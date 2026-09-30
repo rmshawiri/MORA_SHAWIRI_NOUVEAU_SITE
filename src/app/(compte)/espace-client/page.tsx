@@ -6,6 +6,12 @@ import PageHero from '@/components/sections/PageHero';
 import { requirePrivateAccess } from '@/lib/auth/guards';
 import { displayIdentity } from '@/lib/auth/identifiers';
 import { AUTH_ROUTES } from '@/lib/auth/routes';
+import { listMyOrders } from '@/lib/commerce/client';
+import {
+  formatAmount,
+  ORDER_STATUS_LABELS,
+  SETTLEMENT_STATUS_LABELS,
+} from '@/lib/commerce/labels';
 
 export const metadata: Metadata = {
   title: 'Mon espace',
@@ -27,6 +33,12 @@ export const metadata: Metadata = {
  */
 export default async function EspaceClientPage() {
   const context = await requirePrivateAccess(AUTH_ROUTES.clientArea);
+
+  // Phase 4G : les commandes, et rien d'autre. Le reste de l'espace — profil,
+  // devis, rendez-vous, documents — appartient à la phase 4I. Ce bloc existe
+  // parce que sans lui le client n'aurait aucun endroit où déclarer un
+  // paiement, et le cycle de vérification n'aurait rien à vérifier.
+  const orders = await listMyOrders();
 
   const roleLabels: Record<string, string> = {
     SUPER_ADMIN: 'Super-administrateur',
@@ -83,6 +95,37 @@ export default async function EspaceClientPage() {
                   </div>
                 )}
               </dl>
+            </div>
+
+            <div className="auth-card">
+              <div className="auth-card__head">
+                <h2>Mes commandes</h2>
+                {orders.length > 0 ? (
+                  <p>
+                    Ouvrez une commande pour en voir le détail et déclarer votre paiement.
+                  </p>
+                ) : null}
+              </div>
+
+              {orders.length === 0 ? (
+                <p>
+                  Vous n’avez aucune commande pour le moment. Une commande est établie par MORA
+                  Shawiri après acceptation d’un devis ; vous la retrouverez ici.
+                </p>
+              ) : (
+                <ul className="auth-links">
+                  {orders.map((order) => (
+                    <li key={order.id}>
+                      <Link href={`/espace-client/commandes/${order.reference}/`}>
+                        <code>{order.reference}</code> —{' '}
+                        {formatAmount(order.total_amount, order.currency)} ·{' '}
+                        {ORDER_STATUS_LABELS[order.status]} ·{' '}
+                        {SETTLEMENT_STATUS_LABELS[order.settlement_status]}
+                      </Link>
+                    </li>
+                  ))}
+                </ul>
+              )}
             </div>
 
             <div className="auth-card">

@@ -18,7 +18,8 @@
     "perms:verify": "node scripts/verify-permissions.mjs",
     "docs:verify": "node scripts/verify-documents.mjs",
     "relation:verify": "node scripts/verify-relation.mjs",
-    "routes:verify": "node scripts/verify-routes.mjs"
+    "routes:verify": "node scripts/verify-routes.mjs",
+    "commerce:verify": "node scripts/verify-commerce.mjs"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.7",

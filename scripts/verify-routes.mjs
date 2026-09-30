@@ -149,6 +149,10 @@ async function anonymousRoutes(base) {
     '/changer-mot-de-passe/',
     '/securite/double-facteur/',
     '/connexion/verification/',
+    // Phase 4G : la fiche d'une commande et les deux modules commerce.
+    '/espace-client/commandes/MORA-CMCL-A0001/',
+    '/administration/commandes/',
+    '/administration/paiements/',
   ];
 
   for (const page of privatePages) {
@@ -159,6 +163,29 @@ async function anonymousRoutes(base) {
       `HTTP ${result.status} → ${result.location}`,
     );
   }
+
+  /*
+   * Le justificatif de paiement — phase 4G.
+   *
+   * Le bucket est privé ; cette route est la seule porte, et elle ne signe une
+   * URL qu'après que la base a autorisé la lecture. Sans session, il n'y a
+   * rien à autoriser. Le refus est un 404 et non un 403 : le § 102 demande de
+   * ne pas révéler ce qui existe, et un 403 confirmerait à un curieux qu'il a
+   * deviné juste.
+   */
+  const proof = await visit(base, '/api/justificatifs/11111111-2222-3333-4444-555555555555/');
+  check(
+    'un justificatif est introuvable sans session',
+    proof.status === 404,
+    `HTTP ${proof.status}`,
+  );
+
+  const malformed = await visit(base, '/api/justificatifs/pas-un-identifiant/');
+  check(
+    'un identifiant de justificatif mal formé est refusé sans interroger la base',
+    malformed.status === 404,
+    `HTTP ${malformed.status}`,
+  );
 
   const callback = await visit(base, '/auth/callback/');
   check(
@@ -439,9 +466,24 @@ async function sessionRoutes(target, base) {
       commandes.status === 200,
       `HTTP ${commandes.status}`,
     );
+    /*
+     * Jusqu'à la phase 4G, ce contrôle vérifiait que le module affichait
+     * « Module à construire ». Il le faisait pour une bonne raison — le § 171
+     * du tableau de bord interdit de simuler une fonctionnalité absente — mais
+     * la fonctionnalité n'est plus absente : 4G l'a livrée.
+     *
+     * Ce qu'il faut vérifier reste le même au fond : que l'écran dise l'état
+     * **réel** de la base. Sans commande enregistrée, il l'annonce au lieu
+     * d'afficher un tableau de démonstration.
+     */
     check(
-      'le module ouvert annonce qu’il reste à construire, sans donnée inventée',
-      commandes.body.includes('Module à construire'),
+      'le module ouvert affiche l’écran des commandes',
+      commandes.body.includes('Commandes') && !commandes.body.includes('Module à construire'),
+    );
+    check(
+      'l’écran des commandes n’invente aucune donnée',
+      commandes.body.includes('Aucune commande enregistrée') ||
+        commandes.body.includes('commande(s) enregistrée(s)'),
     );
 
     const paiements = await visit(base, '/administration/paiements/', aal2Cookie);

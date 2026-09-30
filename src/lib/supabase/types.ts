@@ -244,7 +244,14 @@ export type ServiceRow = {
   benefits: string[];
   price_label: string;
   price_note: string;
-  /** `numeric` : PostgREST le renvoie en chaîne pour ne rien perdre en route. */
+  /*
+   * `numeric`. Le commentaire d'origine annonçait une chaîne ; vérification
+   * faite contre la base, PostgREST sérialise `numeric` sans guillemets et
+   * supabase-js rend donc un nombre. Le type reste `string | null` ici pour ne
+   * pas toucher au code de 4E qui s'y appuie, mais rien ne doit compter
+   * là-dessus : `formatAmount()` accepte les deux formes, et aucun calcul
+   * monétaire n'a lieu côté application.
+   */
   price_amount: string | null;
   currency: string;
   image_path: string;
@@ -730,6 +737,256 @@ export type RelationNoteRow = {
   updated_at: string;
 };
 
+/* ------------------------------------ 4G — commandes et paiements --- */
+
+/**
+ * Statuts de commande — `09_ADMINISTRATION/02` § 22, arbitrage du
+ * propriétaire.
+ *
+ * Aucun état de paiement n'y figure : le § 151 de `06_PAIEMENTS.md` exige que
+ * les deux cycles restent séparés. Ce que le règlement raconte se lit dans
+ * `OrderSettlementStatus`, qui est dérivé et non saisi.
+ */
+export type OrderStatus =
+  | 'NOUVELLE'
+  | 'CONFIRMEE'
+  | 'EN_TRAITEMENT'
+  | 'EN_ATTENTE_INFO'
+  | 'PRETE'
+  | 'TERMINEE'
+  | 'ANNULEE';
+
+/** Calculé par la base à partir des seuls paiements confirmés. */
+export type OrderSettlementStatus =
+  | 'NON_PAYEE'
+  | 'PARTIELLE'
+  | 'SOLDEE'
+  | 'PARTIELLEMENT_REMBOURSEE'
+  | 'REMBOURSEE';
+
+/** Statuts de paiement — `06_PAIEMENTS.md` § 22, sans retouche. */
+export type PaymentStatus =
+  | 'EN_ATTENTE'
+  | 'INITIE'
+  | 'EN_VERIFICATION'
+  | 'PAYE'
+  | 'ECHEC'
+  | 'ANNULE'
+  | 'REMBOURSE'
+  | 'PARTIELLEMENT_REMBOURSE';
+
+export type RefundStatus = 'EN_COURS' | 'EFFECTUE' | 'ECHEC' | 'ANNULE';
+
+export type PaymentMethodKind =
+  | 'MOBILE_MONEY'
+  | 'BANK_TRANSFER'
+  | 'CHEQUE'
+  | 'CASH'
+  | 'ONLINE';
+
+/** MANUEL partout aujourd'hui. API prépare une passerelle, sans en simuler. */
+export type PaymentProcessingMode = 'MANUEL' | 'API';
+
+export type OrderEventType =
+  | 'COMMANDE_CREEE'
+  | 'STATUT_CHANGE'
+  | 'MONTANTS_RECALCULES'
+  | 'PAIEMENT_DECLARE'
+  | 'PAIEMENT_CONFIRME'
+  | 'PAIEMENT_REJETE'
+  | 'PAIEMENT_ANNULE'
+  | 'JUSTIFICATIF_AJOUTE'
+  | 'REMBOURSEMENT_ENREGISTRE'
+  | 'REMBOURSEMENT_EFFECTUE'
+  | 'DOCUMENT_EMIS';
+
+export type PaymentMethodRow = {
+  code: string;
+  label: string;
+  kind: PaymentMethodKind;
+  processing_mode: PaymentProcessingMode;
+  is_active: boolean;
+  instructions: string;
+  account_number: string | null;
+  account_holder: string | null;
+  requires_proof: boolean;
+  sort_order: number;
+  metadata: Json;
+  created_at: string;
+  updated_at: string;
+  updated_by: string | null;
+};
+
+/**
+ * Les montants arrivent en **nombre**, pas en chaîne.
+ *
+ * PostgREST sérialise `numeric` sans guillemets, et supabase-js le rend donc
+ * en `number`. Vérifié contre la base plutôt que supposé. La précision de
+ * `numeric(12, 2)` tient largement dans un entier sûr de JavaScript, et
+ * surtout : **aucun calcul n'est fait ici**. Le total d'une commande, son
+ * montant encaissé et le montant d'une ligne sont écrits par la base, qui
+ * travaille en `numeric` ; le code ne fait que les afficher. C'est ce qui rend
+ * l'interdiction du flottant (§ 10) tenable sans arithmétique décimale côté
+ * navigateur.
+ */
+export type OrderRow = {
+  id: string;
+  reference: string;
+  document_id: string | null;
+  user_id: string;
+  lead_id: string | null;
+  quote_id: string | null;
+  quote_request_id: string | null;
+  customer_name: string;
+  customer_email: string;
+  customer_phone: string | null;
+  status: OrderStatus;
+  settlement_status: OrderSettlementStatus;
+  subtotal_amount: string;
+  discount_amount: string;
+  fees_amount: string;
+  total_amount: string;
+  paid_amount: string;
+  refunded_amount: string;
+  currency: string;
+  is_manual: boolean;
+  customer_note: string | null;
+  admin_note: string | null;
+  cancel_reason: string | null;
+  created_at: string;
+  updated_at: string;
+  confirmed_at: string | null;
+  cancelled_at: string | null;
+  closed_at: string | null;
+  created_by: string | null;
+  updated_by: string | null;
+};
+
+export type OrderItemRow = {
+  id: string;
+  order_id: string;
+  service_id: string | null;
+  product_id: string | null;
+  quote_id: string | null;
+  designation: string;
+  item_reference: string | null;
+  unit_label: string | null;
+  quantity: string;
+  unit_price: string;
+  discount_amount: string;
+  line_total: string;
+  position: number;
+  created_at: string;
+  updated_at: string;
+};
+
+export type PaymentRow = {
+  id: string;
+  order_id: string;
+  method_code: string;
+  amount: string;
+  currency: string;
+  status: PaymentStatus;
+  processing_mode: PaymentProcessingMode;
+  declared_by: string | null;
+  transaction_reference: string | null;
+  transaction_key: string | null;
+  external_reference: string | null;
+  external_status: string | null;
+  declared_at: string | null;
+  verified_at: string | null;
+  confirmed_at: string | null;
+  verified_by: string | null;
+  rejection_reason: string | null;
+  client_note: string | null;
+  admin_note: string | null;
+  metadata: Json;
+  created_at: string;
+  updated_at: string;
+};
+
+export type PaymentProofRow = {
+  id: string;
+  payment_id: string;
+  storage_bucket: string;
+  storage_path: string;
+  original_name: string | null;
+  mime_type: string;
+  file_size: number;
+  checksum: string;
+  uploaded_by: string | null;
+  uploaded_at: string;
+};
+
+export type RefundRow = {
+  id: string;
+  order_id: string;
+  payment_id: string | null;
+  document_id: string | null;
+  amount: string;
+  currency: string;
+  status: RefundStatus;
+  method_code: string | null;
+  external_reference: string | null;
+  reason: string;
+  requested_at: string;
+  completed_at: string | null;
+  failed_reason: string | null;
+  created_at: string;
+  updated_at: string;
+  created_by: string | null;
+  updated_by: string | null;
+};
+
+export type OrderStatusHistoryRow = {
+  id: number;
+  order_id: string;
+  from_status: OrderStatus | null;
+  to_status: OrderStatus;
+  changed_at: string;
+  actor_id: string | null;
+  actor_label: string | null;
+  note: string | null;
+};
+
+export type OrderEventRow = {
+  id: number;
+  order_id: string;
+  payment_id: string | null;
+  refund_id: string | null;
+  event_type: OrderEventType;
+  summary: string;
+  amount: string | null;
+  occurred_at: string;
+  actor_id: string | null;
+  actor_label: string | null;
+};
+
+/**
+ * Colonnes d'une commande qu'une session peut réellement écrire.
+ *
+ * Ni `reference`, ni `document_id`, ni `user_id`, ni les trois colonnes de
+ * règlement : la migration les gèle par déclencheur. Les proposer ici
+ * laisserait croire le contraire.
+ */
+export type OrderWrite = {
+  status?: OrderStatus;
+  admin_note?: string | null;
+  customer_note?: string | null;
+  cancel_reason?: string | null;
+  fees_amount?: NumericWrite;
+};
+
+export type PaymentMethodWrite = {
+  label?: string;
+  is_active?: boolean;
+  instructions?: string;
+  account_number?: string | null;
+  account_holder?: string | null;
+  requires_proof?: boolean;
+  sort_order?: number;
+};
+
 /**
  * Colonnes réellement modifiables par une session.
  *
@@ -901,6 +1158,127 @@ type RelationNoteRelationships = [
     columns: ['appointment_id'];
     isOneToOne: false;
     referencedRelation: 'appointments';
+    referencedColumns: ['id'];
+  },
+];
+
+/* ------------------------------------ 4G — commandes et paiements --- */
+
+type OrderRelationships = [
+  {
+    foreignKeyName: 'orders_quote_id_fkey';
+    columns: ['quote_id'];
+    isOneToOne: true;
+    referencedRelation: 'quotes';
+    referencedColumns: ['id'];
+  },
+  {
+    foreignKeyName: 'orders_lead_id_fkey';
+    columns: ['lead_id'];
+    isOneToOne: false;
+    referencedRelation: 'leads';
+    referencedColumns: ['id'];
+  },
+  {
+    foreignKeyName: 'orders_quote_request_id_fkey';
+    columns: ['quote_request_id'];
+    isOneToOne: false;
+    referencedRelation: 'quote_requests';
+    referencedColumns: ['id'];
+  },
+];
+
+type OrderItemRelationships = [
+  {
+    foreignKeyName: 'order_items_order_id_fkey';
+    columns: ['order_id'];
+    isOneToOne: false;
+    referencedRelation: 'orders';
+    referencedColumns: ['id'];
+  },
+  {
+    foreignKeyName: 'order_items_service_id_fkey';
+    columns: ['service_id'];
+    isOneToOne: false;
+    referencedRelation: 'services';
+    referencedColumns: ['id'];
+  },
+  {
+    foreignKeyName: 'order_items_product_id_fkey';
+    columns: ['product_id'];
+    isOneToOne: false;
+    referencedRelation: 'products';
+    referencedColumns: ['id'];
+  },
+];
+
+type PaymentRelationships = [
+  {
+    foreignKeyName: 'payments_order_id_fkey';
+    columns: ['order_id'];
+    isOneToOne: false;
+    referencedRelation: 'orders';
+    referencedColumns: ['id'];
+  },
+  {
+    foreignKeyName: 'payments_method_code_fkey';
+    columns: ['method_code'];
+    isOneToOne: false;
+    referencedRelation: 'payment_methods';
+    referencedColumns: ['code'];
+  },
+];
+
+type PaymentProofRelationships = [
+  {
+    foreignKeyName: 'payment_proofs_payment_id_fkey';
+    columns: ['payment_id'];
+    isOneToOne: false;
+    referencedRelation: 'payments';
+    referencedColumns: ['id'];
+  },
+];
+
+type RefundRelationships = [
+  {
+    foreignKeyName: 'refunds_order_id_fkey';
+    columns: ['order_id'];
+    isOneToOne: false;
+    referencedRelation: 'orders';
+    referencedColumns: ['id'];
+  },
+  {
+    foreignKeyName: 'refunds_payment_id_fkey';
+    columns: ['payment_id'];
+    isOneToOne: false;
+    referencedRelation: 'payments';
+    referencedColumns: ['id'];
+  },
+];
+
+type OrderStatusHistoryRelationships = [
+  {
+    foreignKeyName: 'order_status_history_order_id_fkey';
+    columns: ['order_id'];
+    isOneToOne: false;
+    referencedRelation: 'orders';
+    referencedColumns: ['id'];
+  },
+];
+
+type OrderEventRelationships = [
+  {
+    foreignKeyName: 'order_events_order_id_fkey';
+    columns: ['order_id'];
+    isOneToOne: false;
+    referencedRelation: 'orders';
+    referencedColumns: ['id'];
+  },
+  {
+    foreignKeyName: 'order_events_payment_id_fkey';
+    columns: ['payment_id'];
+    isOneToOne: false;
+    referencedRelation: 'payments';
     referencedColumns: ['id'];
   },
 ];
@@ -1137,6 +1515,33 @@ export type Database = {
         Partial<Pick<RelationNoteRow, 'body'>>,
         RelationNoteRelationships
       >;
+
+      /* --------------------------- 4G — commerce --- */
+
+      /*
+       * `never` en Insert marque les tables qu'aucune session n'alimente
+       * directement : une commande naît d'une fonction qui lui alloue sa
+       * référence officielle, un paiement de `declare_payment`, un
+       * remboursement de `record_refund`. Le type dit ce que la base impose.
+       */
+      payment_methods: Table<PaymentMethodRow, never, PaymentMethodWrite>;
+      orders: Table<OrderRow, never, OrderWrite, OrderRelationships>;
+      order_items: Table<
+        OrderItemRow,
+        Pick<OrderItemRow, 'order_id' | 'designation' | 'unit_price'> & Partial<OrderItemRow>,
+        Partial<OrderItemRow>,
+        OrderItemRelationships
+      >;
+      payments: Table<PaymentRow, never, Partial<PaymentRow>, PaymentRelationships>;
+      payment_proofs: Table<PaymentProofRow, never, never, PaymentProofRelationships>;
+      refunds: Table<RefundRow, never, never, RefundRelationships>;
+      order_status_history: Table<
+        OrderStatusHistoryRow,
+        never,
+        never,
+        OrderStatusHistoryRelationships
+      >;
+      order_events: Table<OrderEventRow, never, never, OrderEventRelationships>;
     };
     Views: Record<never, never>;
     Functions: {
@@ -1306,6 +1711,106 @@ export type Database = {
         Returns: boolean;
       };
       can_view_prospects: {
+        Args: Record<string, never>;
+        Returns: boolean;
+      };
+
+      /* ------------------------------ 4G — commerce --- */
+
+      /*
+       * `recompute_order_settlement` n'est pas déclarée : réservée à
+       * `service_role`, comme `allocate_document_number`. La déclarer
+       * laisserait croire qu'un appel applicatif est envisageable, alors
+       * qu'elle est précisément ce qui empêche d'écrire un règlement.
+       *
+       * Aucune de ces signatures ne prend d'identifiant d'utilisateur, de
+       * statut ni de total : le point 17 du cadrage les énumère comme des
+       * valeurs que le navigateur ne doit jamais choisir, et la façon la plus
+       * sûre de le garantir est qu'elles ne soient pas des paramètres.
+       */
+      place_order_from_quote: {
+        Args: { p_quote_id: string };
+        Returns: OrderRow;
+      };
+      create_manual_order: {
+        Args: {
+          p_user_id: string;
+          p_items: Json;
+          p_fees?: NumericWrite;
+          p_note?: string | null;
+        };
+        Returns: OrderRow;
+      };
+      declare_payment: {
+        Args: {
+          p_order_id: string;
+          p_method_code: string;
+          p_amount: NumericWrite;
+          p_transaction_reference?: string | null;
+          p_client_note?: string | null;
+        };
+        Returns: PaymentRow;
+      };
+      verify_payment: {
+        Args: { p_payment_id: string; p_admin_note?: string | null };
+        Returns: PaymentRow;
+      };
+      reject_payment: {
+        Args: { p_payment_id: string; p_reason: string };
+        Returns: PaymentRow;
+      };
+      cancel_order: {
+        Args: { p_order_id: string; p_reason: string };
+        Returns: OrderRow;
+      };
+      record_refund: {
+        Args: {
+          p_order_id: string;
+          p_amount: NumericWrite;
+          p_reason: string;
+          p_payment_id?: string | null;
+          p_method_code?: string | null;
+        };
+        Returns: RefundRow;
+      };
+      complete_refund: {
+        Args: { p_refund_id: string; p_external_reference?: string | null };
+        Returns: RefundRow;
+      };
+      issue_order_invoice: {
+        Args: { p_order_id: string };
+        Returns: DocumentRow;
+      };
+      attach_payment_proof: {
+        Args: {
+          p_payment_id: string;
+          p_storage_path: string;
+          p_mime_type: string;
+          p_file_size: number;
+          p_checksum: string;
+          p_original_name?: string | null;
+        };
+        Returns: PaymentProofRow;
+      };
+      active_payment_methods: {
+        Args: Record<string, never>;
+        Returns: Pick<
+          PaymentMethodRow,
+          | 'code'
+          | 'label'
+          | 'kind'
+          | 'instructions'
+          | 'account_number'
+          | 'account_holder'
+          | 'requires_proof'
+          | 'sort_order'
+        >[];
+      };
+      can_view_commandes: {
+        Args: Record<string, never>;
+        Returns: boolean;
+      };
+      can_view_paiements: {
         Args: Record<string, never>;
         Returns: boolean;
       };
