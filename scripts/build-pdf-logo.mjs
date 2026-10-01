@@ -3,9 +3,13 @@
  *
  *   node scripts/build-pdf-logo.mjs
  *
- * Lit `public/logo-rect.png` (RGBA 8 bits), le réduit de moitié, sépare les
- * couleurs de la transparence, comprime chaque plan, et écrit
- * `src/lib/documents/logo-asset.ts`.
+ * Lit le logo circulaire officiel `public/logo-circle.png` (RGBA 8 bits, le
+ * même que celui des e-mails et de l'administration), sépare les couleurs de la
+ * transparence, comprime chaque plan, et écrit `src/lib/documents/logo-asset.ts`.
+ *
+ * Aucune retouche : pleine résolution (512 × 512), proportions et
+ * transparence d'origine. Le PDF l'affiche à environ 70 points, soit plus de
+ * 500 points par pouce — net à l'écran comme à l'impression.
  *
  * ## Pourquoi un fichier généré et versionné
  *
@@ -24,9 +28,11 @@ import { inflateSync, deflateSync } from 'node:zlib';
 
 import { PROJECT_ROOT } from './lib/config.mjs';
 
-const SOURCE = resolve(PROJECT_ROOT, 'public', 'logo-rect.png');
+const SOURCE = resolve(PROJECT_ROOT, 'public', 'logo-circle.png');
 const TARGET = resolve(PROJECT_ROOT, 'src', 'lib', 'documents', 'logo-asset.ts');
-const FACTOR = 2;
+// 1 : aucune réduction. Le facteur reste paramétrable si un logo plus lourd
+// devait un jour être intégré.
+const FACTOR = 1;
 
 function readPng(buffer) {
   const signature = '89504e470d0a1a0a';
@@ -97,8 +103,9 @@ const height = Math.floor(png.height / FACTOR);
 const rgb = Buffer.alloc(width * height * 3);
 const alpha = Buffer.alloc(width * height);
 
-// Réduction par moyenne pondérée par l'opacité : un pixel transparent ne
-// noircit pas le bord de son voisin.
+// Réduction éventuelle par moyenne pondérée par l'opacité : un pixel
+// transparent ne noircit pas le bord de son voisin. Avec FACTOR = 1, chaque
+// pixel est recopié tel quel.
 for (let y = 0; y < height; y += 1) {
   for (let x = 0; x < width; x += 1) {
     let r = 0;
@@ -130,8 +137,8 @@ const source = `/**
  * Logo officiel MORA Shawiri, préparé pour les documents PDF.
  *
  * FICHIER GÉNÉRÉ par \`scripts/build-pdf-logo.mjs\` à partir de
- * \`public/logo-rect.png\`. Ne pas modifier à la main : relancer le script si le
- * logo officiel change.
+ * \`public/logo-circle.png\` (logo circulaire officiel). Ne pas modifier à la
+ * main : relancer le script si le logo officiel change.
  *
  * Deux plans comprimés en zlib (\`/FlateDecode\`) : les couleurs RVB, et la
  * transparence en masque doux (\`/SMask\`). Le PDF les accepte tels quels.

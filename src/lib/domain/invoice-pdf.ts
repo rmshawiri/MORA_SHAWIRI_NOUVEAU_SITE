@@ -43,7 +43,7 @@ import {
 } from './pdf-engine';
 
 /** Version du gabarit, enregistrée avec chaque archive. */
-export const INVOICE_RENDERER_VERSION = 'facl-1.0';
+export const INVOICE_RENDERER_VERSION = 'facl-1.1';
 
 /* -------------------------------------------------------------------------- */
 /* L'instantané                                                                */
@@ -209,6 +209,8 @@ const MARGIN = 40;
 const CONTENT = A4.width - MARGIN * 2;
 const RIGHT = A4.width - MARGIN;
 const FOOTER_TOP = 70;
+/** Hauteur du logo dans l'en-tête, en points (≈ 2,5 cm). */
+const LOGO_HEIGHT = 70;
 const { blue, gold, black, white, grey } = BRAND_COLORS;
 
 export type InvoiceRenderOptions = {
@@ -227,9 +229,11 @@ function drawFirstHeader(page: PdfPage, snapshot: InvoiceSnapshot, logo: PdfImag
   const top = A4.height - MARGIN;
 
   // Logo, ou à défaut le nom — l'identité reste lisible dans les deux cas.
+  // Le logo est calé sur une hauteur : un logo circulaire (1:1) comme un logo
+  // en bandeau garde ses proportions d'origine, sans étirement.
   if (logo) {
-    const width = 128;
-    const height = (width * logo.height) / logo.width;
+    const height = LOGO_HEIGHT;
+    const width = (height * logo.width) / logo.height;
     page.image(logo.name, MARGIN, top - height, width, height);
   } else {
     page.fill(blue).text(snapshot.issuer.name, MARGIN, top - 22, 20, 'bold');
@@ -241,7 +245,7 @@ function drawFirstHeader(page: PdfPage, snapshot: InvoiceSnapshot, logo: PdfImag
   page.textRight(`Date d’émission : ${formatInvoiceDate(snapshot.issued_at)}`, RIGHT, top - 57, 9.5);
 
   // Émetteur, sous le logo.
-  let y = top - 84;
+  let y = top - LOGO_HEIGHT - 16;
   page.fill(blue).text(snapshot.issuer.name, MARGIN, y, 10.5, 'bold');
   page.fill(black);
   for (const line of [

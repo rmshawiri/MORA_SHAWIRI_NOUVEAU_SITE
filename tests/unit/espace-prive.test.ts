@@ -124,3 +124,13 @@ test('champs et boutons privés restent des cibles tactiles sûres, sans zoom iO
   // 16px : en deçà, Safari iOS agrandit la page à chaque focus.
   assert.match(espaceCss, /\.espace \.field select \{[^}]*font-size: 1rem;/);
 });
+
+test('les cases à cocher des espaces privés ont une taille standard', () => {
+  const css = readFileSync(resolve(process.cwd(), 'src', 'styles', 'espace.css'), 'utf8');
+  const rule = /\.espace \.field input\[type='checkbox'\] \{([^}]*)\}/.exec(css)?.[1] ?? '';
+  assert.match(rule, /width: 18px/);
+  assert.match(rule, /height: 18px/);
+  assert.match(rule, /min-height: 0/, 'la hauteur minimale des champs ne s’applique pas à la case');
+  // La zone d'appui reste confortable : c'est l'étiquette qui la porte.
+  assert.match(css, /\.espace \.field label:has\(> input\[type='checkbox'\]\) \{[^}]*min-height: 44px/);
+});

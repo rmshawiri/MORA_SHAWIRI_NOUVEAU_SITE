@@ -145,6 +145,29 @@
   border-width: 1px;
 }
 
+/* Cases à cocher : petite case visible, grande zone d'appui.
+   La règle générale `.field input` de `globals.css` (largeur 100 %, hauteur
+   minimale 48 px, marges internes) s'appliquait aussi aux cases et les rendait
+   démesurées. La case revient ici à une taille standard ; c'est l'étiquette
+   qui l'entoure, entièrement cliquable, qui offre au doigt ses 44 px. */
+.espace .field input[type='checkbox'] {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  min-height: 0;
+  margin: 1px 0 0;
+  padding: 0;
+  accent-color: var(--mora-blue);
+  cursor: pointer;
+}
+
+.espace .field label:has(> input[type='checkbox']) {
+  align-items: flex-start;
+  min-height: 44px;
+  padding-block: 2px;
+  cursor: pointer;
+}
+
 .espace .field textarea {
   min-height: 112px;
   padding: 10px 14px;

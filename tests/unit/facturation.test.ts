@@ -449,3 +449,24 @@ test('le prix d’une facture émise ne suit pas le catalogue', () => {
   assert.ok(!/from ['"]@\/lib\/(supabase|catalogue|commerce)/.test(template), 'le gabarit ne lit aucune donnée courante');
   assert.ok(!/price_amount/.test(template));
 });
+
+/* ------------------------------------------------------------------------- */
+/* 6. Le logo circulaire officiel                                             */
+/* ------------------------------------------------------------------------- */
+
+test('le PDF embarque le logo circulaire officiel, à pleine résolution', async () => {
+  const { LOGO_ASSET } = await import('../../src/lib/documents/logo-asset');
+  const script = readFileSync(resolve(ROOT, 'scripts', 'build-pdf-logo.mjs'), 'utf8');
+  assert.match(script, /'public', 'logo-circle\.png'/);
+  assert.ok(!/logo-rect\.png'\)/.test(script), 'le logo horizontal n’est plus la source');
+  assert.equal(LOGO_ASSET.width, 512);
+  assert.equal(LOGO_ASSET.height, 512, 'logo carré : aucune déformation possible');
+});
+
+test('le logo est posé sans étirement : largeur = hauteur pour un logo carré', () => {
+  const file = latin1(renderInvoicePdf(sample(), { logo: invoiceLogo() }));
+  const placement = /q ([\d.]+) 0 0 ([\d.]+) [\d.]+ [\d.]+ cm \/Logo Do Q/.exec(file);
+  assert.ok(placement, 'logo absent');
+  assert.equal(placement![1], placement![2]);
+  assert.ok(Number(placement![1]) >= 60 && Number(placement![1]) <= 80, `taille ${placement![1]} pt`);
+});
