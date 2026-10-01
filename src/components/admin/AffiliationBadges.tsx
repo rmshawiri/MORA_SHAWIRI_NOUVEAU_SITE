@@ -3,8 +3,9 @@ import {
   type ApplicationStatus,
 } from '@/lib/affiliation/applications';
 import { AFFILIATE_STATUS_LABELS, PAYOUT_ACCOUNT_STATUS_LABELS, RULE_STATE_LABELS, type RuleState } from '@/lib/affiliation/affiliates';
+import { COMMISSION_STATUS_LABELS } from '@/lib/affiliation/commissions';
 import { EMAIL_STATUS_LABELS } from '@/lib/affiliation/labels';
-import type { AffiliateStatus, EmailOutboxStatus, PayoutAccountStatus } from '@/lib/supabase/types-affiliation';
+import type { AffiliateStatus, CommissionStatus, EmailOutboxStatus, PayoutAccountStatus } from '@/lib/supabase/types-affiliation';
 
 /** Statut d'une candidature, dans les couleurs de l'administration. */
 export function ApplicationStatusBadge({ status }: { status: ApplicationStatus }) {
@@ -54,4 +55,14 @@ export function PayoutAccountBadge({ status }: { status: PayoutAccountStatus }) 
           ? 'admin-badge--danger'
           : 'admin-badge--muted';
   return <span className={`admin-badge ${className}`}>{PAYOUT_ACCOUNT_STATUS_LABELS[status]}</span>;
+}
+
+export function CommissionStatusBadge({ status }: { status: CommissionStatus }) {
+  const className =
+    status === 'ACQUISE' || status === 'VERSEE'
+      ? 'admin-badge--ok'
+      : status === 'A_VERSER' || status === 'PREVISIONNELLE'
+        ? 'admin-badge--gold'
+        : 'admin-badge--muted';
+  return <span className={`admin-badge ${className}`}>{COMMISSION_STATUS_LABELS[status]}</span>;
 }

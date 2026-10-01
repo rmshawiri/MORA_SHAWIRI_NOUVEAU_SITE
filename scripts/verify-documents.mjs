@@ -220,25 +220,28 @@ async function checkSchema(target, accessToken) {
 
   const real = (types ?? []).filter((row) => !TEST_TYPES.includes(row.code));
 
-  // Les sept codes documentaires du § 75, et eux seuls, émettent une pièce.
+  // Les six pièces client du § 75, plus les deux pièces d'affiliation de la
+  // phase 4H (décision N2 : fiche FIAF, relevé de versement RVAF), et elles
+  // seules, émettent une pièce. COMAF est devenu une numérotation métier :
+  // une commission porte une référence, elle n'est pas un document.
   const issuing = real.filter((row) => row.is_reference_only === false).map((row) => row.code);
 
   check(
-    'les sept types du § 75 sont en base, et eux seuls',
-    issuing.join(',') === 'DVCL,CMCL,ACCL,BLCL,FACL,AVCL,COMAF',
+    'les pièces du § 75 et de la phase 4H sont en base, et elles seules',
+    issuing.join(',') === 'DVCL,CMCL,ACCL,BLCL,FACL,AVCL,FIAF,RVAF',
     issuing.join(','),
   );
 
-  // La phase 4F a ajouté deux codes qui **numérotent** une entité métier sans
-  // émettre de document : une demande et un rendez-vous (décision B2). Ils
-  // partagent l'allocateur, jamais la table `documents`. Ce contrôle vérifie
-  // qu'ils restent deux, et qu'aucun autre code ne se glisse dans cette
-  // catégorie sans décision.
+  // Codes qui **numérotent** une entité métier sans émettre de document :
+  // une demande et un rendez-vous (phase 4F, décision B2), un affilié et une
+  // commission (phase 4H, décision N2). Ils partagent l'allocateur, jamais la
+  // table `documents`. Ce contrôle vérifie qu'aucun autre code ne se glisse
+  // dans cette catégorie sans décision.
   const referenceOnly = real.filter((row) => row.is_reference_only === true).map((row) => row.code);
 
   check(
-    'les deux codes de numérotation métier sont ceux de la phase 4F',
-    referenceOnly.sort().join(',') === 'DMCL,RVCL',
+    'les codes de numérotation métier sont ceux des phases 4F et 4H',
+    referenceOnly.sort().join(',') === 'AFIL,COMAF,DMCL,RVCL',
     referenceOnly.join(','),
   );
 

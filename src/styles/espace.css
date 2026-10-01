@@ -344,3 +344,6 @@
 .espace .aff-figures > div { padding: var(--sp-3); border: 1px solid var(--border); border-radius: var(--r-btn); background: var(--white); min-width: 0; }
 .espace .aff-figures dt { font-size: var(--text-caption); color: var(--text-secondary); }
 .espace .aff-figures dd { margin: 4px 0 0; font-family: var(--font-display); font-weight: 700; color: var(--mora-blue-deep); overflow-wrap: anywhere; }
+.espace .aff-figures + * { margin-top: var(--sp-4); }
+.espace .aff-subhead { margin: var(--sp-5) 0 var(--sp-2); }
+.espace .aff-sub { display: block; margin-top: 2px; font-size: var(--text-caption); font-weight: 400; color: var(--text-secondary); }

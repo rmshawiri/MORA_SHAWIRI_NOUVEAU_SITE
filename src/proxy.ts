@@ -33,7 +33,7 @@
 
 import { NextResponse, type NextRequest } from 'next/server';
 
-import { recordClick } from '@/lib/affiliation/click';
+import { recordClick } from '@/lib/affiliation/click-record';
 import { attributionCookie, isAutomatedAgent, readReferral } from '@/lib/affiliation/tracking';
 import { PRIVATE_PREFIXES, matchesPrefix, signInUrlFor } from '@/lib/auth/routes';
 import { refreshSupabaseSession } from '@/lib/supabase/middleware';

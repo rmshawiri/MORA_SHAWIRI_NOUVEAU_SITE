@@ -41,6 +41,11 @@ export default async function AffiliationPage() {
           <Link className="btn btn--ghost" href="/administration/affiliation/affilies/">
             Affiliés
           </Link>
+          {context.can('commissions.view') ? (
+            <Link className="btn btn--ghost" href="/administration/affiliation/commissions/">
+              Commissions
+            </Link>
+          ) : null}
           <Link className="btn btn--ghost" href="/administration/affiliation/prospects/">
             Prospects déclarés
           </Link>

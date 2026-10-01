@@ -10,16 +10,19 @@ import 'server-only';
 
 import type { Json } from '@/lib/supabase/types';
 import type {
+  AffiliateAdjustmentRow,
   AffiliateApplicationEventRow,
   AffiliateApplicationRow,
   AffiliateCampaignRow,
   AffiliateCategoryRow,
   AffiliateCodeRow,
+  AffiliateCommissionRow,
   AffiliateEventRow,
   AffiliateNoteRow,
   AffiliatePayoutAccountRow,
   AffiliateRow,
   AffiliateRuleRow,
+  CommissionStatus,
   EmailOutboxRow,
 } from '@/lib/supabase/types-affiliation';
 import { getServerSupabaseClient } from '@/lib/supabase/server';
@@ -292,4 +295,102 @@ export async function findCategory(
     rules: (rules.data ?? []) as AffiliateRuleRow[],
     members: members.count ?? 0,
   };
+}
+
+// -----------------------------------------------------------------------------
+// Commissions — phase 4H-5
+// -----------------------------------------------------------------------------
+
+export type CommissionTotals = {
+  forecast: number;
+  acquired: number;
+  to_pay: number;
+  paid: number;
+  cancelled: number;
+  adjustments_pending: number;
+};
+
+export type CommissionListEntry = AffiliateCommissionRow & { net: number; affiliate_name: string };
+
+/** Commissions lisibles par la session (RLS : commissions.view, ou l'affilié lui-même). */
+export async function listCommissions(filter: { affiliateId?: string; status?: CommissionStatus } = {}): Promise<CommissionListEntry[]> {
+  const supabase = await getServerSupabaseClient();
+  if (!supabase) return [];
+  let query = supabase
+    .from('affiliate_commissions')
+    .select('*')
+    .order('created_at', { ascending: false })
+    .limit(500);
+  if (filter.affiliateId) query = query.eq('affiliate_id', filter.affiliateId);
+  if (filter.status) query = query.eq('status', filter.status);
+  const { data } = await query;
+  const rows = (data ?? []) as AffiliateCommissionRow[];
+  if (rows.length === 0) return [];
+  const [adjustments, affiliates] = await Promise.all([
+    supabase.from('affiliate_commission_adjustments').select('commission_id, amount').in('commission_id', rows.map((row) => row.id)),
+    supabase.from('affiliates').select('id, display_name').in('id', [...new Set(rows.map((row) => row.affiliate_id))]),
+  ]);
+  const delta = new Map<string, number>();
+  for (const adj of (adjustments.data ?? []) as { commission_id: string | null; amount: number }[]) {
+    if (adj.commission_id) delta.set(adj.commission_id, (delta.get(adj.commission_id) ?? 0) + Number(adj.amount));
+  }
+  const names = new Map(((affiliates.data ?? []) as { id: string; display_name: string }[]).map((row) => [row.id, row.display_name]));
+  return rows.map((row) => ({
+    ...row,
+    net: Math.round((Number(row.amount) + (delta.get(row.id) ?? 0)) * 100) / 100,
+    affiliate_name: names.get(row.affiliate_id) ?? '—',
+  }));
+}
+
+export async function readCommissionTotals(affiliateId: string): Promise<CommissionTotals | null> {
+  const supabase = await getServerSupabaseClient();
+  if (!supabase) return null;
+  const { data, error } = await supabase.rpc('affiliate_commission_totals', { p_affiliate_id: affiliateId });
+  if (error || !data?.[0]) return null;
+  const row = data[0];
+  return {
+    forecast: Number(row.forecast),
+    acquired: Number(row.acquired),
+    to_pay: Number(row.to_pay),
+    paid: Number(row.paid),
+    cancelled: Number(row.cancelled),
+    adjustments_pending: Number(row.adjustments_pending),
+  };
+}
+
+export type CommissionDetail = {
+  commission: AffiliateCommissionRow;
+  adjustments: AffiliateAdjustmentRow[];
+  affiliate: Pick<AffiliateRow, 'id' | 'display_name' | 'reference' | 'user_id'> | null;
+};
+
+export async function findCommission(id: string): Promise<CommissionDetail | null> {
+  if (!/^[0-9a-f-]{36}$/.test(id)) return null;
+  const supabase = await getServerSupabaseClient();
+  if (!supabase) return null;
+  const { data } = await supabase.from('affiliate_commissions').select('*').eq('id', id).maybeSingle();
+  if (!data) return null;
+  const commission = data as AffiliateCommissionRow;
+  const [adjustments, affiliate] = await Promise.all([
+    supabase.from('affiliate_commission_adjustments').select('*').eq('commission_id', id).order('created_at'),
+    supabase.from('affiliates').select('id, display_name, reference, user_id').eq('id', commission.affiliate_id).maybeSingle(),
+  ]);
+  return {
+    commission,
+    adjustments: (adjustments.data ?? []) as AffiliateAdjustmentRow[],
+    affiliate: (affiliate.data ?? null) as CommissionDetail['affiliate'],
+  };
+}
+
+/** Ajustements d'un affilié non rattachés à une commission (corrections de versement). */
+export async function listLooseAdjustments(affiliateId: string): Promise<AffiliateAdjustmentRow[]> {
+  const supabase = await getServerSupabaseClient();
+  if (!supabase) return [];
+  const { data } = await supabase
+    .from('affiliate_commission_adjustments')
+    .select('*')
+    .eq('affiliate_id', affiliateId)
+    .order('created_at', { ascending: false })
+    .limit(200);
+  return (data ?? []) as AffiliateAdjustmentRow[];
 }

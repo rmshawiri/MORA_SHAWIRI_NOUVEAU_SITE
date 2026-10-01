@@ -8,10 +8,15 @@ import {
   revokeAttribution,
   validateAttribution,
 } from '@/lib/affiliation/attribution-actions';
+import { COMMISSION_STATUS_LABELS, kmf } from '@/lib/affiliation/commissions';
 import { formatMoment } from '@/lib/affiliation/labels';
 import type { AdminContext } from '@/lib/rbac/guards';
 import { getServerSupabaseClient } from '@/lib/supabase/server';
-import type { AffiliateAttributionRow, AffiliateCodeUseRow } from '@/lib/supabase/types-affiliation';
+import type {
+  AffiliateAttributionRow,
+  AffiliateCodeUseRow,
+  AffiliateCommissionRow,
+} from '@/lib/supabase/types-affiliation';
 
 /**
  * Attribution affiliée d'une affaire — section ajoutée aux fiches commande et
@@ -65,13 +70,18 @@ export default async function AffiliationTrace({
   if (!supabase) return null;
 
   const column = target === 'ORDER' ? 'order_id' : 'quote_request_id';
-  const [{ data: attributions }, { data: affiliates }, codeUse] = await Promise.all([
+  const [{ data: attributions }, { data: affiliates }, codeUse, commissionRows] = await Promise.all([
     supabase.from('affiliate_attributions').select('*').eq(column, id).order('created_at', { ascending: false }),
     supabase.from('affiliates').select('id, display_name, reference, status').order('display_name'),
     target === 'ORDER'
       ? supabase.from('affiliate_code_uses').select('*').eq('order_id', id).eq('status', 'ACTIVE').maybeSingle()
       : Promise.resolve({ data: null }),
+    // RLS : sans commissions.view, la liste revient vide.
+    target === 'ORDER'
+      ? supabase.from('affiliate_commissions').select('id, reference, status, amount').eq('order_id', id).order('created_at', { ascending: false })
+      : Promise.resolve({ data: [] }),
   ]);
+  const commissions = ((commissionRows as { data: unknown }).data ?? []) as Pick<AffiliateCommissionRow, 'id' | 'reference' | 'status' | 'amount'>[];
   const rows = (attributions ?? []) as AffiliateAttributionRow[];
   const use = (codeUse as { data: AffiliateCodeUseRow | null }).data;
   const names = new Map((affiliates ?? []).map((row) => [row.id, row]));
@@ -116,6 +126,20 @@ export default async function AffiliationTrace({
       ) : (
         <p className="admin-field__hint">Aucun affilié n’est rattaché à cette affaire.</p>
       )}
+
+      {commissions.length > 0 ? (
+        <p>
+          Commission :{' '}
+          {commissions.map((row, index) => (
+            <span key={row.id}>
+              {index > 0 ? ', ' : ''}
+              <Link href={`/administration/affiliation/commissions/${row.id}/`}>{row.reference}</Link> —{' '}
+              {COMMISSION_STATUS_LABELS[row.status].toLowerCase()}, {kmf(row.amount)}
+            </span>
+          ))}
+          .
+        </p>
+      ) : null}
 
       {use ? (
         <p>

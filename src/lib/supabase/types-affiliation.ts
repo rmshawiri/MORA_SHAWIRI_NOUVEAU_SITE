@@ -322,6 +322,89 @@ export type AffiliateCodeUseRow = {
   remove_reason: string | null;
 };
 
+export type CommissionStatus = 'PREVISIONNELLE' | 'ACQUISE' | 'A_VERSER' | 'VERSEE' | 'ANNULEE';
+
+export type AffiliateCommissionRow = {
+  id: string;
+  reference: string;
+  affiliate_id: string;
+  attribution_id: string;
+  order_id: string;
+  order_reference: string;
+  order_date: string;
+  status: CommissionStatus;
+  base_amount: number;
+  amount: number;
+  currency: string;
+  lines: Json;
+  acquisition_trigger: AcquisitionTrigger;
+  computed_at: string;
+  acquired_at: string | null;
+  acquired_by: string | null;
+  cancelled_at: string | null;
+  cancelled_by: string | null;
+  cancel_reason: string | null;
+  payout_id: string | null;
+  paid_at: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type AdjustmentKind = 'REMBOURSEMENT' | 'ANNULATION_APRES_VERSEMENT' | 'CORRECTION' | 'REATTRIBUTION';
+
+export type AffiliateAdjustmentRow = {
+  id: string;
+  affiliate_id: string;
+  commission_id: string | null;
+  kind: AdjustmentKind;
+  amount: number;
+  reason: string;
+  status: 'A_IMPUTER' | 'IMPUTE';
+  payout_id: string | null;
+  created_by: string | null;
+  created_by_label: string | null;
+  created_at: string;
+  imputed_at: string | null;
+};
+
+export type PayoutStatus = 'BROUILLON' | 'CONFIRME' | 'ANNULE';
+
+export type AffiliatePayoutRow = {
+  id: string;
+  affiliate_id: string;
+  status: PayoutStatus;
+  reference: string | null;
+  document_id: string | null;
+  period_label: string | null;
+  total_amount: number;
+  currency: string;
+  method_code: string | null;
+  payout_account_id: string | null;
+  method_snapshot: Json | null;
+  transaction_reference: string | null;
+  proof_path: string | null;
+  note: string | null;
+  prepared_by: string | null;
+  prepared_at: string;
+  confirmed_by: string | null;
+  confirmed_at: string | null;
+  cancelled_by: string | null;
+  cancelled_at: string | null;
+  cancel_reason: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type AffiliatePayoutItemRow = {
+  id: string;
+  payout_id: string;
+  commission_id: string | null;
+  adjustment_id: string | null;
+  amount: number;
+  snapshot: Json;
+  created_at: string;
+};
+
 type Rel = {
   foreignKeyName: string;
   columns: string[];
@@ -372,6 +455,10 @@ export type AffiliationTables = {
   affiliate_prospects: T<AffiliateProspectRow>;
   affiliate_attributions: T<AffiliateAttributionRow>;
   affiliate_code_uses: T<AffiliateCodeUseRow>;
+  affiliate_commissions: T<AffiliateCommissionRow>;
+  affiliate_commission_adjustments: T<AffiliateAdjustmentRow>;
+  affiliate_payouts: T<AffiliatePayoutRow>;
+  affiliate_payout_items: T<AffiliatePayoutItemRow>;
   affiliate_clicks: T<{ id: string; affiliate_id: string; campaign_id: string | null; landing_path: string | null; window_days: number; created_at: string }>;
   email_outbox: T<
     EmailOutboxRow,
@@ -568,4 +655,22 @@ export type AffiliationFunctions = {
     Returns: { campaign_id: string | null; clicks: number; requests: number }[];
   };
   affiliate_prospect_hints: { Args: { p_affiliate_id: string | null }; Returns: { prospect_id: string; hint: string }[] };
+  validate_commission: { Args: { p_commission_id: string; p_reason: string }; Returns: AffiliateCommissionRow };
+  cancel_commission: { Args: { p_commission_id: string; p_reason: string }; Returns: undefined };
+  adjust_commission: {
+    Args: { p_affiliate_id: string; p_commission_id: string | null; p_amount: number; p_reason: string };
+    Returns: AffiliateAdjustmentRow;
+  };
+  affiliate_commission_net: { Args: { p_commission_id: string }; Returns: number };
+  affiliate_commission_totals: {
+    Args: { p_affiliate_id: string };
+    Returns: {
+      forecast: number;
+      acquired: number;
+      to_pay: number;
+      paid: number;
+      cancelled: number;
+      adjustments_pending: number;
+    }[];
+  };
 };

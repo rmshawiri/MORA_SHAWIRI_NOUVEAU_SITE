@@ -12,6 +12,7 @@ import {
   PayoutAccountBadge,
   RuleStateBadge,
 } from '@/components/admin/AffiliationBadges';
+import CommissionsTable from '@/components/admin/CommissionsTable';
 import ConfirmForm from '@/components/admin/ConfirmForm';
 import { retryEmail } from '@/lib/affiliation/actions';
 import {
@@ -45,12 +46,16 @@ import {
 import {
   findAffiliate,
   formatMoment,
+  listCommissions,
+  readCommissionTotals,
   listCategories,
   listOffers,
   listPayoutMethods,
   readPayoutAccountDetails,
 } from '@/lib/affiliation/admin';
 import { maskPayoutValue } from '@/lib/affiliation/applications';
+import { adjustCommission } from '@/lib/affiliation/commission-actions';
+import { kmf } from '@/lib/affiliation/commissions';
 import { RULE_ORIGIN_LABELS } from '@/lib/domain/affiliation';
 import { getSiteUrl } from '@/lib/env';
 import { requireModule } from '@/lib/rbac/guards';
@@ -81,6 +86,7 @@ const RESULTS: Record<string, string> = {
   NOTE: 'La note est enregistrée.',
   IDENTITE: 'L’identité est mise à jour.',
   RENVOI: 'L’e-mail est reparti.',
+  AJUSTEMENT: 'L’ajustement est enregistré. Il sera imputé sur le prochain versement.',
 };
 const PROSPECT_RESULTS: Record<string, string> = {
   PROSPECT_A_VERIFIER: 'Le prospect est pris en vérification.',
@@ -149,13 +155,17 @@ export default async function AffiliePage({
     codes: context.can('affiliate_codes.manage'),
     payoutView: context.can('payouts.view'),
     payoutManage: context.can('payouts.manage'),
+    commissions: context.can('commissions.view'),
+    commissionsManage: context.can('commissions.manage'),
   };
   const isSelf = affiliate.user_id !== null && affiliate.user_id === context.access.userId;
 
-  const [categories, offers, methods] = await Promise.all([
+  const [categories, offers, methods, commissions, totals] = await Promise.all([
     can.rules ? listCategories() : Promise.resolve([]),
     can.rules || can.codes ? listOffers() : Promise.resolve([]),
     listPayoutMethods(),
+    can.commissions ? listCommissions({ affiliateId: id }) : Promise.resolve([]),
+    can.commissions ? readCommissionTotals(id) : Promise.resolve(null),
   ]);
   const payoutDetails = can.payoutView
     ? Object.fromEntries(
@@ -587,6 +597,45 @@ export default async function AffiliePage({
           campaigns={campaigns}
           path={`/administration/affiliation/affilies/${affiliate.id}/`}
         />
+      ) : null}
+
+      {/* ------------------------------------------------------------ Commissions */}
+      {can.commissions && affiliate.status !== 'PREPARATION' ? (
+        <section className="admin-card">
+          <div className="admin-card__head">
+            <h2>Commissions</h2>
+            <p>
+              {totals
+                ? `Prévisionnelles ${kmf(totals.forecast)} · acquises ${kmf(totals.acquired)} · à verser ${kmf(totals.to_pay)} · versées ${kmf(totals.paid)}${totals.adjustments_pending !== 0 ? ` · ajustements à imputer ${kmf(totals.adjustments_pending)}` : ''}.`
+                : 'Totaux indisponibles.'}
+            </p>
+          </div>
+          <CommissionsTable rows={commissions} showAffiliate={false} caption={`Commissions de ${affiliate.display_name}`} />
+          {can.commissionsManage && !isSelf ? (
+            <div className="btn-row">
+              <AffiliationDecisionForm
+                action={adjustCommission}
+                fields={{ affiliate: affiliate.id, return: `/administration/affiliation/affilies/${affiliate.id}/` }}
+                trigger="Ajustement hors commission"
+                title="Enregistrer cet ajustement ?"
+                consequence="Un ajustement rattaché à l’affilié, sans commission précise (correction de versement par exemple). Il sera imputé sur le prochain versement et ne se supprime pas."
+                confirmLabel="Enregistrer"
+                inputs={[
+                  {
+                    kind: 'text',
+                    name: 'amount',
+                    label: 'Montant (KMF)',
+                    hint: 'Négatif pour réduire, par exemple -5000.',
+                    required: true,
+                    maxLength: 20,
+                    inputMode: 'decimal',
+                  },
+                  { kind: 'textarea', name: 'reason', label: 'Motif', required: true, maxLength: 1000 },
+                ]}
+              />
+            </div>
+          ) : null}
+        </section>
       ) : null}
 
       {/* ------------------------------------------------- Liens et campagnes */}

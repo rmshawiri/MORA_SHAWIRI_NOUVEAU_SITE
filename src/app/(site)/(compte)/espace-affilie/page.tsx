@@ -17,6 +17,7 @@ import {
   ruleOriginFor,
 } from '@/lib/affiliation/affiliates';
 import { maskPayoutValue } from '@/lib/affiliation/applications';
+import { ADJUSTMENT_KIND_LABELS, COMMISSION_STATUS_HINTS, COMMISSION_STATUS_LABELS, kmf } from '@/lib/affiliation/commissions';
 import { formatMoment } from '@/lib/affiliation/labels';
 import { PROSPECT_STATUS_LABELS } from '@/lib/affiliation/prospects';
 import { cancelProspect, createOwnCampaign, declareProspect, requestPayoutChange } from '@/lib/affiliation/space-actions';
@@ -29,9 +30,11 @@ import { getServerSupabaseClient } from '@/lib/supabase/server';
 import type { Json } from '@/lib/supabase/types';
 import type {
   AcquisitionTrigger,
+  AffiliateAdjustmentRow,
   AffiliateCampaignRow,
   AffiliateCategoryRow,
   AffiliateCodeRow,
+  AffiliateCommissionRow,
   AffiliatePayoutAccountRow,
   AffiliateProspectRow,
   AffiliateRow,
@@ -56,8 +59,8 @@ export const metadata: Metadata = {
  *
  * L'affilié consulte ; il n'agit que sur deux choses sans portée financière :
  * demander de nouvelles coordonnées (validées par MORA Shawiri) et créer ses
- * liens de campagne. Le tableau de bord chiffré, les prospects, les
- * commissions, les versements et les documents s'ajoutent avec leurs lots.
+ * liens de campagne. Les commissions sont lues ici telles que la base les a
+ * calculées ; les versements et les documents s'ajoutent avec leurs lots.
  */
 export default async function EspaceAffiliePage() {
   await requirePrivateAccess(AUTH_ROUTES.affiliateArea);
@@ -95,7 +98,7 @@ export default async function EspaceAffiliePage() {
     );
   }
 
-  const [category, terms, rules, campaigns, codes, accounts, methods, stats, prospects, conversions] = await Promise.all([
+  const [category, terms, rules, campaigns, codes, accounts, methods, stats, prospects, conversions, commissions, adjustments, totals] = await Promise.all([
     supabase.from('affiliate_categories').select('*').eq('id', affiliate.category_id).maybeSingle(),
     supabase.rpc('affiliate_effective_terms', { p_affiliate_id: affiliate.id }),
     supabase.from('affiliate_rules').select('*').order('valid_from', { ascending: false }),
@@ -114,7 +117,16 @@ export default async function EspaceAffiliePage() {
       .eq('affiliate_id', affiliate.id)
       .order('created_at', { ascending: false }),
     supabase.rpc('my_affiliate_conversions'),
+    // RLS : l'affilié ne lit que ses commissions et ses ajustements, qui ne
+    // portent aucune donnée de client.
+    supabase.from('affiliate_commissions').select('*').eq('affiliate_id', affiliate.id).order('created_at', { ascending: false }).limit(200),
+    supabase.from('affiliate_commission_adjustments').select('*').eq('affiliate_id', affiliate.id).order('created_at', { ascending: false }).limit(200),
+    supabase.rpc('affiliate_commission_totals', { p_affiliate_id: affiliate.id }),
   ]);
+  const commissionRows = (commissions.data ?? []) as AffiliateCommissionRow[];
+  const adjustmentRows = (adjustments.data ?? []) as AffiliateAdjustmentRow[];
+  const commissionTotals = (totals.data ?? [])[0];
+  const commissionRef = new Map(commissionRows.map((row) => [row.id, row.reference]));
   const figures = (stats.data ?? [])[0];
   const prospectRows = (prospects.data ?? []) as AffiliateProspectRow[];
   const conversionRows = conversions.data ?? [];
@@ -385,6 +397,85 @@ export default async function EspaceAffiliePage() {
               )}
               <p className="form__note">
                 Par confidentialité, les coordonnées des clients ne sont jamais affichées ici.
+              </p>
+            </div>
+
+            <div className="auth-card">
+              <div className="auth-card__head">
+                <h2>Mes commissions</h2>
+              </div>
+              {commissionTotals ? (
+                <dl className="aff-figures">
+                  <div>
+                    <dt>Prévisionnelles</dt>
+                    <dd>{kmf(commissionTotals.forecast)}</dd>
+                  </div>
+                  <div>
+                    <dt>Acquises</dt>
+                    <dd>{kmf(commissionTotals.acquired)}</dd>
+                  </div>
+                  <div>
+                    <dt>À verser</dt>
+                    <dd>{kmf(commissionTotals.to_pay)}</dd>
+                  </div>
+                  <div>
+                    <dt>Versées</dt>
+                    <dd>{kmf(commissionTotals.paid)}</dd>
+                  </div>
+                </dl>
+              ) : null}
+              {commissionRows.length === 0 ? (
+                <p>Aucune commission pour le moment. Elle apparaîtra dès qu’une commande éligible vous sera attribuée.</p>
+              ) : (
+                <div className="espace-table-wrap">
+                  <table className="espace-table">
+                    <caption className="sr-only">Mes commissions</caption>
+                    <thead>
+                      <tr>
+                        <th scope="col">Commission</th>
+                        <th scope="col">Montant</th>
+                        <th scope="col">Statut</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {commissionRows.map((row) => (
+                        <tr key={row.id}>
+                          <th scope="row">
+                            {row.reference}
+                            <span className="aff-sub">Commande {row.order_reference}</span>
+                          </th>
+                          <td>{kmf(row.amount)}</td>
+                          <td title={COMMISSION_STATUS_HINTS[row.status]}>
+                            {COMMISSION_STATUS_LABELS[row.status]}
+                            {row.status === 'ANNULEE' && row.cancel_reason ? ` — ${row.cancel_reason}` : ''}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+              {adjustmentRows.length > 0 ? (
+                <>
+                  <h3 className="aff-subhead">Ajustements</h3>
+                  <dl className="auth-meta">
+                    {adjustmentRows.map((row) => (
+                      <div key={row.id}>
+                        <dt>
+                          {ADJUSTMENT_KIND_LABELS[row.kind]}
+                          {row.commission_id && commissionRef.get(row.commission_id) ? ` — ${commissionRef.get(row.commission_id)}` : ''}
+                        </dt>
+                        <dd>
+                          {kmf(row.amount)} — {row.reason} — {formatMoment(row.created_at)}
+                        </dd>
+                      </div>
+                    ))}
+                  </dl>
+                </>
+              ) : null}
+              <p className="form__note">
+                Une commission prévisionnelle peut évoluer avec la commande. Acquise, elle ne change plus : une correction
+                éventuelle apparaît comme un ajustement, imputé sur un versement suivant.
               </p>
             </div>
 
