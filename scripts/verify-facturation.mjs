@@ -411,7 +411,10 @@ async function checkReading(state) {
     state.target,
     state.accessToken,
     `select actor_id, result, metadata from public.audit_logs
-      where action = 'commerce.facture.emission' and resource_id = '${reference}';`,
+      where action = 'commerce.facture.emission' and resource_id = '${reference}'
+        -- Le journal est en ajout seul, et les numéros de contrôle sont
+        -- restitués à chaque exécution : seules les entrées de celle-ci comptent.
+        and created_at >= '${state.startedAt}'::timestamptz;`,
   );
   check(
     'l’émission est journalisée : qui, quelle facture, quelle commande, résultat',
