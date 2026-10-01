@@ -42,7 +42,11 @@ export const DOCUMENT_TYPES = [
   { code: 'BLCL', label: 'Bon de livraison client', entityType: 'order' },
   { code: 'FACL', label: 'Facture client', entityType: 'order' },
   { code: 'AVCL', label: 'Avoir client', entityType: 'order' },
-  { code: 'COMAF', label: 'Relevé de commission affilié', entityType: 'commission' },
+  // Phase 4H (décision N2) : COMAF numérote une commission sans émettre de
+  // pièce ; FIAF et RVAF sont les deux pièces officielles de l'affiliation.
+  { code: 'COMAF', label: 'Commission affilié', entityType: 'commission' },
+  { code: 'FIAF', label: 'Fiche officielle affilié', entityType: 'affiliate' },
+  { code: 'RVAF', label: 'Relevé de versement de commissions', entityType: 'payout' },
 ] as const;
 
 export type DocumentType = (typeof DOCUMENT_TYPES)[number]['code'];

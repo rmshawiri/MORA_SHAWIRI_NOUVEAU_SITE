@@ -73,6 +73,17 @@ export const PERMISSIONS = [
   'commissions.validate',
   'payouts.manage',
 
+  // Ajoutées par la phase 4H (migration 20261001140000) : l'affiliation est
+  // devenue un moteur configurable, et chaque acte financier a sa permission.
+  'affiliate_applications.view',
+  'affiliate_applications.manage',
+  'affiliate_rules.manage',
+  'affiliate_rules.derogate',
+  'affiliate_codes.manage',
+  'affiliate_attributions.manage',
+  'affiliate_documents.issue',
+  'payouts.view',
+
   'content.view',
   'content.create',
   'content.update',
@@ -125,6 +136,11 @@ export const CRITICAL_PERMISSIONS = [
   'commissions.manage',
   'commissions.validate',
   'payouts.manage',
+  'affiliate_rules.manage',
+  'affiliate_rules.derogate',
+  'affiliate_codes.manage',
+  'affiliate_attributions.manage',
+  'affiliate_documents.issue',
   'content.delete',
   'media.delete',
   'settings.update',
@@ -186,6 +202,8 @@ export const ADMIN_TEMPLATE_PERMISSIONS = [
   'appointments.cancel',
   'appointments.manage',
   'affiliates.view',
+  'affiliate_applications.view',
+  'affiliate_applications.manage',
   'commissions.view',
   'content.view',
   'content.create',

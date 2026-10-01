@@ -109,7 +109,34 @@ export type Rule = {
   validFrom: string;
   validTo?: string | null;
   label?: string | null;
+  /**
+   * N1 : règle individuelle autorisée à dépasser le plafond de l'offre.
+   * Jamais à lever son inéligibilité.
+   */
+  contractualDerogation?: boolean;
 };
+
+/** Réglages d'affiliation d'une offre du catalogue (`services`, `products`). */
+export type OfferAffiliation = {
+  eligible: boolean;
+  /** `affiliate_max_rate`. Nul : affiliation indisponible (§ 11). */
+  maxRate: number | null;
+};
+
+/**
+ * Décision N1, en une fonction : l'offre doit être éligible — sans exception,
+ * dérogation comprise ; son plafond s'applique ensuite, sauf à une règle
+ * individuelle marquée « dérogation contractuelle ».
+ */
+export function offerConstraint(
+  rule: Pick<Rule, 'owner' | 'contractualDerogation'>,
+  offer: OfferAffiliation | null,
+): { allowed: true; capRate: number | null } | { allowed: false; reason: 'OFFRE_ABSENTE' | 'OFFRE_NON_ELIGIBLE' } {
+  if (offer === null) return { allowed: false, reason: 'OFFRE_ABSENTE' };
+  if (!offer.eligible || offer.maxRate === null) return { allowed: false, reason: 'OFFRE_NON_ELIGIBLE' };
+  const derogation = rule.contractualDerogation === true && rule.owner.type === 'AFFILIATE';
+  return { allowed: true, capRate: derogation ? null : offer.maxRate };
+}
 
 export type RuleOrigin =
   | 'OFFRE_AFFILIE'
@@ -152,6 +179,19 @@ export type CommissionResult = {
   amountCents: bigint;
   minApplied: boolean;
   maxApplied: boolean;
+  /** Le plafond de l'offre (N1) a réduit le montant. */
+  capApplied: boolean;
+};
+
+export type ComputeOptions = {
+  /**
+   * Plafond de commission de l'offre, en pourcentage de l'assiette
+   * (`affiliate_max_rate`). Décision N1 : il s'applique, plancher compris,
+   * sauf règle individuelle marquée « dérogation contractuelle » — l'appelant
+   * passe alors `null`. Il ne remplace jamais l'éligibilité de l'offre, qui se
+   * vérifie avant tout calcul.
+   */
+  capRate?: number | null;
 };
 
 // -----------------------------------------------------------------------------
@@ -471,14 +511,19 @@ export function findTier(tiers: readonly Tier[], baseCents: bigint): number {
 /**
  * Calcule la commission d'une assiette selon une règle.
  *
- * Ordre des opérations, toujours le même :
+ * Ordre des opérations, toujours le même — et le même que
+ * `public.affiliate_compute()` en base :
  *   exclusion → seuil d'assiette → palier (taux ou fixe) → plancher/plafond du
- *   palier → plancher/plafond de la règle.
+ *   palier → plancher/plafond de la règle → plafond de l'offre.
  *
  * Une règle invalide lève une erreur : un calcul ne s'improvise pas sur une
  * configuration ambiguë.
  */
-export function computeCommission(rule: Rule, base: MoneyInput): CommissionResult {
+export function computeCommission(
+  rule: Rule,
+  base: MoneyInput,
+  options: ComputeOptions = {},
+): CommissionResult {
   const errors = validateRule(rule);
   if (errors.length > 0) {
     throw new Error(`Règle ${rule.id} invalide : ${errors.join(' ')}`);
@@ -497,6 +542,7 @@ export function computeCommission(rule: Rule, base: MoneyInput): CommissionResul
     amountCents: 0n,
     minApplied: false,
     maxApplied: false,
+    capApplied: false,
   });
 
   if (rule.kind === 'EXCLUDED') return empty('EXCLUE');
@@ -534,6 +580,17 @@ export function computeCommission(rule: Rule, base: MoneyInput): CommissionResul
   const final = clamp(afterTier.cents, rule.minCommission, rule.maxCommission);
   const changed = final.cents !== afterTier.cents;
 
+  // N1 : le plafond de l'offre protège la marge, plancher compris.
+  let amountCents = final.cents;
+  let capApplied = false;
+  if (options.capRate !== null && options.capRate !== undefined) {
+    const capCents = applyRate(baseCents, options.capRate);
+    if (amountCents > capCents) {
+      amountCents = capCents;
+      capApplied = true;
+    }
+  }
+
   return {
     eligible: true,
     reason: 'OK',
@@ -541,7 +598,8 @@ export function computeCommission(rule: Rule, base: MoneyInput): CommissionResul
     rate,
     tierIndex,
     rawCents,
-    amountCents: final.cents,
+    amountCents,
+    capApplied,
     // Le dernier bornage qui a modifié le montant est celui qu'on rapporte.
     minApplied: changed ? final.minApplied : afterTier.minApplied,
     maxApplied: changed ? final.maxApplied : afterTier.maxApplied,
@@ -579,6 +637,7 @@ export type RuleSnapshot = {
   validFrom: string;
   validTo: string | null;
   label: string | null;
+  contractualDerogation: boolean;
 };
 
 const decimalOrNull = (value: MoneyInput | null | undefined) =>
@@ -616,6 +675,7 @@ export function ruleSnapshot(rule: Rule, origin: RuleOrigin): RuleSnapshot {
     validFrom: rule.validFrom,
     validTo: rule.validTo ?? null,
     label: rule.label ?? null,
+    contractualDerogation: rule.contractualDerogation === true,
   };
 }
 
@@ -636,6 +696,7 @@ export function ruleFromSnapshot(snapshot: RuleSnapshot): Rule {
     validFrom: snapshot.validFrom,
     validTo: snapshot.validTo,
     label: snapshot.label,
+    contractualDerogation: snapshot.contractualDerogation,
   };
 }
 

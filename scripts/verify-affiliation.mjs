@@ -1,0 +1,629 @@
+/**
+ * Vérification de l'affiliation contre la base réelle — phase 4H.
+ *
+ *   npm run affiliation:verify -- --env shared
+ *
+ * ## Pourquoi ce script existe
+ *
+ * `tests/unit/affiliation-*.test.ts` éprouvent le moteur TypeScript et lisent
+ * le SQL ; ils ne l'exécutent pas. Or la règle qui fait foi est en base : c'est
+ * elle qui figera les commissions. Ce script vérifie donc, avec de vraies
+ * sessions :
+ *
+ *   * que le calcul en base rend exactement les montants du moteur
+ *     TypeScript, sur les cas de la convention NextComTech et sur les
+ *     plafonds d'offre (N1) ;
+ *   * qu'une règle ne se modifie pas, ne se chevauche pas, et ne se clôt pas
+ *     dans le passé — quel que soit le rôle qui essaie ;
+ *   * que la dérogation contractuelle exige sa permission et son motif ;
+ *   * qu'un affilié ne lit que ce qui le concerne, et qu'un client, un
+ *     anonyme ou un administrateur sans permission ne lisent rien.
+ *
+ * ## Données de test et numérotation
+ *
+ * Comptes en `@mora-shawiri.test`, catégorie `ZZ_VERIF_*`, affiliés
+ * `verif-affiliation-*`. Les références AFIL des affiliés de contrôle sont
+ * écrites en série `ZZ` par la clé de service : **aucun numéro réel n'est
+ * alloué**. La suite AFIL est néanmoins relevée et comparée en fin
+ * d'exécution — une absence ne se suppose pas, elle se constate.
+ *
+ * Le démontage désactive, le temps d'une transaction, les gardes qui
+ * interdisent de supprimer une règle entrée en vigueur ou un événement
+ * d'historique : c'est le seul moyen d'effacer des données de contrôle que la
+ * base protège, à juste titre, contre toute suppression applicative.
+ */
+
+import { randomUUID } from 'node:crypto';
+
+import { createClient } from '@supabase/supabase-js';
+
+import { describeTarget, log, resolveAccessToken, resolveTarget, runSql } from './lib/config.mjs';
+import { computeCommission, toCents } from '../src/lib/domain/affiliation.ts';
+
+const results = { passed: 0, failed: 0 };
+
+function check(label, condition, detail = '') {
+  if (condition) {
+    results.passed += 1;
+    log.ok(label);
+  } else {
+    results.failed += 1;
+    log.fail(`${label}${detail ? ` — ${detail}` : ''}`);
+  }
+}
+
+const refused = (result) =>
+  Boolean(result.error) || (Array.isArray(result.data) && result.data.length === 0);
+const empty = (result) => Boolean(result.error) || (result.data ?? []).length === 0;
+
+const TEST_DOMAIN = 'mora-shawiri.test';
+const PREFIX = 'verif-affiliation';
+const PASSWORD = `Verif-4H-${randomUUID()}`;
+const RUN = randomUUID().slice(0, 6).toUpperCase().replace(/[^A-Z]/g, 'X');
+const CATEGORY_CODE = `ZZ_VERIF_${RUN}`;
+const SEQUENCES = ['AFIL', 'FIAF', 'RVAF', 'COMAF'];
+
+const sessionClient = (target) =>
+  createClient(target.url, target.publishableKey, {
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
+
+async function signIn(target, email) {
+  const client = sessionClient(target);
+  const { error } = await client.auth.signInWithPassword({ email, password: PASSWORD });
+  if (error) throw new Error(`connexion impossible pour ${email} : ${error.message}`);
+  return client;
+}
+
+async function createAccount(admin, { roleCode, grants = [], label }) {
+  const email = `${PREFIX}-${label}-${randomUUID().slice(0, 8)}@${TEST_DOMAIN}`;
+  const { data, error } = await admin.auth.admin.createUser({
+    email,
+    password: PASSWORD,
+    email_confirm: true,
+  });
+  if (error || !data.user) throw new Error(`création de ${label} : ${error?.message}`);
+  const userId = data.user.id;
+
+  const { data: role } = await admin.from('roles').select('id').eq('code', roleCode).maybeSingle();
+  if (!role) throw new Error(`rôle ${roleCode} introuvable`);
+  await admin.from('user_roles').upsert({ user_id: userId, role_id: role.id }, { onConflict: 'user_id,role_id' });
+
+  if (grants.length > 0) {
+    const { data: permissions } = await admin.from('permissions').select('id, code').in('code', grants);
+    if ((permissions ?? []).length !== grants.length) throw new Error(`permissions manquantes pour ${label}`);
+    const written = await admin.from('user_permissions').upsert(
+      permissions.map((row) => ({ user_id: userId, permission_id: row.id, effect: 'OCTROI' })),
+      { onConflict: 'user_id,permission_id' },
+    );
+    if (written.error) throw new Error(written.error.message);
+  }
+  return { userId, email };
+}
+
+/* ========================================================================== */
+/* 4H-1 — catalogue, nomenclature, catégories                                 */
+/* ========================================================================== */
+
+async function checkCatalogue(admin) {
+  log.step('Permissions, nomenclature et catégories');
+
+  const expected = {
+    'affiliate_applications.view': false,
+    'affiliate_applications.manage': false,
+    'affiliate_rules.manage': true,
+    'affiliate_rules.derogate': true,
+    'affiliate_codes.manage': true,
+    'affiliate_attributions.manage': true,
+    'affiliate_documents.issue': true,
+    'payouts.view': false,
+  };
+  const { data: perms } = await admin
+    .from('permissions')
+    .select('code, is_critical')
+    .in('code', Object.keys(expected));
+  check('les 8 permissions de 4H existent', (perms ?? []).length === 8, String((perms ?? []).length));
+  for (const row of perms ?? []) {
+    check(`${row.code} : criticité attendue`, row.is_critical === expected[row.code]);
+  }
+
+  const { data: types } = await admin
+    .from('document_types')
+    .select('code, is_reference_only, issue_permission, view_permission')
+    .in('code', ['AFIL', 'FIAF', 'RVAF', 'COMAF']);
+  const byCode = Object.fromEntries((types ?? []).map((row) => [row.code, row]));
+  check('AFIL numérote sans émettre de pièce', byCode.AFIL?.is_reference_only === true);
+  check('COMAF numérote sans émettre de pièce', byCode.COMAF?.is_reference_only === true);
+  check('FIAF est une pièce, émise sous affiliate_documents.issue',
+    byCode.FIAF?.is_reference_only === false && byCode.FIAF?.issue_permission === 'affiliate_documents.issue');
+  check('RVAF est une pièce, émise sous payouts.manage, lue sous payouts.view',
+    byCode.RVAF?.is_reference_only === false && byCode.RVAF?.issue_permission === 'payouts.manage'
+      && byCode.RVAF?.view_permission === 'payouts.view');
+
+  const forged = await admin.rpc('issue_document', { p_type: 'COMAF' });
+  check('issue_document refuse de fabriquer une pièce COMAF', Boolean(forged.error));
+
+  const { data: categories } = await admin
+    .from('affiliate_categories')
+    .select('code, is_internal, attribution_window_days, prospect_protection_months, payout_frequency, acquisition_trigger, payout_min_amount')
+    .in('code', ['STANDARD', 'INFLUENCEUR', 'COMMUNAUTE', 'APPORTEUR', 'RECRUTE', 'EQUIPE', 'PARTENAIRE']);
+  check('les sept catégories initiales existent', (categories ?? []).length === 7);
+  check('Équipe et Recruté sont internes, les autres non',
+    (categories ?? []).every((c) => c.is_internal === ['EQUIPE', 'RECRUTE'].includes(c.code)));
+  check('défauts décidés : 90 j, 6 mois, fin de mois, paiement intégral, aucun seuil',
+    (categories ?? []).every((c) => c.attribution_window_days === 90 && c.prospect_protection_months === 6
+      && c.payout_frequency === 'FIN_DE_MOIS' && c.acquisition_trigger === 'PAIEMENT_INTEGRAL'
+      && c.payout_min_amount === null));
+
+  const { data: seededRules } = await admin
+    .from('affiliate_rules')
+    .select('id, category_id, affiliate_categories!inner(code)')
+    .in('affiliate_categories.code', ['STANDARD', 'INFLUENCEUR', 'COMMUNAUTE', 'APPORTEUR', 'RECRUTE', 'EQUIPE', 'PARTENAIRE']);
+  check('aucun taux n’a été semé dans les catégories', (seededRules ?? []).length === 0);
+}
+
+/* ========================================================================== */
+/* 4H-1 — le calcul en base est celui du moteur                               */
+/* ========================================================================== */
+
+const CONVENTION = {
+  kind: 'TIERED',
+  tiers: [
+    { from: 0, to: 200000, rate: 20, minCommission: 10000 },
+    { from: 200000, to: null, rate: 40 },
+  ],
+};
+
+async function sqlCompute(admin, rule, base, capRate = null) {
+  const { data, error } = await admin.rpc('affiliate_compute', {
+    p_kind: rule.kind,
+    p_rate: rule.rate ?? null,
+    p_fixed: rule.fixedAmount ?? null,
+    p_tiers: rule.tiers ?? null,
+    p_min: rule.minCommission ?? null,
+    p_max: rule.maxCommission ?? null,
+    p_min_base: rule.minBase ?? null,
+    p_base: base,
+    p_cap_rate: capRate,
+  });
+  if (error) throw new Error(`affiliate_compute : ${error.message}`);
+  return data[0];
+}
+
+async function checkParity(admin) {
+  log.step('Calcul en base = moteur TypeScript');
+
+  const tsRule = (extra) => ({
+    id: 'x', version: 1, owner: { type: 'AFFILIATE', id: 'x' }, target: { type: 'ALL' },
+    validFrom: '2026-01-01T00:00:00Z', ...extra,
+  });
+
+  const cases = [
+    // [règle, assiette, plafond, attendu en KMF]
+    [CONVENTION, 30000, null, 10000],
+    [CONVENTION, 20000, null, 10000],
+    [CONVENTION, 50000, null, 10000],
+    [CONVENTION, 100000, null, 20000],
+    [CONVENTION, 199999.99, null, 40000],
+    [CONVENTION, 200000, null, 80000],
+    [CONVENTION, 500000, null, 200000],
+    [CONVENTION, 900000, null, 360000],
+    [CONVENTION, 900000, 15, 135000],
+    [CONVENTION, 30000, 15, 4500],
+    [{ kind: 'PERCENT', rate: 15 }, 750, null, 112.5],
+    [{ kind: 'PERCENT', rate: 7.77 }, 1234567.89, null, 95925.93],
+    [{ kind: 'PERCENT', rate: 10, minCommission: 2000, maxCommission: 50000 }, 5000, null, 2000],
+    [{ kind: 'PERCENT', rate: 10, minCommission: 2000, maxCommission: 50000 }, 1000000, null, 50000],
+    [{ kind: 'PERCENT', rate: 10, minBase: 50000 }, 49999, null, 0],
+    [{ kind: 'FIXED', fixedAmount: 5000 }, 1000000, null, 5000],
+    [{ kind: 'EXCLUDED' }, 100000, null, 0],
+    [{
+      kind: 'TIERED',
+      tiers: [
+        { from: 0, to: 100000, fixedAmount: 3000 },
+        { from: 100000, to: 1000000, rate: 10, maxCommission: 60000 },
+        { from: 1000000, to: null, rate: 8 },
+      ],
+    }, 900000, null, 60000],
+  ];
+
+  for (const [rule, base, cap, expectedKmf] of cases) {
+    const sql = await sqlCompute(admin, rule, base, cap);
+    const ts = computeCommission(tsRule(rule), base, { capRate: cap });
+    const sqlCents = toCents(String(sql.amount));
+    const label = `${rule.kind} ${base}${cap ? ` plafond ${cap} %` : ''}`;
+    check(`${label} → ${expectedKmf} KMF en base et en TypeScript`,
+      sqlCents === ts.amountCents && sqlCents === toCents(expectedKmf),
+      `base ${sql.amount}, TS ${ts.amountCents}`);
+    check(`${label} : mêmes indicateurs (éligible, plancher, plafond)`,
+      sql.eligible === ts.eligible && sql.min_applied === ts.minApplied
+        && sql.max_applied === ts.maxApplied && sql.cap_applied === ts.capApplied);
+  }
+
+  const bad = await admin.rpc('affiliate_compute', {
+    p_kind: 'PERCENT', p_rate: 10, p_fixed: null, p_tiers: null, p_min: null, p_max: null,
+    p_min_base: null, p_base: -1, p_cap_rate: null,
+  });
+  check('une assiette négative est refusée par la base', Boolean(bad.error));
+}
+
+/* ========================================================================== */
+/* 4H-1 — règles : publication, immuabilité, dérogation, isolement            */
+/* ========================================================================== */
+
+async function checkRules(admin, sessions, state) {
+  log.step('Règles : publication, versions, dérogation');
+
+  const publish = (client, overrides) =>
+    client.rpc('publish_affiliate_rule', {
+      p_owner_type: 'AFFILIATE',
+      p_owner_id: state.affA.id,
+      p_target_type: 'ALL',
+      p_target_id: null,
+      p_kind: 'PERCENT',
+      p_rate: 20,
+      p_fixed_amount: null,
+      p_tiers: null,
+      p_min_commission: null,
+      p_max_commission: null,
+      p_min_base: null,
+      p_effective_at: null,
+      p_label: `${PREFIX} règle`,
+      p_reason: 'Contrôle automatisé 4H',
+      p_derogation: false,
+      p_derogation_reason: null,
+      ...overrides,
+    });
+
+  check('un ADMIN sans permission ne publie aucune règle', Boolean((await publish(sessions.nu)).error));
+  check('un affilié ne publie pas sa propre règle', Boolean((await publish(sessions.affA)).error));
+  check('un client ne publie aucune règle', Boolean((await publish(sessions.client)).error));
+  check('le motif est obligatoire', Boolean((await publish(sessions.regles, { p_reason: '  ' })).error));
+  check('une date d’effet passée est refusée',
+    Boolean((await publish(sessions.regles, { p_effective_at: '2026-01-01T00:00:00Z' })).error));
+  check('un taux à trois décimales est refusé, pas arrondi',
+    Boolean((await publish(sessions.regles, { p_rate: 10.555 })).error));
+  check('une grille de paliers trouée est refusée',
+    Boolean((await publish(sessions.regles, {
+      p_kind: 'TIERED', p_rate: null,
+      p_tiers: [{ from: 0, to: 100, rate: 10 }, { from: 150, to: null, rate: 20 }],
+    })).error));
+
+  const v1 = await publish(sessions.regles, {});
+  check('affiliate_rules.manage publie une règle individuelle', !v1.error, v1.error?.message);
+  state.ruleV1 = v1.data;
+
+  // Catégorie de contrôle : règle générale, qui doit rester celle de B.
+  const cat = await sessions.regles.rpc('publish_affiliate_rule', {
+    p_owner_type: 'CATEGORY', p_owner_id: state.category.id, p_target_type: 'ALL', p_target_id: null,
+    p_kind: 'PERCENT', p_rate: 10, p_fixed_amount: null, p_tiers: null, p_min_commission: null,
+    p_max_commission: null, p_min_base: null, p_effective_at: null, p_label: null,
+    p_reason: 'Contrôle automatisé 4H', p_derogation: false, p_derogation_reason: null,
+  });
+  check('une règle de catégorie se publie', !cat.error, cat.error?.message);
+
+  // Immuabilité : même la clé de service ne modifie pas un taux.
+  const tamper = await admin.from('affiliate_rules').update({ rate: 99 }).eq('id', state.ruleV1.id).select();
+  check('un taux publié ne se modifie pas, même avec la clé de service', refused(tamper));
+  const del = await admin.from('affiliate_rules').delete().eq('id', state.ruleV1.id).select();
+  check('une règle entrée en vigueur ne se supprime pas', refused(del));
+  const past = await admin.from('affiliate_rules')
+    .update({ valid_to: '2026-01-02T00:00:00Z' }).eq('id', state.ruleV1.id).select();
+  check('une règle ne se clôt pas dans le passé', refused(past));
+
+  // Chevauchement : une seconde version ouverte en même temps est impossible.
+  const overlap = await admin.from('affiliate_rules').insert({
+    owner_type: 'AFFILIATE', affiliate_id: state.affA.id, target_type: 'ALL',
+    kind: 'PERCENT', rate: 30, valid_from: new Date().toISOString(),
+  }).select();
+  check('deux versions en vigueur au même instant sont refusées par la base', refused(overlap));
+
+  // Nouvelle version : la précédente se clôt à la date d'effet.
+  const v2 = await publish(sessions.regles, { p_rate: 25 });
+  check('une nouvelle version se publie', !v2.error, v2.error?.message);
+  const { data: closed } = await admin.from('affiliate_rules').select('valid_to, version').eq('id', state.ruleV1.id).single();
+  check('la version 1 est close à la date d’effet de la version 2',
+    closed?.valid_to !== null && Date.parse(closed.valid_to) === Date.parse(v2.data?.valid_from),
+    JSON.stringify(closed));
+  check('la version 2 porte le numéro 2 et désigne la 1', v2.data?.version === 2 && v2.data?.supersedes_id === state.ruleV1.id);
+
+  const { data: v1Row } = await admin.from('affiliate_rules').select('rate').eq('id', state.ruleV1.id).single();
+  check('la version 1 garde son taux de 20 %', Number(v1Row?.rate) === 20);
+
+  // Résolution : avant la v2, la v1 ; après, la v2. Pour B : la catégorie.
+  const resolve = async (affiliateId, at) => {
+    const { data } = await admin.rpc('affiliate_resolve_rule', {
+      p_affiliate_id: affiliateId, p_service_id: null, p_product_id: null, p_at: at,
+    });
+    return data?.[0] ?? null;
+  };
+  const before = await resolve(state.affA.id, new Date(Date.parse(v2.data.valid_from) - 1).toISOString());
+  const after = await resolve(state.affA.id, v2.data.valid_from);
+  check('à une date antérieure, la version 1 s’applique', before?.rule_id === state.ruleV1.id && before?.origin === 'INDIVIDUELLE');
+  check('à la date d’effet, la version 2 s’applique', after?.rule_id === v2.data.id);
+  const forB = await resolve(state.affB.id, new Date().toISOString());
+  check('la règle individuelle de A ne touche pas B (catégorie)', forB?.origin === 'CATEGORIE' && forB?.rule_id === cat.data?.id);
+
+  // Version programmée puis retirée : la version en cours redevient ouverte.
+  const future = new Date(Date.now() + 7 * 86400000).toISOString();
+  const v3 = await publish(sessions.regles, { p_rate: 30, p_effective_at: future });
+  check('une version future se programme', !v3.error, v3.error?.message);
+  const twice = await publish(sessions.regles, { p_rate: 31, p_effective_at: future });
+  check('une seconde version future est refusée tant que la première existe', Boolean(twice.error));
+  const withdraw = await sessions.regles.rpc('withdraw_affiliate_rule', { p_rule_id: v3.data?.id, p_reason: 'Contrôle' });
+  check('une version programmée se retire', !withdraw.error, withdraw.error?.message);
+  const { data: reopened } = await admin.from('affiliate_rules').select('valid_to').eq('id', v2.data.id).single();
+  check('la version en cours redevient ouverte, sans trou', reopened?.valid_to === null, JSON.stringify(reopened));
+  const withdrawLive = await sessions.regles.rpc('withdraw_affiliate_rule', { p_rule_id: v2.data.id, p_reason: 'Contrôle' });
+  check('une version en vigueur ne se retire pas', Boolean(withdrawLive.error));
+
+  // N1 — dérogation contractuelle.
+  const { data: service } = await admin.from('services').select('id').limit(1).single();
+  const derogation = (client, extra = {}) => publish(client, {
+    p_target_type: 'SERVICE', p_target_id: service.id, p_kind: 'TIERED', p_rate: null,
+    p_tiers: CONVENTION.tiers, p_derogation: true,
+    p_derogation_reason: 'Convention de partenariat — contrôle', ...extra,
+  });
+  check('une dérogation sans affiliate_rules.derogate est refusée', Boolean((await derogation(sessions.regles)).error));
+  check('une dérogation sans motif est refusée',
+    Boolean((await derogation(sessions.derogateur, { p_derogation_reason: ' ' })).error));
+  const granted = await derogation(sessions.derogateur);
+  check('affiliate_rules.derogate accorde la dérogation', !granted.error, granted.error?.message);
+  check('la dérogation garde son auteur, sa date et son motif',
+    granted.data?.contractual_derogation === true && granted.data?.derogation_granted_by === state.derogateur.userId
+      && Boolean(granted.data?.derogation_granted_at) && Boolean(granted.data?.derogation_reason));
+  const onCategory = await sessions.derogateur.rpc('publish_affiliate_rule', {
+    p_owner_type: 'CATEGORY', p_owner_id: state.category.id, p_target_type: 'SERVICE', p_target_id: service.id,
+    p_kind: 'PERCENT', p_rate: 50, p_fixed_amount: null, p_tiers: null, p_min_commission: null,
+    p_max_commission: null, p_min_base: null, p_effective_at: null, p_label: null,
+    p_reason: 'Contrôle', p_derogation: true, p_derogation_reason: 'interdit',
+  });
+  check('une dérogation ne se pose jamais sur une catégorie', Boolean(onCategory.error));
+  const endDerog = await sessions.regles.rpc('end_affiliate_rule', {
+    p_rule_id: granted.data?.id, p_end_at: null, p_reason: 'Contrôle',
+  });
+  check('clore une dérogation exige aussi affiliate_rules.derogate', Boolean(endDerog.error));
+
+  // Historique et audit.
+  const { data: events } = await admin.from('affiliate_events')
+    .select('event_type, reason, actor_id').eq('affiliate_id', state.affA.id);
+  const types = new Set((events ?? []).map((e) => e.event_type));
+  check('l’historique trace publication, clôture, retrait et dérogation',
+    ['REGLE_PUBLIEE', 'REGLE_CLOSE', 'REGLE_RETIREE', 'DEROGATION_ACCORDEE', 'REGLE_ROUVERTE'].every((t) => types.has(t)),
+    [...types].join(', '));
+  check('chaque événement de règle porte le motif et l’auteur',
+    (events ?? []).filter((e) => e.event_type.startsWith('REGLE') || e.event_type.startsWith('DEROG'))
+      .every((e) => e.reason && e.actor_id));
+  const { count: audits } = await admin.from('audit_logs').select('id', { count: 'exact', head: true })
+    .eq('resource_id', state.affA.id).like('action', 'affiliation.%');
+  check('le journal d’audit reçoit chaque acte', (audits ?? 0) >= 5, String(audits));
+}
+
+async function checkIsolation(target, admin, sessions, state) {
+  log.step('Isolement et confidentialité');
+
+  const anon = sessionClient(target);
+  for (const table of ['affiliates', 'affiliate_rules', 'affiliate_categories', 'affiliate_notes', 'affiliate_events']) {
+    check(`l’anonyme ne lit rien dans ${table}`, empty(await anon.from(table).select('id').limit(1)));
+    check(`un client ne lit rien dans ${table}`, empty(await sessions.client.from(table).select('id').limit(1)));
+    check(`un ADMIN sans permission ne lit rien dans ${table}`, empty(await sessions.nu.from(table).select('id').limit(1)));
+  }
+
+  const ownRow = await sessions.affA.from('affiliates').select('id, slug');
+  check('l’affilié A lit sa seule fiche', (ownRow.data ?? []).length === 1 && ownRow.data[0].id === state.affA.id);
+  check('l’affilié A ne lit pas la fiche de B',
+    empty(await sessions.affA.from('affiliates').select('id').eq('id', state.affB.id)));
+  const ownRules = await sessions.affA.from('affiliate_rules').select('id, affiliate_id, category_id');
+  check('l’affilié A lit ses règles et celles de sa catégorie, rien d’autre',
+    (ownRules.data ?? []).length > 0
+      && ownRules.data.every((r) => r.affiliate_id === state.affA.id || r.category_id === state.category.id));
+  check('l’affilié B ne lit aucune règle individuelle de A',
+    empty(await sessions.affB.from('affiliate_rules').select('id').eq('affiliate_id', state.affA.id)));
+  check('l’affilié ne lit pas les notes internes',
+    empty(await sessions.affA.from('affiliate_notes').select('id').eq('affiliate_id', state.affA.id)));
+  check('l’affilié ne lit pas l’historique interne',
+    empty(await sessions.affA.from('affiliate_events').select('id').eq('affiliate_id', state.affA.id)));
+  const ownCategory = await sessions.affA.from('affiliate_categories').select('id');
+  check('l’affilié lit sa seule catégorie',
+    (ownCategory.data ?? []).length === 1 && ownCategory.data[0].id === state.category.id);
+
+  const termsOwn = await sessions.affA.rpc('affiliate_effective_terms', { p_affiliate_id: state.affA.id });
+  check('l’affilié lit ses paramètres effectifs (90 jours hérités)',
+    (termsOwn.data ?? [])[0]?.attribution_window_days === 90, termsOwn.error?.message);
+  const termsOther = await sessions.affA.rpc('affiliate_effective_terms', { p_affiliate_id: state.affB.id });
+  check('l’affilié ne lit pas les paramètres de B', (termsOther.data ?? []).length === 0);
+
+  // Écritures interdites à l'affilié.
+  const selfEdit = await sessions.affA.from('affiliates').update({ display_name: 'Pirate' }).eq('id', state.affA.id).select();
+  check('l’affilié ne modifie pas sa fiche', refused(selfEdit));
+  const selfStatus = await sessions.affA.from('affiliates').update({ status: 'ACTIF' }).eq('id', state.affA.id).select();
+  check('l’affilié ne modifie pas son statut', refused(selfStatus));
+  const selfReferral = await sessions.affA.from('affiliates').update({ self_referral_allowed: true, self_referral_reason: 'x' }).eq('id', state.affA.id).select();
+  check('l’affilié ne lève pas son interdiction d’auto-affiliation', refused(selfReferral));
+
+  // L'administration : lecture sous affiliates.view, identité sous affiliates.update.
+  check('affiliates.view lit les deux fiches',
+    ((await sessions.lecteur.from('affiliates').select('id').in('id', [state.affA.id, state.affB.id])).data ?? []).length === 2);
+  check('affiliates.view ne modifie rien',
+    refused(await sessions.lecteur.from('affiliates').update({ city: 'Mutsamudu' }).eq('id', state.affA.id).select()));
+  const edit = await sessions.editeur.from('affiliates').update({ city: 'Mutsamudu' }).eq('id', state.affA.id).select();
+  check('affiliates.update modifie l’identité', !refused(edit), edit.error?.message);
+  const editStatus = await sessions.editeur.from('affiliates').update({ status: 'SUSPENDU' }).eq('id', state.affA.id).select();
+  check('affiliates.update ne change pas un statut directement', refused(editStatus));
+  const editSlug = await sessions.editeur.from('affiliates').update({ slug: 'autre-slug' }).eq('id', state.affA.id).select();
+  check('le lien principal ne se modifie pas', refused(editSlug));
+  const { data: identityEvent } = await admin.from('affiliate_events').select('old_value, new_value')
+    .eq('affiliate_id', state.affA.id).eq('event_type', 'IDENTITE_MODIFIEE');
+  check('la modification d’identité est historisée avec avant et après',
+    (identityEvent ?? []).some((e) => e.new_value?.city === 'Mutsamudu' && 'city' in (e.old_value ?? {})));
+
+  // Catégories : sous affiliate_rules.manage.
+  const catEdit = await sessions.lecteur.from('affiliate_categories').update({ label: 'X' }).eq('id', state.category.id).select();
+  check('affiliates.view ne modifie pas une catégorie', refused(catEdit));
+  const catOk = await sessions.regles.from('affiliate_categories').update({ payout_frequency: 'HEBDOMADAIRE' }).eq('id', state.category.id).select();
+  check('affiliate_rules.manage modifie les défauts d’une catégorie', !refused(catOk), catOk.error?.message);
+  const catCode = await sessions.regles.from('affiliate_categories').update({ code: 'AUTRE' }).eq('id', state.category.id).select();
+  check('le code d’une catégorie est stable', refused(catCode));
+}
+
+/* ========================================================================== */
+
+async function teardown(target, accessToken, admin, state, before) {
+  log.step('Nettoyage des données de contrôle');
+
+  // Une transaction : les gardes d'immuabilité ne sont levés que le temps de
+  // supprimer des données de contrôle, et reviennent quoi qu'il arrive.
+  await runSql(target, accessToken, `
+    begin;
+    alter table public.affiliate_rules  disable trigger affiliate_rules_immutable;
+    alter table public.affiliate_rules  disable trigger affiliate_rules_history;
+    alter table public.affiliate_events disable trigger affiliate_events_append_only;
+    -- supersedes_id est en « restrict », vérifié ligne à ligne : on délie
+    -- les versions avant de les supprimer.
+    update public.affiliate_rules r set supersedes_id = null
+      from public.affiliates a
+     where r.affiliate_id = a.id and a.slug like '${PREFIX}-%';
+    update public.affiliate_rules r set supersedes_id = null
+      from public.affiliate_categories c
+     where r.category_id = c.id and c.code like 'ZZ_VERIF_%';
+    delete from public.affiliate_rules r
+     using public.affiliates a
+     where r.affiliate_id = a.id and a.slug like '${PREFIX}-%';
+    delete from public.affiliate_rules r
+     using public.affiliate_categories c
+     where r.category_id = c.id and c.code like 'ZZ_VERIF_%';
+    delete from public.affiliate_events e
+     using public.affiliate_categories c
+     where e.category_id = c.id and c.code like 'ZZ_VERIF_%';
+    delete from public.affiliates where slug like '${PREFIX}-%';
+    delete from public.affiliate_categories where code like 'ZZ_VERIF_%';
+    alter table public.affiliate_rules  enable trigger affiliate_rules_immutable;
+    alter table public.affiliate_rules  enable trigger affiliate_rules_history;
+    alter table public.affiliate_events enable trigger affiliate_events_append_only;
+    commit;
+  `).catch((error) => log.fail(`démontage SQL : ${error.message}`));
+
+  const { data: users } = await admin.auth.admin.listUsers({ perPage: 1000 });
+  for (const user of users?.users ?? []) {
+    if (user.email?.startsWith(PREFIX)) await admin.auth.admin.deleteUser(user.id);
+  }
+
+  const triggers = await runSql(target, accessToken, `
+    select tgname, tgenabled from pg_trigger
+     where tgname in ('affiliate_rules_immutable', 'affiliate_rules_history', 'affiliate_events_append_only');
+  `).catch(() => []);
+  check('les gardes d’immuabilité sont réactivés',
+    (triggers ?? []).length === 3 && triggers.every((t) => t.tgenabled === 'O'), JSON.stringify(triggers));
+
+  for (const table of ['affiliates', 'affiliate_rules', 'affiliate_categories', 'affiliate_notes', 'affiliate_events']) {
+    const { count } = await admin.from(table).select('id', { count: 'exact', head: true });
+    check(`aucun résidu de contrôle dans ${table}`, count === before.counts[table], `${count} contre ${before.counts[table]}`);
+  }
+  const { data: accounts } = await admin.auth.admin.listUsers({ perPage: 1000 });
+  check('aucun compte de contrôle ne subsiste',
+    !(accounts?.users ?? []).some((user) => user.email?.startsWith(PREFIX)));
+
+  const after = await runSql(target, accessToken, `
+    select doc_type, series, last_number, allocated_count from public.document_sequences
+     where doc_type in (${SEQUENCES.map((c) => `'${c}'`).join(', ')}) order by doc_type;
+  `).catch(() => null);
+  const restored = Object.fromEntries((after ?? []).map((row) => [row.doc_type, row]));
+  for (const code of SEQUENCES) {
+    check(`la suite ${code} n’a pas bougé`,
+      JSON.stringify(before.sequences[code] ?? null) === JSON.stringify(restored[code] ?? null),
+      `avant ${JSON.stringify(before.sequences[code] ?? null)} — après ${JSON.stringify(restored[code] ?? null)}`);
+  }
+}
+
+async function main() {
+  const target = resolveTarget();
+  const accessToken = resolveAccessToken();
+  log.step(`Affiliation — ${describeTarget(target)}`);
+
+  const admin = createClient(target.url, target.secretKey, {
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
+
+  const rows = await runSql(target, accessToken, `
+    select doc_type, series, last_number, allocated_count from public.document_sequences
+     where doc_type in (${SEQUENCES.map((c) => `'${c}'`).join(', ')});
+  `);
+  const sequences = {};
+  for (const row of rows ?? []) sequences[row.doc_type] = row;
+  const counts = {};
+  for (const table of ['affiliates', 'affiliate_rules', 'affiliate_categories', 'affiliate_notes', 'affiliate_events']) {
+    const { count } = await admin.from(table).select('id', { count: 'exact', head: true });
+    counts[table] = count ?? 0;
+  }
+  const before = { sequences, counts };
+  const state = { startedAt: new Date().toISOString() };
+
+  try {
+    await checkCatalogue(admin);
+    await checkParity(admin);
+
+    log.step('Comptes et affiliés de contrôle');
+    state.client = await createAccount(admin, { roleCode: 'CLIENT', label: 'client' });
+    state.userA = await createAccount(admin, { roleCode: 'AFFILIE', label: 'affa' });
+    state.userB = await createAccount(admin, { roleCode: 'AFFILIE', label: 'affb' });
+    state.nu = await createAccount(admin, { roleCode: 'ADMIN', label: 'nu' });
+    state.lecteur = await createAccount(admin, { roleCode: 'ADMIN', label: 'lecteur', grants: ['affiliates.view'] });
+    state.editeur = await createAccount(admin, { roleCode: 'ADMIN', label: 'editeur', grants: ['affiliates.view', 'affiliates.update'] });
+    state.regles = await createAccount(admin, { roleCode: 'ADMIN', label: 'regles', grants: ['affiliates.view', 'affiliate_rules.manage'] });
+    state.derogateur = await createAccount(admin, {
+      roleCode: 'ADMIN', label: 'derogateur', grants: ['affiliates.view', 'affiliate_rules.manage', 'affiliate_rules.derogate'],
+    });
+
+    const { data: category, error: catError } = await admin.from('affiliate_categories')
+      .insert({ code: CATEGORY_CODE, label: 'Contrôle 4H', description: 'Catégorie de contrôle automatisé' })
+      .select().single();
+    if (catError) throw new Error(`catégorie de contrôle : ${catError.message}`);
+    state.category = category;
+
+    const affiliate = async (user, suffix, serial) => {
+      const { data, error } = await admin.from('affiliates').insert({
+        slug: `${PREFIX}-${suffix}-${RUN.toLowerCase()}`,
+        // Série ZZ, écrite par la clé de service : aucun numéro réel consommé.
+        reference: `MORA-AFIL-ZZ${String(serial).padStart(4, '0')}`,
+        user_id: user.userId,
+        category_id: category.id,
+        status: 'ACTIF',
+        display_name: `Contrôle ${suffix.toUpperCase()}`,
+        contact_email: user.email,
+        started_on: new Date().toISOString().slice(0, 10),
+      }).select().single();
+      if (error) throw new Error(`affilié ${suffix} : ${error.message}`);
+      return data;
+    };
+    state.affA = await affiliate(state.userA, 'a', 9001);
+    state.affB = await affiliate(state.userB, 'b', 9002);
+    check('les affiliés de contrôle sont créés (série ZZ)', true);
+
+    const sessions = {};
+    for (const key of ['client', 'nu', 'lecteur', 'editeur', 'regles', 'derogateur']) {
+      sessions[key] = await signIn(target, state[key].email);
+    }
+    sessions.affA = await signIn(target, state.userA.email);
+    sessions.affB = await signIn(target, state.userB.email);
+
+    await checkRules(admin, sessions, state);
+    await checkIsolation(target, admin, sessions, state);
+  } catch (error) {
+    results.failed += 1;
+    log.fail(`interruption : ${error.message}`);
+  } finally {
+    await teardown(target, accessToken, admin, state, before).catch((error) => {
+      results.failed += 1;
+      log.fail(`nettoyage incomplet : ${error.message}`);
+    });
+  }
+
+  log.step('Bilan');
+  console.log(`  ${results.passed} contrôle(s) réussi(s), ${results.failed} en échec.`);
+  if (results.failed > 0) process.exitCode = 1;
+}
+
+main().catch((error) => {
+  log.fail(error.message);
+  process.exitCode = 1;
+});

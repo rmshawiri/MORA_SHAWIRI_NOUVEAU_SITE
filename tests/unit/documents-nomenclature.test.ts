@@ -41,6 +41,17 @@ const MIGRATION = readFileSync(
   'utf8',
 );
 
+const AFFILIATION_MIGRATION = readFileSync(
+  resolve(process.cwd(), 'supabase', 'migrations', '20261001140000_affiliation_fondations.sql'),
+  'utf8',
+);
+
+/** Le seul bloc `document_types` de 4H : la migration sème aussi des catégories. */
+const AFFILIATION_DOCUMENT_TYPES = AFFILIATION_MIGRATION.slice(
+  AFFILIATION_MIGRATION.indexOf('insert into public.document_types'),
+  AFFILIATION_MIGRATION.indexOf('on conflict (code) do update', AFFILIATION_MIGRATION.indexOf('insert into public.document_types')),
+);
+
 /* -------------------------------------------------------------------------- */
 /* Format                                                                      */
 /* -------------------------------------------------------------------------- */
@@ -294,12 +305,17 @@ test('un nom très long est tronqué sans laisser de tiret en suspens', () => {
 /* Accord entre le code et la base                                             */
 /* -------------------------------------------------------------------------- */
 
-test('les sept types du § 75 sont les mêmes dans le code et dans la migration', () => {
+test('les types du § 75 et ceux de 4H sont les mêmes dans le code et dans les migrations', () => {
   const declared = DOCUMENT_TYPES.map((entry) => entry.code).sort();
 
-  const inSql = [...MIGRATION.matchAll(/^\s*\('([A-Z]{4,6})',\s+'/gm)].map((match) => match[1]!).sort();
+  // 4H ajoute deux pièces (FIAF, RVAF) et un code de référence (AFIL), qui,
+  // comme DMCL et RVCL, n'émet aucun document et n'a pas sa place ici.
+  const inSql = [...MIGRATION.matchAll(/^\s*\('([A-Z]{4,6})',\s+'/gm), ...AFFILIATION_DOCUMENT_TYPES.matchAll(/^\s*\('([A-Z]{4,6})',\s+'/gm)]
+    .map((match) => match[1]!)
+    .filter((code) => code !== 'AFIL')
+    .sort();
 
-  assert.deepEqual(declared, ['ACCL', 'AVCL', 'BLCL', 'CMCL', 'COMAF', 'DVCL', 'FACL']);
+  assert.deepEqual(declared, ['ACCL', 'AVCL', 'BLCL', 'CMCL', 'COMAF', 'DVCL', 'FACL', 'FIAF', 'RVAF']);
   assert.deepEqual(inSql, declared, 'le code et la migration ne déclarent pas les mêmes types');
 
   for (const code of declared) {

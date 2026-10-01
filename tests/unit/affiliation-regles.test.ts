@@ -19,6 +19,7 @@ import {
   describeRule,
   formatKmf,
   isRuleInForce,
+  offerConstraint,
   resolveRule,
   ruleFromSnapshot,
   ruleSnapshot,
@@ -441,4 +442,64 @@ test('affichage — montants et description d’une règle', () => {
     'moins de 200 000 KMF : 20 % (minimum 10 000 KMF) ; à partir de 200 000 KMF : 40 %',
   );
   assert.equal(describeRule(exclusionAudit), 'Exclue de la commission');
+});
+
+// -----------------------------------------------------------------------------
+// N1 — éligibilité et plafond de l'offre, dérogation contractuelle
+// -----------------------------------------------------------------------------
+
+
+test('N1 — une offre non éligible n’ouvre aucune commission, dérogation comprise', () => {
+  const derogation: Rule = { ...conventionDeuxPaliers, contractualDerogation: true };
+  assert.deepEqual(offerConstraint(derogation, { eligible: false, maxRate: 20 }), {
+    allowed: false,
+    reason: 'OFFRE_NON_ELIGIBLE',
+  });
+  assert.deepEqual(offerConstraint(derogation, { eligible: true, maxRate: null }), {
+    allowed: false,
+    reason: 'OFFRE_NON_ELIGIBLE',
+  });
+  assert.deepEqual(offerConstraint(derogation, null), { allowed: false, reason: 'OFFRE_ABSENTE' });
+});
+
+test('N1 — le plafond de l’offre s’applique, plancher compris', () => {
+  const offre = { eligible: true, maxRate: 15 };
+  const constraint = offerConstraint(conventionDeuxPaliers, offre);
+  assert.ok(constraint.allowed);
+  assert.equal(constraint.capRate, 15);
+  // 900 000 × 40 % = 360 000, plafonné à 15 % = 135 000.
+  const grand = computeCommission(conventionDeuxPaliers, 900_000, { capRate: constraint.capRate });
+  assert.equal(grand.amountCents, kmf(135_000));
+  assert.equal(grand.capApplied, true);
+  // 30 000 : le plancher de 10 000 dépasse 15 % (4 500) — le plafond protège la marge.
+  const petit = computeCommission(conventionDeuxPaliers, 30_000, { capRate: constraint.capRate });
+  assert.equal(petit.amountCents, kmf(4_500));
+  assert.equal(petit.capApplied, true);
+});
+
+test('N1 — la dérogation contractuelle lève le plafond, pour son seul affilié', () => {
+  const derogation: Rule = { ...conventionDeuxPaliers, contractualDerogation: true };
+  const constraint = offerConstraint(derogation, { eligible: true, maxRate: 15 });
+  assert.ok(constraint.allowed);
+  assert.equal(constraint.capRate, null);
+  assert.equal(computeCommission(derogation, 900_000, { capRate: constraint.capRate }).amountCents, kmf(360_000));
+
+  // Un autre membre de la catégorie reste plafonné : sa règle n'a pas de dérogation.
+  const autre = offerConstraint(categorieApporteur, { eligible: true, maxRate: 5 });
+  assert.ok(autre.allowed);
+  assert.equal(autre.capRate, 5);
+  assert.equal(computeCommission(categorieApporteur, 100_000, { capRate: autre.capRate }).amountCents, kmf(5_000));
+});
+
+test('N1 — une dérogation posée sur une catégorie est sans effet', () => {
+  const surCategorie: Rule = { ...categorieApporteur, contractualDerogation: true };
+  const constraint = offerConstraint(surCategorie, { eligible: true, maxRate: 5 });
+  assert.ok(constraint.allowed);
+  assert.equal(constraint.capRate, 5);
+});
+
+test('N1 — l’instantané conserve la dérogation', () => {
+  const snapshot = ruleSnapshot({ ...conventionDeuxPaliers, contractualDerogation: true }, 'INDIVIDUELLE');
+  assert.equal(snapshot.contractualDerogation, true);
+  assert.equal(ruleFromSnapshot(snapshot).contractualDerogation, true);
 });

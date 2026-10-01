@@ -38,7 +38,10 @@ const seedSql = readFileSync(SEED_PATH, 'utf8');
  * `invoices.issue` y est entrée par une migration dédiée, sans retoucher le
  * seed (une migration appliquée ne se modifie pas). Le test lit donc les deux.
  */
-const LATER_PERMISSION_MIGRATIONS = ['20261001120000_facturation_officielle.sql'].map((name) =>
+const LATER_PERMISSION_MIGRATIONS = [
+  '20261001120000_facturation_officielle.sql',
+  '20261001140000_affiliation_fondations.sql',
+].map((name) =>
   readFileSync(resolve(process.cwd(), 'supabase', 'migrations', name), 'utf8'),
 );
 
