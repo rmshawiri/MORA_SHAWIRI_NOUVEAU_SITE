@@ -205,7 +205,10 @@ async function anonymousRoutes(base) {
   const sitemap = await visit(base, '/sitemap.xml');
   check(
     'le plan de site ne référence aucune page de compte',
-    !/connexion|inscription|espace-client|administration|securite/.test(sitemap.body),
+    // Les pages de compte sont à la racine du site. `/affiliation/inscription/`
+    // (phase 4H) est une page publique de candidature, pas une page de compte :
+    // la règle vise donc le premier segment du chemin, et lui seul.
+    !/<loc>https?:\/\/[^/<]+\/(connexion|inscription|espace-client|administration|securite)\//.test(sitemap.body),
   );
 }
 
