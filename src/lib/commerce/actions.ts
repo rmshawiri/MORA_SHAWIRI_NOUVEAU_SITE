@@ -38,6 +38,7 @@
 import { revalidatePath } from 'next/cache';
 
 import type { AdminActionState } from '@/lib/admin/actions';
+import { archiveIssuedInvoice } from '@/lib/documents/invoices';
 import { assertPermission, PermissionDenied } from '@/lib/rbac/guards';
 import { getServerSupabaseClient } from '@/lib/supabase/server';
 import type { OrderStatus } from '@/lib/supabase/types';
@@ -71,6 +72,7 @@ const MESSAGES = {
     'Cette référence de transaction est déjà enregistrée sur une autre commande.',
   proofRequired: 'Ce moyen de paiement demande la référence de la transaction.',
   invoiceOnCancelled: 'Une commande annulée ne se facture pas.',
+  invoiceEmpty: 'Une commande sans ligne ni montant ne se facture pas.',
   instructionsRequired:
     'Un moyen actif doit porter des instructions : le client doit savoir où et comment payer.',
 } as const;
@@ -112,6 +114,9 @@ function describeDatabaseError(error: { code?: string | null; message?: string }
   }
   if (text.includes('référence de la transaction')) return MESSAGES.proofRequired;
   if (text.includes('annulée ne se facture')) return MESSAGES.invoiceOnCancelled;
+  if (text.includes('sans ligne ne se facture') || text.includes('sans montant ne se facture')) {
+    return MESSAGES.invoiceEmpty;
+  }
   if (text.includes('Transition refusée')) return MESSAGES.badStatus;
   if (error.code === '23514') return MESSAGES.badStatus;
 
@@ -405,19 +410,26 @@ export async function recordOfflinePayment(
 /**
  * Émet la facture d'une commande.
  *
- * Décision du propriétaire : jamais automatique. Une facture consomme un
- * numéro FACL irréversible, et les obligations de facturation dépendent du
- * statut juridique de MORA Shawiri, qui n'est pas encore arrêté (D-17).
+ * `invoices.issue` — permission CRITIQUE, distincte d'`orders.update` depuis la
+ * décision propriétaire du 1er octobre 2026. Gérer une commande n'emporte plus
+ * le droit d'émettre une pièce comptable. La base revérifie la même permission
+ * (`issue_order_invoice`, puis `issue_document` qui exige aussi l'AAL2) : un
+ * appel direct à l'API n'y échappe pas.
  *
- * Émettre deux fois renvoie la première facture sans rien consommer — c'est la
- * fonction de base qui le garantit, avant toute allocation.
+ * Décision du propriétaire en 4G : jamais automatique. Émettre deux fois rend
+ * la première facture sans rien consommer — la commande est verrouillée et la
+ * fonction regarde avant d'allouer.
+ *
+ * Le PDF est rendu depuis l'instantané et archivé dans la foulée. Si l'archive
+ * échoue, la facture n'en est pas moins émise : le premier téléchargement la
+ * rattrapera, à l'identique.
  */
 export async function issueInvoice(
   _previous: AdminActionState,
   formData: FormData,
 ): Promise<AdminActionState> {
   try {
-    await assertPermission('orders.update', 'commerce.facture.emission');
+    await assertPermission('invoices.issue', 'commerce.facture.emission');
 
     const orderId = field(formData, 'commande');
     if (!orderId) return ko(MESSAGES.unknownOrder);
@@ -432,7 +444,10 @@ export async function issueInvoice(
     if (error) return ko(describeDatabaseError(error));
     if (!data) return ko(MESSAGES.unexpected);
 
+    await archiveIssuedInvoice(data.reference);
+
     refresh();
+    revalidatePath('/administration/commandes/factures');
     return ok(`La facture ${data.reference} est émise.`);
   } catch (error) {
     if (error instanceof PermissionDenied) return ko(MESSAGES.denied);

@@ -34,6 +34,7 @@
 
 import { NextResponse } from 'next/server';
 
+import { getInvoicePdf } from '@/lib/documents/invoices';
 import { getDocumentByReference, renderDocument } from '@/lib/documents/service';
 import { documentFileName, parseReference } from '@/lib/domain/documents';
 import { recordAuditEvent } from '@/lib/rbac';
@@ -58,8 +59,33 @@ function refuse(): NextResponse {
   });
 }
 
+/**
+ * En-têtes communs à toute pièce servie.
+ *
+ * `?affichage=1` demande l'ouverture dans le navigateur plutôt que le
+ * téléchargement — c'est la consultation depuis la fiche. Le fichier est le
+ * même ; seule la disposition change.
+ */
+function pdfResponse(bytes: Uint8Array, asciiName: string, fileName: string, inline: boolean): NextResponse {
+  const disposition =
+    `${inline ? 'inline' : 'attachment'}; filename="${asciiName}"; ` +
+    `filename*=UTF-8''${encodeURIComponent(fileName)}`;
+
+  return new NextResponse(bytes as unknown as BodyInit, {
+    status: 200,
+    headers: {
+      'Content-Type': 'application/pdf',
+      'Content-Disposition': disposition,
+      'Content-Length': String(bytes.byteLength),
+      // § 124 : un document privé ne doit jamais être mis en cache partagé.
+      'Cache-Control': 'private, no-store, max-age=0',
+      'X-Content-Type-Options': 'nosniff',
+    },
+  });
+}
+
 export async function GET(
-  _request: Request,
+  request: Request,
   context: { params: Promise<{ reference: string }> },
 ): Promise<NextResponse> {
   const { reference: raw } = await context.params;
@@ -72,6 +98,28 @@ export async function GET(
 
   const { data: userData } = await supabase.auth.getUser();
   if (!userData?.user) return refuse();
+
+  const inline = new URL(request.url).searchParams.get('affichage') === '1';
+
+  /*
+   * Facture : rendue depuis son instantané figé à l'émission, ou servie depuis
+   * son archive. Jamais recomposée à partir de la commande ou du catalogue
+   * courants. Nom de fichier : la référence officielle, et elle seule.
+   */
+  if (parseReference(reference)?.type === 'FACL') {
+    const invoice = await getInvoicePdf(reference);
+    if (!invoice) return refuse();
+
+    await recordAuditEvent({
+      action: 'documents.telechargement',
+      resourceType: 'document',
+      resourceId: reference,
+      result: 'SUCCES',
+      metadata: { type: 'FACL', source: invoice.source },
+    });
+
+    return pdfResponse(invoice.bytes, invoice.fileName, invoice.fileName, inline);
+  }
 
   const document = await getDocumentByReference(reference);
   if (!document) return refuse();
@@ -106,20 +154,5 @@ export async function GET(
   // `filename` en ASCII pour les clients anciens, `filename*` pour les autres.
   // Le nom normalisé par le § 42 est déjà dépourvu d'accents et de caractères
   // interdits ; les deux formes coïncident donc presque toujours.
-  const asciiName = documentFileName(document.reference, null);
-  const disposition =
-    `attachment; filename="${asciiName}"; ` +
-    `filename*=UTF-8''${encodeURIComponent(fileName)}`;
-
-  return new NextResponse(bytes as unknown as BodyInit, {
-    status: 200,
-    headers: {
-      'Content-Type': 'application/pdf',
-      'Content-Disposition': disposition,
-      'Content-Length': String(bytes.byteLength),
-      // § 124 : un document privé ne doit jamais être mis en cache partagé.
-      'Cache-Control': 'private, no-store, max-age=0',
-      'X-Content-Type-Options': 'nosniff',
-    },
-  });
+  return pdfResponse(bytes, documentFileName(document.reference, null), fileName, inline);
 }

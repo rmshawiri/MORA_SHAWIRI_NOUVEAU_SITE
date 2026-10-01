@@ -292,3 +292,10 @@
     flex: 1 1 100%;
   }
 }
+
+/* ---- Partage d'un document (finalisation 4G) ---------------------------- */
+.espace .document-share {
+  display: grid;
+  gap: var(--sp-2);
+  justify-items: start;
+}

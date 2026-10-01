@@ -31,12 +31,22 @@ const SEED_PATH = resolve(
 
 const seedSql = readFileSync(SEED_PATH, 'utf8');
 
+/**
+ * Migrations postérieures au seed qui ajoutent une permission au catalogue.
+ *
+ * Le catalogue de 4A n'est plus figé à 64 codes depuis la finalisation 4G :
+ * `invoices.issue` y est entrée par une migration dédiée, sans retoucher le
+ * seed (une migration appliquée ne se modifie pas). Le test lit donc les deux.
+ */
+const LATER_PERMISSION_MIGRATIONS = ['20261001120000_facturation_officielle.sql'].map((name) =>
+  readFileSync(resolve(process.cwd(), 'supabase', 'migrations', name), 'utf8'),
+);
+
 /** Extrait les lignes `('code', 'domaine', 'action', 'libellé', bool)`. */
-function readSeededPermissions(): { code: string; critical: boolean }[] {
-  const block = seedSql.slice(
-    seedSql.indexOf('insert into public.permissions'),
-    seedSql.indexOf('on conflict (code) do update'),
-  );
+function readPermissionBlock(sql: string): { code: string; critical: boolean }[] {
+  const start = sql.indexOf('insert into public.permissions');
+  if (start === -1) return [];
+  const block = sql.slice(start, sql.indexOf('on conflict (code) do update', start));
 
   const pattern = /\(\s*'([a-z_]+\.[a-z_]+)'\s*,\s*'[^']*'\s*,\s*'[^']*'\s*,\s*'(?:[^']|'')*'\s*,\s*(true|false)\s*\)/g;
 
@@ -44,6 +54,10 @@ function readSeededPermissions(): { code: string; critical: boolean }[] {
     code: match[1]!,
     critical: match[2] === 'true',
   }));
+}
+
+function readSeededPermissions(): { code: string; critical: boolean }[] {
+  return [seedSql, ...LATER_PERMISSION_MIGRATIONS].flatMap(readPermissionBlock);
 }
 
 function readSeededRoles(): string[] {

@@ -80,7 +80,7 @@ export default async function CommandeFichePage({
   const allMethods = methods.map((method) => ({ value: method.code, label: method.label }));
 
   const due = remainingDue(order.total_amount, order.paid_amount);
-  const invoice = documents.find((document) => document.doc_type === 'FACL');
+  const invoice = documents.find((document) => document.doc_type === 'FACL' && document.status === 'EMIS');
 
   const transitions = ORDER_TRANSITIONS[order.status]
     .filter((status) => status !== 'ANNULEE')
@@ -290,23 +290,51 @@ export default async function CommandeFichePage({
                 variant="danger"
               />
             ) : null}
+          </div>
+        </section>
+      ) : null}
 
-            {context.can('orders.update') && order.status !== 'ANNULEE' ? (
-              invoice ? (
-                <span className="admin-badge admin-badge--ok">
-                  Facture émise : {invoice.reference}
-                </span>
-              ) : (
-                <ConfirmForm
-                  action={issueInvoice}
-                  fields={{ commande: order.id }}
-                  trigger="Émettre la facture"
-                  consequence="Un numéro de facture officiel sera consommé, définitivement. Émettre la facture ne la marque pas comme payée : le règlement se lit dans les paiements vérifiés."
-                  confirmLabel="Émettre la facture"
-                  variant="gold"
-                />
-              )
-            ) : null}
+      {/* ------------------------------------------------------ facture --- */}
+
+      {invoice || (context.can('invoices.issue') && order.status !== 'ANNULEE') ? (
+        <section className="admin-card">
+          <div className="admin-card__head">
+            <h2>Facture</h2>
+            <p>
+              {invoice
+                ? 'La facture officielle de cette commande. Son contenu est figé depuis son émission.'
+                : 'L’émission attribue un numéro de facture officiel et fige le contenu de la facture : lignes, prix et totaux tels qu’ils sont à cet instant.'}
+            </p>
+          </div>
+
+          <div className="admin-table__actions">
+            {invoice ? (
+              <>
+                <span className="admin-badge admin-badge--ok">Facture émise : {invoice.reference}</span>
+                <Link
+                  className="btn btn--ghost"
+                  href={`/administration/commandes/factures/${invoice.reference}/`}
+                >
+                  Consulter la facture
+                </Link>
+                <a
+                  className="btn btn--ghost"
+                  href={`/api/documents/${invoice.reference}/`}
+                  download={`${invoice.reference}.pdf`}
+                >
+                  Télécharger le PDF
+                </a>
+              </>
+            ) : (
+              <ConfirmForm
+                action={issueInvoice}
+                fields={{ commande: order.id }}
+                trigger="Émettre la facture"
+                consequence="Un numéro de facture officiel sera consommé, définitivement, et le contenu de la facture sera figé. Émettre la facture ne la marque pas comme payée : le règlement se lit dans les paiements vérifiés."
+                confirmLabel="Émettre la facture"
+                variant="gold"
+              />
+            )}
           </div>
         </section>
       ) : null}
@@ -526,8 +554,14 @@ export default async function CommandeFichePage({
           <ul className="admin-notes">
             {documents.map((document) => (
               <li key={document.id}>
-                <code>{document.reference}</code> — {document.doc_type}, émise le{' '}
-                {formatMoment(document.issued_at)}
+                {document.doc_type === 'FACL' ? (
+                  <Link href={`/administration/commandes/factures/${document.reference}/`}>
+                    <code>{document.reference}</code>
+                  </Link>
+                ) : (
+                  <code>{document.reference}</code>
+                )}{' '}
+                — {document.doc_type}, émise le {formatMoment(document.issued_at)}
               </li>
             ))}
           </ul>

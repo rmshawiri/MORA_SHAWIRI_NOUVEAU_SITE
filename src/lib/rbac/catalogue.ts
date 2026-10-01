@@ -48,6 +48,10 @@ export const PERMISSIONS = [
   'payments.verify',
   'payments.refund',
 
+  // Ajoutée par la finalisation 4G (migration 20261001120000) : émettre une
+  // facture officielle n'est plus un effet de bord d'`orders.update`.
+  'invoices.issue',
+
   'quotes.view',
   'quotes.create',
   'quotes.update',
@@ -114,6 +118,7 @@ export const CRITICAL_PERMISSIONS = [
   'orders.refund',
   'payments.verify',
   'payments.refund',
+  'invoices.issue',
   'quotes.delete',
   'affiliates.update',
   'affiliates.disable',

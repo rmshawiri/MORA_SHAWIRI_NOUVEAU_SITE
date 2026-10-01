@@ -164,7 +164,7 @@ export type OrderDetail = {
   history: OrderStatusHistoryRow[];
   events: OrderEventRow[];
   /** Pièces officielles émises pour cette commande (CMCL, FACL, AVCL…). */
-  documents: { id: string; reference: string; doc_type: string; issued_at: string }[];
+  documents: { id: string; reference: string; doc_type: string; status: string; issued_at: string }[];
   quoteReference: string | null;
   requestReference: string | null;
 };
@@ -221,7 +221,7 @@ export async function findOrder(reference: string): Promise<OrderDetail | null> 
         .order('occurred_at', { ascending: true }),
       supabase
         .from('documents')
-        .select('id, reference, doc_type, issued_at')
+        .select('id, reference, doc_type, status, issued_at')
         .eq('entity_type', 'order')
         .eq('entity_id', order.id)
         .order('issued_at', { ascending: true }),

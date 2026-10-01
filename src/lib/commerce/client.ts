@@ -106,6 +106,8 @@ export type ClientOrderDetail = {
   payments: (PaymentRow & { proofs: PaymentProofRow[] })[];
   events: OrderEventRow[];
   methods: ActivePaymentMethod[];
+  /** Facture émise pour cette commande, lue sous RLS (le titulaire lit les siennes). */
+  invoiceReference: string | null;
 };
 
 /**
@@ -128,7 +130,7 @@ export async function findMyOrder(reference: string): Promise<ClientOrderDetail 
 
   if (error || !order) return null;
 
-  const [itemsResult, paymentsResult, eventsResult, methods] = await Promise.all([
+  const [itemsResult, paymentsResult, eventsResult, methods, invoiceResult] = await Promise.all([
     supabase
       .from('order_items')
       .select('*')
@@ -145,6 +147,14 @@ export async function findMyOrder(reference: string): Promise<ClientOrderDetail 
       .eq('order_id', order.id)
       .order('occurred_at', { ascending: true }),
     listActivePaymentMethods(),
+    supabase
+      .from('documents')
+      .select('reference')
+      .eq('doc_type', 'FACL')
+      .eq('entity_type', 'order')
+      .eq('entity_id', order.id)
+      .eq('status', 'EMIS')
+      .maybeSingle(),
   ]);
 
   const payments = paymentsResult.data ?? [];
@@ -170,5 +180,6 @@ export async function findMyOrder(reference: string): Promise<ClientOrderDetail 
     })),
     events: eventsResult.data ?? [],
     methods,
+    invoiceReference: invoiceResult.data?.reference ?? null,
   };
 }

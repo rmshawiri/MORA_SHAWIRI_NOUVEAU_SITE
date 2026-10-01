@@ -155,6 +155,25 @@ export type DocumentRow = {
 };
 
 /**
+ * Instantané figé d'une pièce officielle (finalisation 4G, migration
+ * 20261001120000). `content` est ce que la pièce affiche ; `pdf_*` décrit
+ * l'archive du fichier rendu, posée une fois par le serveur.
+ */
+export type DocumentSnapshotRow = {
+  document_id: string;
+  doc_type: string;
+  schema_version: number;
+  content: Json;
+  content_sha256: string;
+  pdf_path: string | null;
+  pdf_sha256: string | null;
+  pdf_size: number | null;
+  renderer_version: string | null;
+  archived_at: string | null;
+  created_at: string;
+};
+
+/**
  * Compteur transactionnel par type. Aucun rôle applicatif ne le lit : la table
  * porte RLS sans politique. Le type existe pour l'outillage serveur.
  */
@@ -1341,6 +1360,8 @@ export type Database = {
        */
       documents: Table<DocumentRow, never, Partial<DocumentRow>, DocumentRelationships>;
       document_sequences: Table<DocumentSequenceRow, never, never>;
+      /** Lecture seule : l'instantané naît dans `issue_order_invoice()`. */
+      document_snapshots: Table<DocumentSnapshotRow, never, never>;
       categories: Table<
         CategoryRow,
         Pick<CategoryRow, 'slug' | 'name' | 'kind'> & Partial<CategoryRow>,
@@ -1780,6 +1801,16 @@ export type Database = {
       issue_order_invoice: {
         Args: { p_order_id: string };
         Returns: DocumentRow;
+      };
+      record_document_archive: {
+        Args: {
+          p_document_id: string;
+          p_path: string;
+          p_sha256: string;
+          p_size: number;
+          p_renderer: string;
+        };
+        Returns: DocumentSnapshotRow;
       };
       attach_payment_proof: {
         Args: {

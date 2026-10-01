@@ -1145,3 +1145,60 @@
     margin-bottom: var(--sp-3);
   }
 }
+
+/* ---- Factures (finalisation 4G) -----------------------------------------
+   Règles additives : aucune règle existante n'est modifiée. Elles composent
+   avec les jetons de `.admin`, donc héritent de la densité validée. */
+
+/* Menu d'actions d'une ligne de tableau. Le panneau s'ouvre dans le flux, et
+   non en surimpression : un tableau défilant (`overflow-x: auto`) couperait
+   un panneau positionné en absolu. */
+.admin-menu summary {
+  list-style: none;
+  cursor: pointer;
+}
+
+.admin-menu summary::-webkit-details-marker {
+  display: none;
+}
+
+.admin-menu[open] summary {
+  margin-bottom: var(--sp-2);
+}
+
+.admin-menu__panel {
+  display: grid;
+  gap: var(--sp-2);
+  justify-items: start;
+  min-width: 13rem;
+}
+
+/* Barre de recherche et de filtres au-dessus d'une liste. */
+.admin-filters {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) repeat(2, minmax(0, 1fr)) auto;
+  gap: var(--sp-3);
+  align-items: end;
+  margin-bottom: var(--sp-5);
+}
+
+.admin-filters .admin-field + .admin-field {
+  margin-top: 0;
+}
+
+@media (max-width: 860px) {
+  .admin-filters {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* Partage d'un document : le bouton, puis le message qui dit ce qui se passe. */
+.admin .document-share {
+  display: grid;
+  gap: var(--sp-2);
+  justify-items: start;
+}
+
+.admin .document-share .admin-notice {
+  margin: 0;
+}

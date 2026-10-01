@@ -681,7 +681,9 @@ test('aucune migration historique n’est modifiée', () => {
     .filter((name) => name.endsWith('.sql'))
     .sort();
 
-  assert.equal(files.length, 9);
+  // Les migrations ultérieures (finalisation 4G et suivantes) s'ajoutent après
+  // celle-ci ; elles ne la déplacent ni ne la remplacent.
+  assert.ok(files.length >= 9);
   assert.equal(files[8], '20260930160000_commerce_commandes_paiements.sql');
 });
 

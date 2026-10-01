@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 
+import DocumentShareButton from '@/components/documents/DocumentShareButton';
 import PaymentDeclarationForm from '@/components/interactive/PaymentDeclarationForm';
 import PageHero from '@/components/sections/PageHero';
 import { requirePrivateAccess } from '@/lib/auth/guards';
@@ -60,7 +61,7 @@ export default async function MaCommandePage({
   const detail = await findMyOrder(decodeURIComponent(reference));
   if (!detail) notFound();
 
-  const { order, items, payments, events, methods } = detail;
+  const { order, items, payments, events, methods, invoiceReference } = detail;
   const due = remainingDue(order.total_amount, order.paid_amount);
 
   return (
@@ -131,6 +132,34 @@ export default async function MaCommandePage({
                 </table>
               </div>
             </div>
+
+            {invoiceReference ? (
+              <div className="auth-card">
+                <div className="auth-card__head">
+                  <h2>Votre facture</h2>
+                  <p>
+                    Facture <code>{invoiceReference}</code>, au format PDF. Son contenu est celui du
+                    jour de son émission.
+                  </p>
+                </div>
+
+                <div className="btn-row">
+                  <a
+                    className="btn btn--primary"
+                    href={`/api/documents/${invoiceReference}/`}
+                    download={`${invoiceReference}.pdf`}
+                  >
+                    Télécharger la facture
+                  </a>
+                  <DocumentShareButton
+                    reference={invoiceReference}
+                    title={`Facture ${invoiceReference}`}
+                    label="Partager le PDF"
+                    tone={{ ok: 'auth-notice auth-notice--ok', error: 'form-alert' }}
+                  />
+                </div>
+              </div>
+            ) : null}
 
             {payments.length > 0 ? (
               <div className="auth-card">

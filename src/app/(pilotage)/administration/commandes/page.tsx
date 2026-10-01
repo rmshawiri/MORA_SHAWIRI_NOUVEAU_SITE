@@ -29,8 +29,10 @@ export const metadata: Metadata = {
  * peut y faire :
  *
  *   * `orders.view`   ouvre le module et la liste ;
- *   * `orders.update` autorise le changement de statut, la note interne, la
- *     transformation d'un devis en commande et l'émission d'une facture ;
+ *   * `orders.update` autorise le changement de statut, la note interne et la
+ *     transformation d'un devis en commande ;
+ *   * `invoices.issue` — permission critique distincte depuis la finalisation
+ *     4G — autorise l'émission d'une facture ;
  *   * `orders.cancel` autorise l'annulation ;
  *   * `orders.refund` et `payments.refund` autorisent les remboursements.
  *
@@ -66,6 +68,11 @@ export default async function CommandesPage() {
       eyebrow="Activité"
       title="Commandes"
       lead="Les commandes établies, leur avancement et leur règlement. Le statut d’une commande et celui de son paiement sont deux informations distinctes : une commande confirmée peut rester à régler."
+      actions={
+        <Link className="btn btn--ghost" href="/administration/commandes/factures/">
+          Factures émises
+        </Link>
+      }
     >
       <section className="admin-card">
         <div className="admin-card__head">
@@ -215,8 +222,9 @@ export default async function CommandesPage() {
         <div className="admin-notice">
           <p>
             Vous consultez les commandes sans pouvoir les faire évoluer. La permission{' '}
-            <code>orders.update</code> est nécessaire pour changer un statut, établir une commande
-            ou émettre une facture.
+            <code>orders.update</code> est nécessaire pour changer un statut ou établir une
+            commande. L’émission d’une facture exige en outre la permission{' '}
+            <code>invoices.issue</code>.
           </p>
         </div>
       )}
