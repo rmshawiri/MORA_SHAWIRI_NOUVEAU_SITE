@@ -356,10 +356,12 @@ async function sessionRoutes(target, base) {
 
     let adminCookie = sessionCookieHeader(storageKey, adminSignIn.data.session);
 
+    // Décision du 1er octobre 2026 : identifiant ou e-mail + mot de passe
+    // suffisent. Aucun enrôlement ni code n'est imposé.
     const noFactor = await visit(base, '/administration/', adminCookie);
     check(
-      'un administrateur sans second facteur est conduit à l’enrôlement',
-      redirectsTo(noFactor, '/securite/double-facteur/'),
+      'un administrateur sans second facteur entre directement dans l’administration',
+      noFactor.status === 200 && noFactor.body.includes('admin__grid'),
       `HTTP ${noFactor.status} → ${noFactor.location}`,
     );
 
@@ -370,8 +372,8 @@ async function sessionRoutes(target, base) {
       `HTTP ${enrolPage.status}`,
     );
     check(
-      'elle annonce que l’étape est obligatoire',
-      enrolPage.body.includes('obligatoire'),
+      'elle ne présente plus l’enrôlement comme obligatoire',
+      !enrolPage.body.includes('Cette étape est obligatoire'),
     );
 
     /* --- Enrôlement réel, puis session AAL1 sur un compte protégé --------- */
@@ -924,8 +926,8 @@ async function sessionRoutes(target, base) {
     log.step('3. Gardes de route — suite');
 
     // Nouvelle connexion par mot de passe seul : la session repart en AAL1,
-    // alors même que le compte possède un facteur vérifié. C'est le scénario
-    // exact du contournement par URL directe.
+    // alors même que le compte possède un facteur vérifié. Depuis le
+    // 1er octobre 2026, cela suffit : le facteur est conservé, jamais demandé.
     const freshAuth = createClient(target.url, target.publishableKey, {
       auth: { persistSession: false, autoRefreshToken: false },
     });
@@ -940,10 +942,20 @@ async function sessionRoutes(target, base) {
 
     const aal1OnAdmin = await visit(base, '/administration/', adminCookie);
     check(
-      'une session AAL1 sur un compte enrôlé n’ouvre PAS l’administration',
-      redirectsTo(aal1OnAdmin, '/connexion/verification/'),
+      'une session AAL1 sur un compte enrôlé ouvre l’administration, sans code',
+      aal1OnAdmin.status === 200 && aal1OnAdmin.body.includes('admin__grid'),
       `HTTP ${aal1OnAdmin.status} → ${aal1OnAdmin.location}`,
     );
+
+    for (const path of ['/administration/commandes/', '/administration/commandes/factures/', '/administration/administrateurs/']) {
+      const page = await visit(base, path, adminCookie);
+      check(
+        `navigation sans code : ${path}`,
+        page.status === 200 || page.status === 404,
+        `HTTP ${page.status} → ${page.location}`,
+      );
+      check(`aucune redirection vers la vérification : ${path}`, !redirectsTo(page, '/connexion/verification/'));
+    }
 
     const challengePage = await visit(base, '/connexion/verification/', adminCookie);
     check(
@@ -954,7 +966,7 @@ async function sessionRoutes(target, base) {
 
     const factorsInAal1 = await visit(base, '/securite/double-facteur/', adminCookie);
     check(
-      'la gestion des facteurs exige AAL2 dès qu’un facteur existe',
+      'seule la gestion de ses propres facteurs demande le code (exigence de Supabase)',
       redirectsTo(factorsInAal1, '/connexion/verification/'),
       `HTTP ${factorsInAal1.status} → ${factorsInAal1.location}`,
     );

@@ -1,9 +1,9 @@
 'use client';
 
-import { useActionState, useState } from 'react';
-import { useFormStatus } from 'react-dom';
+import { useActionState, useRef, useState } from 'react';
 
 import AdminNotice from './AdminNotice';
+import ConfirmDialog from './ConfirmDialog';
 import { inviteAdministratorAction, type AdminActionState } from '@/lib/admin/actions';
 import type { PermissionCell } from './PermissionGrid';
 
@@ -27,8 +27,15 @@ import type { PermissionCell } from './PermissionGrid';
  * ## Ce qui n'est pas demandé
  *
  * Aucun mot de passe. La personne invitée choisit le sien sur la page
- * d'activation, puis enrôle son second facteur. Un mot de passe qui transite
- * par un tiers est un mot de passe connu d'un tiers.
+ * d'activation. Un mot de passe qui transite par un tiers est un mot de passe
+ * connu d'un tiers. Le second facteur lui reste proposé, sans être exigé
+ * (décision du 1er octobre 2026).
+ *
+ * ## La confirmation
+ *
+ * L'envoi passe par une fenêtre qui redit à qui l'accès est ouvert et avec
+ * combien de permissions. Protection contre l'erreur de manipulation, pas
+ * seconde authentification : le serveur revérifie `admins.create`.
  */
 
 const INITIAL: AdminActionState = { status: 'idle', message: '' };
@@ -42,6 +49,25 @@ export default function InviteForm({
 }) {
   const [state, formAction] = useActionState(inviteAdministratorAction, INITIAL);
   const [checked, setChecked] = useState<string[]>([]);
+  const form = useRef<HTMLFormElement>(null);
+  const [pendingInvite, setPendingInvite] = useState<{ username: string; email: string } | null>(null);
+  const [seen, setSeen] = useState(state);
+  if (state !== seen) {
+    setSeen(state);
+    setPendingInvite(null);
+  }
+
+  // La fenêtre ne s'ouvre que sur une saisie valide : le navigateur signale
+  // d'abord un champ manquant, comme il le faisait avant.
+  function askConfirmation() {
+    const element = form.current;
+    if (!element || !element.reportValidity()) return;
+    const data = new FormData(element);
+    setPendingInvite({
+      username: String(data.get('identifiant') ?? '').trim().toLowerCase(),
+      email: String(data.get('email') ?? '').trim().toLowerCase(),
+    });
+  }
 
   const groups = [...new Set(cells.map((cell) => cell.domain))].map((domain) => ({
     domain,
@@ -49,7 +75,7 @@ export default function InviteForm({
   }));
 
   return (
-    <form action={formAction}>
+    <form action={formAction} ref={form}>
       <AdminNotice state={state} />
 
       <div className="admin-field">
@@ -67,8 +93,8 @@ export default function InviteForm({
           pattern="[a-z0-9][a-z0-9._\-]{2,31}"
         />
         <span className="admin-field__hint">
-          3 à 32 caractères : lettres minuscules, chiffres, point, tiret ou tiret bas. C’est avec
-          cet identifiant que la personne se connectera — jamais avec une adresse e-mail.
+          3 à 32 caractères : lettres minuscules, chiffres, point, tiret ou tiret bas. La personne
+          se connectera avec cet identifiant ou avec son adresse e-mail.
         </span>
       </div>
 
@@ -85,8 +111,8 @@ export default function InviteForm({
           autoComplete="off"
         />
         <span className="admin-field__hint">
-          Elle sert uniquement à recevoir le lien d’activation et, plus tard, à réinitialiser le
-          mot de passe. Elle n’est jamais affichée comme identifiant.
+          Elle reçoit le lien d’activation, permet de se connecter et, plus tard, de réinitialiser
+          le mot de passe.
         </span>
       </div>
 
@@ -155,18 +181,26 @@ export default function InviteForm({
       </div>
 
       <div className="admin-actions">
-        <InviteButton />
+        <button className="btn btn--gold" type="button" onClick={askConfirmation}>
+          Envoyer l’invitation
+        </button>
       </div>
+
+      <ConfirmDialog
+        open={pendingInvite !== null}
+        onClose={() => setPendingInvite(null)}
+        title="Confirmer l’invitation de cet administrateur ?"
+        confirmLabel="Envoyer l’invitation"
+        variant="gold"
+      >
+        <p>
+          Un lien d’activation valable 48 heures sera envoyé à{' '}
+          <strong>{pendingInvite?.email}</strong>. Le compte <strong>{pendingInvite?.username}</strong>{' '}
+          recevra {checked.length === 0 ? 'aucune permission' : `${checked.length} permission(s)`} —
+          exactement celles cochées.
+        </p>
+        <p>Cette action sera enregistrée dans le journal d’audit.</p>
+      </ConfirmDialog>
     </form>
-  );
-}
-
-function InviteButton() {
-  const { pending } = useFormStatus();
-
-  return (
-    <button className="btn btn--gold" type="submit" disabled={pending}>
-      {pending ? 'Envoi…' : 'Envoyer l’invitation'}
-    </button>
   );
 }

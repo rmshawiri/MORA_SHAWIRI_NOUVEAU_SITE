@@ -95,7 +95,11 @@ async function registrationChecks(target, service) {
       .eq('key', 'auth.admin_mfa_required')
       .maybeSingle();
 
-    check('le paramètre D-12 rend le second facteur obligatoire', mfaSetting.data?.value === true);
+    // D-12 révisée le 1er octobre 2026 : aucun code TOTP dans l'administration.
+    check(
+      'le paramètre D-12 n’exige plus de code dans l’administration',
+      mfaSetting.data?.value === false,
+    );
 
     /*
      * Inscription par le chemin public.
@@ -504,8 +508,8 @@ async function adminStateChecks(target, username) {
   log.skip(
     `facteurs TOTP vérifiés : ${factors.length} — ` +
       (factors.length === 0
-        ? 'le parcours d’enrôlement sera présenté à la première connexion'
-        : 'la vérification sera demandée à chaque connexion'),
+        ? 'aucun facteur — rien n’est demandé à la connexion'
+        : 'facteur conservé, non demandé à la connexion (décision du 1er octobre 2026)'),
   );
 
   const mustChange = await session

@@ -44,12 +44,15 @@ const DECISIONS = [
   },
   {
     key: 'auth.admin_mfa_required',
-    value: true,
-    reference: 'D-12',
-    label: 'Double authentification obligatoire pour les administrateurs',
+    // Décision du propriétaire du 1er octobre 2026, qui révise D-12 : aucun
+    // code TOTP dans l'administration. Voir la migration 20261001130000.
+    value: false,
+    reference: 'D-12 (révisée le 2026-10-01)',
+    label: 'Code TOTP exigé dans l’administration',
     description:
-      'Décision D-12 validée : SUPER_ADMIN et ADMIN doivent présenter un facteur TOTP. ' +
-      'Une session AAL1 n’ouvre pas l’administration.',
+      'Décision du 1er octobre 2026 : non. Connexion par identifiant ou e-mail et mot de passe ; ' +
+      'aucune opération administrative autorisée n’exige de code. Les permissions, RLS et la ' +
+      'journalisation restent la sécurité réelle.',
   },
 ];
 

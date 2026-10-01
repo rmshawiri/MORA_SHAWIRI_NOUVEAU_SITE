@@ -528,9 +528,11 @@ async function checkEngineInvariants(target, accessToken, account) {
  * s'exercent sur un compte **habilité**, pour lequel RLS ouvre la porte, et
  * vérifient que les déclencheurs la referment là où ils doivent.
  *
- * Une session `AAL2` est indispensable : les politiques d'écriture de la
- * migration 0004 l'exigent, en plus de la permission. Le second facteur est
- * donc réellement enrôlé et présenté.
+ * Depuis le 1er octobre 2026, la permission suffit : aucun code n'est exigé
+ * (migration 20261001130000). Les garde-fous sont donc éprouvés d'abord en
+ * session par mot de passe (AAL1), puis — l'infrastructure TOTP restant en
+ * place — après enrôlement réel d'un second facteur, où ils doivent tenir de
+ * la même façon.
  */
 async function checkGuards(target, admin, granter, holder, spare) {
   log.step('Garde-fous — auto-modification et dernier détenteur');
@@ -551,17 +553,39 @@ async function checkGuards(target, admin, granter, holder, spare) {
   const adminsPermissionsId = await permissionId('admins.permissions');
   const paymentsVerifyId = await permissionId('payments.verify');
 
-  /* --- Sans second facteur, la permission ne suffit pas ------------------- */
+  /* --- Sans second facteur : la permission suffit (1er octobre 2026) ----- */
 
-  const beforeMfa = await client.from('user_permissions').insert({
-    user_id: spare.userId,
+  const aal1Grant = await client
+    .from('user_permissions')
+    .insert({ user_id: spare.userId, permission_id: paymentsVerifyId, effect: 'OCTROI' })
+    .select('user_id');
+  check(
+    'en AAL1, admins.permissions suffit à accorder une permission (aucun code exigé)',
+    !aal1Grant.error && (aal1Grant.data ?? []).length === 1,
+    aal1Grant.error?.message,
+  );
+
+  const aal1Revoke = await client
+    .from('user_permissions')
+    .delete()
+    .eq('user_id', spare.userId)
+    .eq('permission_id', paymentsVerifyId)
+    .select('user_id');
+  check(
+    'en AAL1, le retrait est possible aussi',
+    !aal1Revoke.error && (aal1Revoke.data ?? []).length === 1,
+    aal1Revoke.error?.message,
+  );
+
+  const aal1Self = await client.from('user_permissions').insert({
+    user_id: granter.userId,
     permission_id: paymentsVerifyId,
     effect: 'OCTROI',
   });
   check(
-    'en AAL1, même admins.permissions n’autorise aucune écriture',
-    isRefused(beforeMfa),
-    beforeMfa.error?.message,
+    'en AAL1 non plus, un compte ne peut pas s’octroyer une permission',
+    isRefused(aal1Self),
+    aal1Self.error?.message,
   );
 
   /* --- Enrôlement du second facteur -------------------------------------- */

@@ -27,6 +27,15 @@ const sqlByFile = new Map(
 const allSql = [...sqlByFile.values()].join('\n');
 
 /**
+ * Une définition de fonction, de `create or replace` jusqu'au délimiteur qui
+ * ferme **son** corps. Les migrations emploient `$$` et `$fn$` : chercher le
+ * prochain `$$;` quel qu'il soit faisait déborder une fonction `$fn$` sur les
+ * suivantes, jusqu'au premier `$$;` venu — faux positifs, ou contrôles portant
+ * sur la mauvaise fonction.
+ */
+const FUNCTION_PATTERN = /create or replace function public\.([a-z_]+)\(([\s\S]*?)\bas (\$[a-z]*\$)[\s\S]*?\3;/g;
+
+/**
  * Tables volontairement dépourvues de politique : RLS activée sans politique
  * équivaut à un refus total, ce qui est exactement l'intention.
  */
@@ -144,7 +153,7 @@ test('le rôle anonyme ne reçoit que la lecture, et seulement sur les tables pu
 });
 
 test('toute fonction SECURITY DEFINER fige son search_path', () => {
-  const functions = [...allSql.matchAll(/create or replace function public\.([a-z_]+)\(([\s\S]*?)\$\$/g)];
+  const functions = [...allSql.matchAll(FUNCTION_PATTERN)];
 
   let checked = 0;
 
@@ -177,7 +186,7 @@ test('toute fonction SECURITY DEFINER fige son search_path', () => {
  * `scripts/verify-catalogue.mjs` ; ce test est ce qui l'empêchera de revenir.
  */
 test('un garde-fou qui interroge le rôle courant n\'est jamais SECURITY DEFINER', () => {
-  const functions = [...allSql.matchAll(/create or replace function public\.([a-z_]+)\(([\s\S]*?)\$\$;/g)];
+  const functions = [...allSql.matchAll(FUNCTION_PATTERN)];
 
   let checked = 0;
 

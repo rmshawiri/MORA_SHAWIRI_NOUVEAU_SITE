@@ -1,9 +1,9 @@
 'use client';
 
-import { useActionState } from 'react';
-import { useFormStatus } from 'react-dom';
+import { useActionState, useState } from 'react';
 
 import AdminNotice from './AdminNotice';
+import ConfirmDialog from './ConfirmDialog';
 import { updatePermissionsAction, type AdminActionState } from '@/lib/admin/actions';
 
 /**
@@ -48,14 +48,25 @@ const INITIAL: AdminActionState = { status: 'idle', message: '' };
 
 export default function PermissionGrid({
   userId,
+  accountLabel,
   cells,
   readOnly,
 }: {
   userId: string;
+  /** Nom affiché de l'administrateur, repris dans la fenêtre de confirmation. */
+  accountLabel: string;
   cells: PermissionCell[];
   readOnly: boolean;
 }) {
   const [state, formAction] = useActionState(updatePermissionsAction, INITIAL);
+  const [open, setOpen] = useState(false);
+  // Une réponse du serveur referme la fenêtre : le résultat s'affiche au-dessus
+  // de la grille, comme avant.
+  const [seen, setSeen] = useState(state);
+  if (state !== seen) {
+    setSeen(state);
+    setOpen(false);
+  }
 
   const groups = [...new Set(cells.map((cell) => cell.domain))].map((domain) => ({
     domain,
@@ -105,20 +116,34 @@ export default function PermissionGrid({
 
       {readOnly ? null : (
         <div className="admin-actions">
-          <SaveButton />
+          <button className="btn btn--primary" type="button" onClick={() => setOpen(true)}>
+            Enregistrer les permissions
+          </button>
         </div>
       )}
+
+      {/*
+        Confirmation contre l'erreur de manipulation — pas une seconde
+        authentification. Le serveur revérifie `admins.permissions`, refuse
+        l'auto-élévation et protège le dernier détenteur d'une permission
+        critique, que cette fenêtre ait été vue ou non.
+      */}
+      <ConfirmDialog
+        open={open}
+        onClose={() => setOpen(false)}
+        title="Confirmer la modification des permissions"
+        confirmLabel="Confirmer"
+      >
+        <p>
+          Vous êtes sur le point de modifier les droits d’accès de <strong>{accountLabel}</strong>.
+          Cette action sera enregistrée dans le journal d’audit.
+        </p>
+        <p>
+          Les cases cochées deviennent exactement les permissions de ce compte : une permission
+          décochée lui est retirée.
+        </p>
+      </ConfirmDialog>
     </form>
-  );
-}
-
-function SaveButton() {
-  const { pending } = useFormStatus();
-
-  return (
-    <button className="btn btn--primary" type="submit" disabled={pending}>
-      {pending ? 'Enregistrement…' : 'Enregistrer les permissions'}
-    </button>
   );
 }
 

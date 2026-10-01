@@ -559,20 +559,18 @@ async function checkQuotes(target, admin, accounts, clients, sessions, state) {
     forced.error?.message ?? 'accepté à tort',
   );
 
-  // Sans second facteur, l'émission est refusée — le contrôle AAL2 de 4C.
-  const withoutMfa = await sessions.gestionnaire.rpc('send_quote', { p_quote_id: state.quoteId });
-  check(
-    'une session sans second facteur n’émet pas de devis',
-    Boolean(withoutMfa.error),
-    withoutMfa.error ? '' : 'émission acceptée à tort',
-  );
-
-  // Sans quotes.manage non plus.
+  // Sans quotes.manage, refus — la permission reste la barrière.
   const withoutPermission = await sessions.lecteur.rpc('send_quote', { p_quote_id: state.quoteId });
   check('quotes.view seul n’émet pas de devis', Boolean(withoutPermission.error));
 
-  // Le chemin réel, côté serveur : le contrôle a eu lieu dans l'action.
-  const issued = await admin.rpc('send_quote', { p_quote_id: state.quoteId });
+  // Décision du 1er octobre 2026 : aucun code TOTP dans l'administration. Une
+  // session ouverte par mot de passe (AAL1) qui détient la permission émet.
+  const issued = await sessions.gestionnaire.rpc('send_quote', { p_quote_id: state.quoteId });
+  check(
+    'une session habilitée émet le devis sans second facteur',
+    !issued.error,
+    issued.error?.message,
+  );
   check('le devis est émis par le Moteur de Documents', !issued.error, issued.error?.message);
   check(
     'la référence du devis suit la nomenclature documentaire',
@@ -736,20 +734,8 @@ async function checkAppointments(target, admin, accounts, state) {
     forced.error?.message ?? 'accepté à tort',
   );
 
-  // Sans second facteur, la confirmation est refusée.
-  const withoutMfa = await confirmateur.rpc('confirm_appointment', {
-    p_appointment_id: firstId,
-    p_scheduled_at: '2027-03-15T06:00:00Z',
-    p_scheduled_end: '2027-03-15T07:00:00Z',
-  });
-  check(
-    'une session sans second facteur ne confirme pas',
-    Boolean(withoutMfa.error),
-    withoutMfa.error ? '' : 'confirmation acceptée à tort',
-  );
-
-  // Le chemin réel, côté serveur.
-  const confirmed = await admin.rpc('confirm_appointment', {
+  // Décision du 1er octobre 2026 : la permission suffit, sans second facteur.
+  const confirmed = await confirmateur.rpc('confirm_appointment', {
     p_appointment_id: firstId,
     p_scheduled_at: '2027-03-15T06:00:00Z',
     p_scheduled_end: '2027-03-15T07:00:00Z',

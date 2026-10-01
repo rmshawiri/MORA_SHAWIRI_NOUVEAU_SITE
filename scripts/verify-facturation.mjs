@@ -36,7 +36,6 @@ import { createHash, randomUUID } from 'node:crypto';
 import { createClient } from '@supabase/supabase-js';
 
 import { describeTarget, log, readFlag, resolveAccessToken, resolveTarget, runSql } from './lib/config.mjs';
-import { totpCode, waitForFreshWindow } from './lib/totp.mjs';
 import { parseInvoiceSnapshot, renderInvoicePdf } from '../src/lib/domain/invoice-pdf.ts';
 import { invoiceLogo } from '../src/lib/documents/logo.ts';
 
@@ -110,20 +109,6 @@ async function signIn(target, email) {
   return client;
 }
 
-/** Session AAL2 réelle : enrôlement TOTP puis vérification d'un vrai code. */
-async function signInAal2(target, email) {
-  const client = await signIn(target, email);
-  const enrol = await client.auth.mfa.enroll({ factorType: 'totp', friendlyName: `${PREFIX}` });
-  if (enrol.error) throw new Error(`enrôlement ${email} : ${enrol.error.message}`);
-  await waitForFreshWindow(30, 5);
-  const verified = await client.auth.mfa.challengeAndVerify({
-    factorId: enrol.data.id,
-    code: totpCode(enrol.data.totp.secret),
-  });
-  if (verified.error) throw new Error(`second facteur ${email} : ${verified.error.message}`);
-  return client;
-}
-
 function cookieFor(target, session) {
   const key = `sb-${new URL(target.url).hostname.split('.')[0]}-auth-token`;
   const value = `base64-${Buffer.from(JSON.stringify(session), 'utf8').toString('base64url')}`;
@@ -194,10 +179,6 @@ async function checkPermissions(state) {
   });
   check('aucun contournement par issue_document(\'FACL\') direct', refusedRpc(bypass));
 
-  const aal1 = await (await signIn(state.target, state.accounts.adminIssuer.email)).rpc('issue_order_invoice', {
-    p_order_id: orders.a.id,
-  });
-  check('invoices.issue sans second facteur (AAL1) n’émet pas', refusedRpc(aal1));
 
   const after = await sequence(state, 'FACL');
   check(
@@ -206,8 +187,11 @@ async function checkPermissions(state) {
     `${JSON.stringify(before)} → ${JSON.stringify(after)}`,
   );
 
+  const level = (await s.adminIssuer.auth.getClaims()).data?.claims?.aal;
+  check('l’administrateur travaille en session par mot de passe seulement (AAL1)', level === 'aal1', level);
+
   const issued = await s.adminIssuer.rpc('issue_order_invoice', { p_order_id: orders.a.id });
-  check('un ADMIN avec invoices.issue (AAL2) émet', !issued.error && !!issued.data, issued.error?.message);
+  check('un ADMIN avec invoices.issue émet, sans aucun code', !issued.error && !!issued.data, issued.error?.message);
   check(
     'le numéro suit la nomenclature MORA-FACL-[SÉRIE][NUMÉRO]',
     /^MORA-FACL-[A-Z]+\d{4}$/.test(issued.data?.reference ?? ''),
@@ -222,7 +206,7 @@ async function checkPermissions(state) {
   );
 
   const superAdmin = await s.superAdmin.rpc('issue_order_invoice', { p_order_id: orders.b.id });
-  check('SUPER_ADMIN (AAL2) émet', !superAdmin.error && !!superAdmin.data, superAdmin.error?.message);
+  check('SUPER_ADMIN émet, sans aucun code', !superAdmin.error && !!superAdmin.data, superAdmin.error?.message);
   state.invoiceB = superAdmin.data;
 
   const archive = await s.adminIssuer.rpc('record_document_archive', {
@@ -382,6 +366,42 @@ async function checkSnapshot(state) {
   check('il porte la commande', file.includes(orders.a.reference));
   check('il porte le client', file.includes('Contrôle Client A'));
   check('il est déterministe', sha256(bytes) === sha256(renderInvoicePdf(snapshot, { logo: invoiceLogo() })));
+}
+
+/* ============================================== 3 bis. réglage réversible === */
+
+/**
+ * Le réglage D-12 reste un interrupteur : repassé à `true`, il réimpose le
+ * code. Éprouvé sans toucher à la production — dans un bloc qui lève toujours
+ * une exception, donc dont la transaction est annulée : le réglage n'est
+ * jamais réellement modifié, et le résultat voyage dans le message d'erreur.
+ */
+async function checkReversible(state) {
+  log.step('3 bis. Le réglage D-12 reste réversible');
+  const probe = async (required, aal) =>
+    runSql(
+      state.target,
+      state.accessToken,
+      `do $probe$ begin
+         update public.settings set value = '${required}'::jsonb where key = 'auth.admin_mfa_required';
+         perform set_config('request.jwt.claims', '{"aal":"${aal}"}', true);
+         raise exception 'resultat=%', public.session_assurance_satisfied();
+       end $probe$;`,
+    ).then(
+      () => 'aucun',
+      (error) => /resultat=(true|false)/.exec(error.message)?.[1] ?? 'illisible',
+    );
+
+  check('réglage false : une session AAL1 suffit', (await probe('false', 'aal1')) === 'true');
+  check('réglage true : une session AAL1 est refusée', (await probe('true', 'aal1')) === 'false');
+  check('réglage true : une session AAL2 passe', (await probe('true', 'aal2')) === 'true');
+
+  const setting = await runSql(
+    state.target,
+    state.accessToken,
+    `select value from public.settings where key = 'auth.admin_mfa_required';`,
+  );
+  check('le réglage réel n’a pas bougé (false)', setting?.[0]?.value === false, JSON.stringify(setting));
 }
 
 /* =========================================================== 4. lecture === */
@@ -655,17 +675,18 @@ async function main() {
     state.s = {
       clientA: await signIn(target, state.accounts.clientA.email),
       clientB: await signIn(target, state.accounts.clientB.email),
-      superAdmin: await signInAal2(target, state.accounts.superAdmin.email),
-      adminIssuer: await signInAal2(target, state.accounts.adminIssuer.email),
-      adminUpdater: await signInAal2(target, state.accounts.adminUpdater.email),
-      adminReader: await signInAal2(target, state.accounts.adminReader.email),
-      adminNone: await signInAal2(target, state.accounts.adminNone.email),
+      superAdmin: await signIn(target, state.accounts.superAdmin.email),
+      adminIssuer: await signIn(target, state.accounts.adminIssuer.email),
+      adminUpdater: await signIn(target, state.accounts.adminUpdater.email),
+      adminReader: await signIn(target, state.accounts.adminReader.email),
+      adminNone: await signIn(target, state.accounts.adminNone.email),
     };
 
     await checkPermissions(state);
     if (state.invoiceA) {
       await checkIdempotence(state);
       await checkSnapshot(state);
+      await checkReversible(state);
       await checkReading(state);
       if (base) await checkHttp(state, base);
       else log.skip('Route HTTP non éprouvée : passer --base pour la contrôler');

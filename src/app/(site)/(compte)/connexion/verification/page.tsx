@@ -50,7 +50,7 @@ export default async function VerificationPage({
         breadcrumb={[{ label: 'Accueil', href: '/' }, { label: 'Vérification' }]}
         eyebrow="Sécurité"
         title="Vérification en deux étapes"
-        lead="Votre mot de passe a été accepté. Il reste à confirmer que c’est bien vous."
+        lead="Confirmez votre identité avec le code de votre application d’authentification."
       />
 
       <section className="section auth-shell">
@@ -60,8 +60,8 @@ export default async function VerificationPage({
               <div className="auth-card__head">
                 <h2>Saisissez votre code</h2>
                 <p>
-                  Les comptes d’administration de MORA Shawiri sont protégés par une double
-                  authentification. Elle reste exigée à chaque connexion.
+                  Saisissez le code à six chiffres affiché par votre application
+                  d’authentification.
                 </p>
               </div>
 

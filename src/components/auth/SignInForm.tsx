@@ -54,8 +54,7 @@ export default function SignInForm({ next }: { next: string }) {
           required
         />
         <p className="field__hint">
-          Les administrateurs utilisent leur identifiant. Les clients utilisent l’adresse e-mail de
-          leur compte.
+          Votre identifiant de connexion, ou l’adresse e-mail de votre compte.
         </p>
       </div>
 

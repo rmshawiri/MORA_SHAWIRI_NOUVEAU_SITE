@@ -169,6 +169,7 @@ export default async function AdministrateursPage() {
                                 action={revokeInvitationAction}
                                 fields={{ invitation: row.id }}
                                 trigger="Révoquer"
+                                title="Confirmer la révocation de cette invitation ?"
                                 consequence={`Le lien envoyé à ${row.email} cessera immédiatement de fonctionner. Aucun compte ne sera créé. L’invitation restera visible, marquée révoquée.`}
                                 confirmLabel="Révoquer l’invitation"
                               />

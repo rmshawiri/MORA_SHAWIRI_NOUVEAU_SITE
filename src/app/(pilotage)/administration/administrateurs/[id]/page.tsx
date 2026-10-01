@@ -134,6 +134,11 @@ export default async function AdministrateurPage({
                   ? 'Suspendre ce compte'
                   : 'Rétablir ce compte'
               }
+              title={
+                administrator.profile.status === 'ACTIF'
+                  ? 'Confirmer la révocation de l’accès de cet administrateur ?'
+                  : 'Confirmer le rétablissement de ce compte ?'
+              }
               consequence={
                 administrator.profile.status === 'ACTIF'
                   ? 'Ce compte perdra immédiatement tout accès, y compris depuis une session déjà ouverte. Ses données et ses permissions sont conservées. Si ce compte est le dernier à détenir une permission critique, l’opération sera refusée.'
@@ -187,7 +192,12 @@ export default async function AdministrateurPage({
           </div>
         ) : null}
 
-        <PermissionGrid userId={administrator.userId} cells={cells} readOnly={!canEdit} />
+        <PermissionGrid
+          userId={administrator.userId}
+          accountLabel={administrator.profile.full_name ?? administrator.profile.username ?? 'ce compte'}
+          cells={cells}
+          readOnly={!canEdit}
+        />
       </section>
     </AdminPage>
   );

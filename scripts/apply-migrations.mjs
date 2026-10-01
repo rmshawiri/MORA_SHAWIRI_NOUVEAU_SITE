@@ -53,11 +53,18 @@ function listMigrations() {
     .sort()
     .map((name) => {
       const sql = readFileSync(resolve(MIGRATIONS_DIR, name), 'utf8');
+      const hash = (text) => createHash('sha256').update(text).digest('hex');
+      const lf = sql.replace(/\r\n/g, '\n');
       return {
         name,
         version: name.replace(/_.*$/, ''),
         sql,
-        checksum: createHash('sha256').update(sql).digest('hex'),
+        checksum: hash(sql),
+        // Git convertit les fins de ligne de la copie de travail selon le
+        // poste (LF ou CRLF sous Windows) : le même fichier peut donc avoir
+        // été appliqué sous l'une ou l'autre forme. Ces deux empreintes
+        // désignent le MÊME contenu ; toute autre différence reste une dérive.
+        equivalentChecksums: new Set([hash(sql), hash(lf), hash(lf.replace(/\n/g, '\r\n'))]),
       };
     });
 }
@@ -101,7 +108,7 @@ async function main() {
   for (const migration of migrations) {
     const knownChecksum = appliedByVersion.get(migration.version);
 
-    if (knownChecksum === migration.checksum) {
+    if (knownChecksum !== undefined && migration.equivalentChecksums.has(knownChecksum)) {
       log.skip(`${migration.name} — déjà appliquée`);
       continue;
     }

@@ -330,6 +330,7 @@ export default async function CommandeFichePage({
                 action={issueInvoice}
                 fields={{ commande: order.id }}
                 trigger="Émettre la facture"
+                title="Confirmer l’émission de cette facture ?"
                 consequence="Un numéro de facture officiel sera consommé, définitivement, et le contenu de la facture sera figé. Émettre la facture ne la marque pas comme payée : le règlement se lit dans les paiements vérifiés."
                 confirmLabel="Émettre la facture"
                 variant="gold"

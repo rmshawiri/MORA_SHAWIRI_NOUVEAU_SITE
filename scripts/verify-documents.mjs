@@ -658,8 +658,9 @@ async function checkIssuance(target, accessToken, admin, owner, stranger, reader
     Boolean(sequences.error) || (sequences.data ?? []).length === 0,
   );
 
-  // Un compte sans second facteur ne peut pas émettre, même s'il a la
-  // permission : le contrôle AAL2 de la phase 4C s'applique aussi ici.
+  // Un compte qui n'a pas la permission d'émission du type n'émet pas. (Le
+  // second facteur n'est plus exigé depuis le 1er octobre 2026 : c'est la
+  // permission, ici absente, qui refuse.)
   const issueAttempt = await readerClient.rpc('issue_document', {
     p_type: TEST_TYPE,
     p_entity_type: 'order',
@@ -670,7 +671,7 @@ async function checkIssuance(target, accessToken, admin, owner, stranger, reader
     p_replaces: null,
   });
   check(
-    'une session sans second facteur ne peut pas émettre de document',
+    'une session sans la permission d’émission ne peut pas émettre de document',
     Boolean(issueAttempt.error),
     issueAttempt.error ? '' : 'émission acceptée à tort',
   );
