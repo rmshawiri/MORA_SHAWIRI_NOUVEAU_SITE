@@ -200,6 +200,61 @@ export type EmailOutboxRow = {
   updated_at: string;
 };
 
+
+export type PayoutAccountStatus = 'DEMANDE' | 'ACTIF' | 'REFUSE' | 'REMPLACE' | 'RETIRE';
+
+/** Sans `details` : la colonne n'est accordée à aucune session. */
+export type AffiliatePayoutAccountRow = {
+  id: string;
+  affiliate_id: string;
+  method_code: string;
+  status: PayoutAccountStatus;
+  source: 'CANDIDATURE' | 'AFFILIE' | 'ADMINISTRATION';
+  requested_by: string | null;
+  requested_at: string;
+  reviewed_by: string | null;
+  reviewed_at: string | null;
+  review_note: string | null;
+  replaced_at: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type AffiliateCampaignRow = {
+  id: string;
+  affiliate_id: string;
+  code: string;
+  label: string;
+  is_active: boolean;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type AffiliateCodeRow = {
+  id: string;
+  affiliate_id: string;
+  code: string;
+  label: string | null;
+  is_active: boolean;
+  discount_kind: 'PERCENT' | 'FIXED';
+  discount_value: number;
+  valid_from: string;
+  valid_to: string | null;
+  min_order_amount: number | null;
+  max_discount_amount: number | null;
+  max_uses: number | null;
+  max_uses_per_customer: number | null;
+  service_ids: string[];
+  product_ids: string[];
+  excluded_service_ids: string[];
+  excluded_product_ids: string[];
+  created_by: string | null;
+  created_at: string;
+  updated_by: string | null;
+  updated_at: string;
+};
+
 type Rel = {
   foreignKeyName: string;
   columns: string[];
@@ -240,6 +295,13 @@ export type AffiliationTables = {
   affiliate_events: T<AffiliateEventRow>;
   affiliate_applications: T<AffiliateApplicationRow>;
   affiliate_application_events: T<AffiliateApplicationEventRow>;
+  affiliate_payout_accounts: T<AffiliatePayoutAccountRow>;
+  affiliate_campaigns: T<AffiliateCampaignRow>;
+  affiliate_codes: T<
+    AffiliateCodeRow,
+    Pick<AffiliateCodeRow, 'affiliate_id' | 'code' | 'discount_kind' | 'discount_value'> & Partial<AffiliateCodeRow>,
+    Partial<AffiliateCodeRow>
+  >;
   email_outbox: T<
     EmailOutboxRow,
     Pick<EmailOutboxRow, 'template' | 'recipient' | 'subject' | 'html_body' | 'text_body'> &
@@ -332,4 +394,49 @@ export type AffiliationFunctions = {
     Args: { p_rule_id: string; p_reason: string };
     Returns: undefined;
   };
+  affiliate_activation_blockers: { Args: { p_affiliate_id: string }; Returns: string[] };
+  activate_affiliate: {
+    Args: { p_affiliate_id: string; p_user_id: string; p_started_on?: string | null };
+    Returns: AffiliateRow;
+  };
+  change_affiliate_status: {
+    Args: { p_affiliate_id: string; p_status: string; p_reason: string; p_ended_on?: string | null };
+    Returns: AffiliateRow;
+  };
+  update_affiliate_terms: {
+    Args: {
+      p_affiliate_id: string;
+      p_category_id: string;
+      p_attribution_window_days: number | null;
+      p_prospect_protection_mode: string | null;
+      p_prospect_protection_months: number | null;
+      p_post_end_survival_months: number | null;
+      p_payout_frequency: string | null;
+      p_payout_min_amount: number | null;
+      p_acquisition_trigger: string | null;
+      p_self_referral_allowed: boolean;
+      p_self_referral_reason: string | null;
+      p_reason: string;
+    };
+    Returns: AffiliateRow;
+  };
+  request_payout_account: { Args: { p_method: string; p_details: Json }; Returns: AffiliatePayoutAccountRow };
+  propose_payout_account: {
+    Args: { p_affiliate_id: string; p_method: string; p_details: Json };
+    Returns: AffiliatePayoutAccountRow;
+  };
+  review_payout_account: {
+    Args: { p_account_id: string; p_approve: boolean; p_note?: string | null };
+    Returns: AffiliatePayoutAccountRow;
+  };
+  payout_account_details: { Args: { p_account_id: string }; Returns: Json };
+  create_affiliate_campaign: {
+    Args: { p_affiliate_id: string; p_code: string; p_label: string };
+    Returns: AffiliateCampaignRow;
+  };
+  set_affiliate_campaign_active: {
+    Args: { p_campaign_id: string; p_active: boolean };
+    Returns: AffiliateCampaignRow;
+  };
+  find_auth_user_by_email: { Args: { p_email: string }; Returns: string | null };
 };

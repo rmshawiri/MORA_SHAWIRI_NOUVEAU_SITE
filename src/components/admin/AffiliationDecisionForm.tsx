@@ -31,6 +31,7 @@ export type DecisionInput =
       required?: boolean;
       maxLength?: number;
       placeholder?: string;
+      defaultValue?: string;
     }
   | {
       kind: 'select';
@@ -41,8 +42,30 @@ export type DecisionInput =
       defaultValue?: string;
     }
   | { kind: 'checkbox'; name: string; label: string; hint?: string; defaultChecked?: boolean }
-  | { kind: 'datetime'; name: string; label: string; hint?: string; required?: boolean }
-  | { kind: 'text'; name: string; label: string; hint?: string; required?: boolean; maxLength?: number; placeholder?: string };
+  | { kind: 'datetime'; name: string; label: string; hint?: string; required?: boolean; defaultValue?: string }
+  | { kind: 'date'; name: string; label: string; hint?: string; required?: boolean; defaultValue?: string }
+  | {
+      kind: 'text';
+      name: string;
+      label: string;
+      hint?: string;
+      required?: boolean;
+      maxLength?: number;
+      placeholder?: string;
+      defaultValue?: string;
+      inputMode?: 'decimal' | 'numeric' | 'email' | 'tel' | 'text';
+      type?: 'text' | 'email' | 'tel';
+    }
+  | {
+      kind: 'checklist';
+      name: string;
+      label: string;
+      hint?: string;
+      options: readonly { value: string; label: string }[];
+      defaultValues?: readonly string[];
+    }
+  /** Regroupe des champs sur une ligne, comme partout dans l'administration. */
+  | { kind: 'row'; inputs: readonly DecisionInput[] };
 
 export default function AffiliationDecisionForm({
   action,
@@ -92,54 +115,9 @@ export default function AffiliationDecisionForm({
 
       <p>{consequence}</p>
 
-      {inputs.map((input) => {
-        if (input.kind === 'checkbox') {
-          return (
-            <label key={input.name} className="admin-check">
-              <input type="checkbox" name={input.name} value="1" defaultChecked={input.defaultChecked} />
-              <span>
-                {input.label}
-                {input.hint ? <small>{input.hint}</small> : null}
-              </span>
-            </label>
-          );
-        }
-        return (
-          <label key={input.name} className="admin-field">
-            <span className="admin-field__label">{input.label}</span>
-            {input.kind === 'textarea' ? (
-              <textarea
-                className="admin-input admin-input--area"
-                name={input.name}
-                rows={3}
-                required={input.required}
-                maxLength={input.maxLength ?? 2000}
-                placeholder={input.placeholder}
-              />
-            ) : input.kind === 'select' ? (
-              <select className="admin-input" name={input.name} defaultValue={input.defaultValue ?? ''} required>
-                {input.options.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
-            ) : input.kind === 'datetime' ? (
-              <input className="admin-input" type="datetime-local" name={input.name} required={input.required} />
-            ) : (
-              <input
-                className="admin-input"
-                type="text"
-                name={input.name}
-                required={input.required}
-                maxLength={input.maxLength ?? 200}
-                placeholder={input.placeholder}
-              />
-            )}
-            {input.hint ? <span className="admin-field__hint">{input.hint}</span> : null}
-          </label>
-        );
-      })}
+      {inputs.map((input, index) => (
+        <DecisionField key={'name' in input ? input.name : `row-${index}`} input={input} />
+      ))}
 
       <div className="admin-table__actions">
         <button
@@ -166,5 +144,91 @@ export default function AffiliationDecisionForm({
         <p>{consequence}</p>
       </ConfirmDialog>
     </form>
+  );
+}
+
+function DecisionField({ input }: { input: DecisionInput }) {
+  if (input.kind === 'row') {
+    return (
+      <div className="admin-form__grid">
+        {input.inputs.map((child, index) => (
+          <DecisionField key={'name' in child ? child.name : `row-${index}`} input={child} />
+        ))}
+      </div>
+    );
+  }
+  if (input.kind === 'checkbox') {
+    return (
+      <label className="admin-check">
+        <input type="checkbox" name={input.name} value="1" defaultChecked={input.defaultChecked} />
+        <span>
+          {input.label}
+          {input.hint ? <small>{input.hint}</small> : null}
+        </span>
+      </label>
+    );
+  }
+  if (input.kind === 'checklist') {
+    return (
+      <fieldset className="admin-field">
+        <legend className="admin-field__label">{input.label}</legend>
+        {input.options.map((option) => (
+          <label key={option.value} className="admin-check">
+            <input
+              type="checkbox"
+              name={input.name}
+              value={option.value}
+              defaultChecked={input.defaultValues?.includes(option.value)}
+            />
+            <span>{option.label}</span>
+          </label>
+        ))}
+        {input.hint ? <span className="admin-field__hint">{input.hint}</span> : null}
+      </fieldset>
+    );
+  }
+  return (
+    <label className="admin-field">
+      <span className="admin-field__label">{input.label}</span>
+      {input.kind === 'textarea' ? (
+        <textarea
+          className="admin-input admin-input--area"
+          name={input.name}
+          rows={3}
+          required={input.required}
+          maxLength={input.maxLength ?? 2000}
+          placeholder={input.placeholder}
+          defaultValue={input.defaultValue}
+        />
+      ) : input.kind === 'select' ? (
+        <select className="admin-input" name={input.name} defaultValue={input.defaultValue ?? ''}>
+          {input.options.map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.label}
+            </option>
+          ))}
+        </select>
+      ) : input.kind === 'datetime' || input.kind === 'date' ? (
+        <input
+          className="admin-input"
+          type={input.kind === 'datetime' ? 'datetime-local' : 'date'}
+          name={input.name}
+          required={input.required}
+          defaultValue={input.defaultValue}
+        />
+      ) : (
+        <input
+          className="admin-input"
+          type={input.type ?? 'text'}
+          name={input.name}
+          required={input.required}
+          maxLength={input.maxLength ?? 200}
+          placeholder={input.placeholder}
+          defaultValue={input.defaultValue}
+          inputMode={input.inputMode}
+        />
+      )}
+      {input.hint ? <span className="admin-field__hint">{input.hint}</span> : null}
+    </label>
   );
 }

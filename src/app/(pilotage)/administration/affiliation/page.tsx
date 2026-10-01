@@ -32,11 +32,19 @@ export default async function AffiliationPage() {
       title="Affiliation"
       lead="Candidatures, affiliés, règles de commission, commissions et versements. Chaque acte financier exige sa permission et laisse une trace."
       actions={
-        canApplications ? (
-          <Link className="btn btn--primary" href="/administration/affiliation/candidatures/">
-            Candidatures{open > 0 ? ` (${open} à traiter)` : ''}
+        <>
+          {canApplications ? (
+            <Link className="btn btn--primary" href="/administration/affiliation/candidatures/">
+              Candidatures{open > 0 ? ` (${open} à traiter)` : ''}
+            </Link>
+          ) : null}
+          <Link className="btn btn--ghost" href="/administration/affiliation/affilies/">
+            Affiliés
           </Link>
-        ) : null
+          <Link className="btn btn--ghost" href="/administration/affiliation/categories/">
+            Catégories et règles
+          </Link>
+        </>
       }
     >
       <section className="admin-card">

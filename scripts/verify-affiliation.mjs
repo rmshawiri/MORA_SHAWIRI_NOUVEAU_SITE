@@ -65,6 +65,7 @@ const SEQUENCES = ['AFIL', 'FIAF', 'RVAF', 'COMAF'];
 const TABLES = [
   'affiliates', 'affiliate_rules', 'affiliate_categories', 'affiliate_notes', 'affiliate_events',
   'affiliate_applications', 'affiliate_application_events', 'email_outbox',
+  'affiliate_payout_accounts', 'affiliate_campaigns', 'affiliate_codes',
 ];
 
 const sessionClient = (target) =>
@@ -631,6 +632,160 @@ async function checkApplications(target, admin, sessions, state) {
   check('le journal refuse une erreur qui transporterait un secret', refused(secretError));
 }
 
+
+/* ========================================================================== */
+/* 4H-3 — activation, coordonnées, codes, campagnes, auto-décision            */
+/* ========================================================================== */
+
+async function checkAffiliates(target, accessToken, admin, sessions, state) {
+  log.step('Affiliés : activation, coordonnées, codes, campagnes');
+
+  const affId = state.acceptedAffiliateId;
+  check('une fiche acceptée existe pour la suite', Boolean(affId));
+  if (!affId) return;
+
+  // Le moyen souhaité à la candidature devient une demande à l'acceptation.
+  const { data: seeded } = await admin.from('affiliate_payout_accounts').select('id, status, source').eq('affiliate_id', affId);
+  check('l’acceptation a déposé le moyen souhaité en demande',
+    (seeded ?? []).length === 1 && seeded[0].status === 'DEMANDE' && seeded[0].source === 'CANDIDATURE', JSON.stringify(seeded));
+
+  const blockers = await sessions.accepteur.rpc('affiliate_activation_blockers', { p_affiliate_id: affId });
+  check('tant qu’aucune coordonnée n’est validée, l’activation est bloquée',
+    (blockers.data ?? []).some((b) => b.includes('versement')), JSON.stringify(blockers.data));
+
+  // Le compte du candidat : créé par la voie administrative, à son adresse.
+  const created = await admin.auth.admin.createUser({ email: state.candidateEmail, password: PASSWORD, email_confirm: true });
+  state.candidateUserId = created.data.user?.id;
+
+  const tooEarly = await sessions.accepteur.rpc('activate_affiliate', { p_affiliate_id: affId, p_user_id: state.candidateUserId });
+  check('activer sans configuration complète est refusé', Boolean(tooEarly.error));
+
+  // Coordonnées : validation sous payouts.manage seulement.
+  const reviewAs = (client, approve, note = null) =>
+    client.rpc('review_payout_account', { p_account_id: seeded[0].id, p_approve: approve, p_note: note });
+  check('payouts.view seul ne valide pas des coordonnées', Boolean((await reviewAs(sessions.tresorier, true)).error));
+  check('un refus sans motif est refusé', Boolean((await reviewAs(sessions.payeur, false)).error));
+  const approved = await reviewAs(sessions.payeur, true);
+  check('payouts.manage valide les coordonnées', !approved.error && approved.data?.status === 'ACTIF', approved.error?.message);
+  const again = await reviewAs(sessions.payeur, true);
+  check('une demande déjà traitée ne se retraite pas', Boolean(again.error));
+  const tamperDetails = await admin.from('affiliate_payout_accounts').update({ details: { numero: '999' } }).eq('id', seeded[0].id).select();
+  check('des coordonnées validées ne se réécrivent pas', refused(tamperDetails));
+
+  const ready = await sessions.accepteur.rpc('affiliate_activation_blockers', { p_affiliate_id: affId });
+  check('configuration complète : plus aucun blocage', (ready.data ?? []).length === 0, JSON.stringify(ready.data));
+
+  // Un compte qui ne porte pas l'adresse de l'affilié ne peut pas être rattaché.
+  const wrong = await sessions.accepteur.rpc('activate_affiliate', { p_affiliate_id: affId, p_user_id: state.client.userId });
+  check('le compte d’un tiers ne peut pas être rattaché', Boolean(wrong.error));
+  const self = await sessions.accepteur.rpc('activate_affiliate', { p_affiliate_id: affId, p_user_id: state.accepteur.userId });
+  check('un administrateur ne s’active pas lui-même', Boolean(self.error));
+  check('affiliate_applications.manage seul n’active pas',
+    Boolean((await sessions.decideur.rpc('activate_affiliate', { p_affiliate_id: affId, p_user_id: state.candidateUserId })).error));
+
+  // Deux activations simultanées : un seul numéro AFIL.
+  const before = await runSql(target, accessToken, `select allocated_count from public.document_sequences where doc_type = 'AFIL';`).catch(() => []);
+  const [a, b] = await Promise.all([
+    sessions.accepteur.rpc('activate_affiliate', { p_affiliate_id: affId, p_user_id: state.candidateUserId }),
+    sessions.accepteur.rpc('activate_affiliate', { p_affiliate_id: affId, p_user_id: state.candidateUserId }),
+  ]);
+  const after = await runSql(target, accessToken, `select allocated_count from public.document_sequences where doc_type = 'AFIL';`).catch(() => []);
+  const consumed = (after?.[0]?.allocated_count ?? 0) - (before?.[0]?.allocated_count ?? 0);
+  check('deux activations simultanées réussissent sans erreur', !a.error && !b.error, a.error?.message ?? b.error?.message);
+  check('deux activations simultanées ne consomment qu’un seul numéro AFIL', consumed === 1, `${consumed}`);
+  check('les deux réponses portent la même référence', a.data?.reference === b.data?.reference && /^MORA-AFIL-[A-Z]+\d{4}$/.test(a.data?.reference ?? ''),
+    `${a.data?.reference} / ${b.data?.reference}`);
+  const { data: roles } = await admin.from('user_roles').select('roles!inner(code)').eq('user_id', state.candidateUserId);
+  check('le compte reçoit le rôle AFFILIE, et lui seul', (roles ?? []).length === 1 && roles[0].roles.code === 'AFFILIE', JSON.stringify(roles));
+
+  // L'affilié activé : sa session, ses droits.
+  sessions.candidat = await signIn(target, state.candidateEmail);
+  const own = await sessions.candidat.from('affiliates').select('id, status, reference').eq('id', affId);
+  check('l’affilié activé lit sa fiche', own.data?.[0]?.status === 'ACTIF');
+  const ownDetails = await sessions.candidat.rpc('payout_account_details', { p_account_id: seeded[0].id });
+  check('l’affilié lit ses propres coordonnées', ownDetails.data?.numero === '000 00 00', ownDetails.error?.message);
+  check('un autre affilié ne les lit pas', Boolean((await sessions.affA.rpc('payout_account_details', { p_account_id: seeded[0].id })).error));
+  check('un ADMIN sans payouts.view ne les lit pas', Boolean((await sessions.accepteur.rpc('payout_account_details', { p_account_id: seeded[0].id })).error));
+
+  const request = await sessions.candidat.rpc('request_payout_account', { p_method: 'HOLO', p_details: { numero: '321 00 00', titulaire: 'Contrôle' } });
+  check('l’affilié demande de nouvelles coordonnées', !request.error && request.data?.status === 'DEMANDE', request.error?.message);
+  const { data: stillActive } = await admin.from('affiliate_payout_accounts').select('status').eq('id', seeded[0].id).single();
+  check('ses coordonnées actives restent valables pendant la demande', stillActive.status === 'ACTIF');
+  check('l’affilié ne valide pas sa propre demande',
+    Boolean((await sessions.candidat.rpc('review_payout_account', { p_account_id: request.data?.id, p_approve: true })).error));
+  const swap = await sessions.payeur.rpc('review_payout_account', { p_account_id: request.data?.id, p_approve: true, p_note: null });
+  check('valider la nouvelle demande remplace l’ancienne coordonnée', !swap.error, swap.error?.message);
+  const { data: history } = await admin.from('affiliate_payout_accounts').select('status').eq('affiliate_id', affId);
+  const statuses = (history ?? []).map((row) => row.status).sort();
+  check('l’ancienne coordonnée reste en base, marquée remplacée', JSON.stringify(statuses) === JSON.stringify(['ACTIF', 'REMPLACE']), statuses.join(','));
+
+  // Campagnes : l'affilié pour lui-même.
+  const campaign = await sessions.candidat.rpc('create_affiliate_campaign', { p_affiliate_id: affId, p_code: 'whatsapp', p_label: 'WhatsApp' });
+  check('l’affilié crée sa campagne', !campaign.error, campaign.error?.message);
+  check('un affilié ne crée pas de campagne pour un autre',
+    Boolean((await sessions.affA.rpc('create_affiliate_campaign', { p_affiliate_id: affId, p_code: 'pirate', p_label: 'Pirate' })).error));
+  check('un code de campagne contenant une adresse est refusé',
+    Boolean((await sessions.candidat.rpc('create_affiliate_campaign', { p_affiliate_id: affId, p_code: 'moi@exemple.km', p_label: 'X' })).error));
+  check('une campagne ne se supprime pas',
+    refused(await admin.from('affiliate_campaigns').delete().eq('id', campaign.data?.id).select()));
+
+  // Codes de réduction : sous affiliate_codes.manage.
+  const codeName = `VERIF${RUN}`;
+  const insertCode = (client, code = codeName) =>
+    client.from('affiliate_codes').insert({ affiliate_id: affId, code, discount_kind: 'PERCENT', discount_value: 10 }).select();
+  check('l’affilié ne crée pas de code', refused(await insertCode(sessions.candidat)));
+  check('un ADMIN sans affiliate_codes.manage ne crée pas de code', refused(await insertCode(sessions.accepteur)));
+  const code = await insertCode(sessions.codeur);
+  check('affiliate_codes.manage crée un code', !code.error && code.data?.length === 1, code.error?.message);
+  state.codeId = code.data?.[0]?.id;
+  check('un code est unique, casse comprise', refused(await insertCode(sessions.codeur, codeName.toLowerCase())));
+  check('une réduction de plus de 100 % est refusée',
+    refused(await sessions.codeur.from('affiliate_codes').insert({ affiliate_id: affId, code: `${codeName}X`, discount_kind: 'PERCENT', discount_value: 150 }).select()));
+  check('un code ne se renomme pas', refused(await sessions.codeur.from('affiliate_codes').update({ code: 'AUTRE' }).eq('id', state.codeId).select()));
+  check('un code ne se supprime pas', refused(await admin.from('affiliate_codes').delete().eq('id', state.codeId).select()));
+  check('l’affilié lit son code', ((await sessions.candidat.from('affiliate_codes').select('id').eq('id', state.codeId)).data ?? []).length === 1);
+  check('un autre affilié ne le lit pas', empty(await sessions.affA.from('affiliate_codes').select('id').eq('id', state.codeId)));
+  check('l’affilié ne modifie pas la valeur de son code',
+    refused(await sessions.candidat.from('affiliate_codes').update({ discount_value: 50 }).eq('id', state.codeId).select()));
+
+  // Pas d'auto-décision : l'affilié A reçoit des droits d'administration.
+  const { data: perms } = await admin.from('permissions').select('id, code').in('code', ['affiliate_rules.manage', 'affiliates.disable', 'affiliate_codes.manage', 'payouts.manage']);
+  await admin.from('user_permissions').upsert(perms.map((p) => ({ user_id: state.userA.userId, permission_id: p.id, effect: 'OCTROI' })), { onConflict: 'user_id,permission_id' });
+  const selfSession = await signIn(target, state.userA.email);
+  check('un administrateur ne fixe pas les règles de sa propre affiliation',
+    Boolean((await selfSession.rpc('publish_affiliate_rule', {
+      p_owner_type: 'AFFILIATE', p_owner_id: state.affA.id, p_target_type: 'ALL', p_target_id: null, p_kind: 'PERCENT', p_rate: 50,
+      p_fixed_amount: null, p_tiers: null, p_min_commission: null, p_max_commission: null, p_min_base: null, p_effective_at: null,
+      p_label: null, p_reason: 'auto', p_derogation: false, p_derogation_reason: null,
+    })).error));
+  check('ni ne change le statut de sa propre affiliation',
+    Boolean((await selfSession.rpc('change_affiliate_status', { p_affiliate_id: state.affA.id, p_status: 'SUSPENDU', p_reason: 'auto' })).error));
+  check('ni ne crée de code pour lui-même',
+    refused(await selfSession.from('affiliate_codes').insert({ affiliate_id: state.affA.id, code: `SELF${RUN}`, discount_kind: 'PERCENT', discount_value: 5 }).select()));
+  check('ni ne saisit ses propres coordonnées de versement',
+    Boolean((await selfSession.rpc('propose_payout_account', { p_affiliate_id: state.affA.id, p_method: 'MVOLA', p_details: { numero: '111 11 11', titulaire: 'X' } })).error));
+
+  // Statuts : sous affiliates.disable, selon le graphe.
+  const status = (client, next, extra = {}) =>
+    client.rpc('change_affiliate_status', { p_affiliate_id: affId, p_status: next, p_reason: 'Contrôle', ...extra });
+  check('affiliates.create seul ne suspend pas', Boolean((await status(sessions.accepteur, 'SUSPENDU')).error));
+  check('un motif est exigé', Boolean((await status(sessions.gardien, 'SUSPENDU', { p_reason: ' ' })).error));
+  const suspended = await status(sessions.gardien, 'SUSPENDU');
+  check('affiliates.disable suspend', suspended.data?.status === 'SUSPENDU', suspended.error?.message);
+  const back = await status(sessions.gardien, 'ACTIF');
+  check('puis réactive', back.data?.status === 'ACTIF', back.error?.message);
+  const ended = await status(sessions.gardien, 'TERMINE');
+  check('puis clôt, avec une date de fin', ended.data?.status === 'TERMINE' && Boolean(ended.data?.ended_on), ended.error?.message);
+  check('une affiliation close ne revient pas', Boolean((await status(sessions.gardien, 'ACTIF')).error));
+  check('la référence d’un affilié est définitive',
+    refused(await admin.from('affiliates').update({ reference: 'MORA-AFIL-ZZ9999' }).eq('id', affId).select()));
+  const { data: trace } = await admin.from('affiliate_events').select('event_type').eq('affiliate_id', affId);
+  const kinds = new Set((trace ?? []).map((row) => row.event_type));
+  check('l’historique trace activation, statuts, coordonnées, campagne et code',
+    ['STATUT_ACTIF', 'STATUT_SUSPENDU', 'STATUT_TERMINE', 'COORDONNEES_VALIDEES', 'COORDONNEES_DEMANDEES', 'CAMPAGNE_CREEE', 'CODE_CREE'].every((k) => kinds.has(k)),
+    [...kinds].join(', '));
+}
+
 /* ========================================================================== */
 
 async function teardown(target, accessToken, admin, state, before) {
@@ -668,17 +823,29 @@ async function teardown(target, accessToken, admin, state, before) {
     alter table public.affiliate_rules  disable trigger affiliate_rules_immutable;
     alter table public.affiliate_rules  disable trigger affiliate_rules_history;
     alter table public.affiliate_events disable trigger affiliate_events_append_only;
+    alter table public.affiliate_payout_accounts disable trigger affiliate_payout_accounts_guard;
+    alter table public.affiliate_campaigns disable trigger affiliate_campaigns_guard;
+    alter table public.affiliate_codes disable trigger affiliate_codes_guard;
+    delete from public.affiliate_payout_accounts p using public.affiliates a
+     where p.affiliate_id = a.id and (a.slug like '${PREFIX}-%' or a.contact_email like '${PREFIX}-%');
+    delete from public.affiliate_campaigns c using public.affiliates a
+     where c.affiliate_id = a.id and (a.slug like '${PREFIX}-%' or a.contact_email like '${PREFIX}-%');
+    delete from public.affiliate_codes c using public.affiliates a
+     where c.affiliate_id = a.id and (a.slug like '${PREFIX}-%' or a.contact_email like '${PREFIX}-%');
+    alter table public.affiliate_payout_accounts enable trigger affiliate_payout_accounts_guard;
+    alter table public.affiliate_campaigns enable trigger affiliate_campaigns_guard;
+    alter table public.affiliate_codes enable trigger affiliate_codes_guard;
     -- supersedes_id est en « restrict », vérifié ligne à ligne : on délie
     -- les versions avant de les supprimer.
     update public.affiliate_rules r set supersedes_id = null
       from public.affiliates a
-     where r.affiliate_id = a.id and a.slug like '${PREFIX}-%';
+     where r.affiliate_id = a.id and (a.slug like '${PREFIX}-%' or a.contact_email like '${PREFIX}-%');
     update public.affiliate_rules r set supersedes_id = null
       from public.affiliate_categories c
      where r.category_id = c.id and c.code like 'ZZ_VERIF_%';
     delete from public.affiliate_rules r
      using public.affiliates a
-     where r.affiliate_id = a.id and a.slug like '${PREFIX}-%';
+     where r.affiliate_id = a.id and (a.slug like '${PREFIX}-%' or a.contact_email like '${PREFIX}-%');
     delete from public.affiliate_rules r
      using public.affiliate_categories c
      where r.category_id = c.id and c.code like 'ZZ_VERIF_%';
@@ -713,6 +880,18 @@ async function teardown(target, accessToken, admin, state, before) {
   const { data: accounts } = await admin.auth.admin.listUsers({ perPage: 1000 });
   check('aucun compte de contrôle ne subsiste',
     !(accounts?.users ?? []).some((user) => user.email?.startsWith(PREFIX)));
+
+  // Le compteur AFIL a pu être consommé par l'activation de contrôle (la
+  // référence est allouée par l'allocateur réel). Le document qui portait ce
+  // numéro n'existe pas — AFIL n'émet rien — et l'affilié vient d'être
+  // supprimé : on rend donc le compteur tel qu'il a été trouvé.
+  for (const code of SEQUENCES) {
+    const initial = before.sequences[code];
+    const sql = initial
+      ? `update public.document_sequences set series = '${initial.series}', last_number = ${initial.last_number}, allocated_count = ${initial.allocated_count} where doc_type = '${code}';`
+      : `delete from public.document_sequences where doc_type = '${code}';`;
+    await runSql(target, accessToken, sql).catch((error) => log.fail(`restitution ${code} : ${error.message}`));
+  }
 
   const after = await runSql(target, accessToken, `
     select doc_type, series, last_number, allocated_count from public.document_sequences
@@ -765,6 +944,9 @@ async function main() {
     state.decideur = await createAccount(admin, { roleCode: 'ADMIN', label: 'decideur', grants: ['affiliates.view', 'affiliate_applications.view', 'affiliate_applications.manage'] });
     state.accepteur = await createAccount(admin, { roleCode: 'ADMIN', label: 'accepteur', grants: ['affiliates.view', 'affiliate_applications.view', 'affiliate_applications.manage', 'affiliates.create'] });
     state.tresorier = await createAccount(admin, { roleCode: 'ADMIN', label: 'tresorier', grants: ['affiliates.view', 'affiliate_applications.view', 'payouts.view'] });
+    state.payeur = await createAccount(admin, { roleCode: 'ADMIN', label: 'payeur', grants: ['affiliates.view', 'payouts.view', 'payouts.manage'] });
+    state.codeur = await createAccount(admin, { roleCode: 'ADMIN', label: 'codeur', grants: ['affiliates.view', 'affiliate_codes.manage'] });
+    state.gardien = await createAccount(admin, { roleCode: 'ADMIN', label: 'gardien', grants: ['affiliates.view', 'affiliates.disable'] });
     state.candidateEmail = `${PREFIX}-candidat-${randomUUID().slice(0, 8)}@${TEST_DOMAIN}`;
     state.derogateur = await createAccount(admin, {
       roleCode: 'ADMIN', label: 'derogateur', grants: ['affiliates.view', 'affiliate_rules.manage', 'affiliate_rules.derogate'],
@@ -796,7 +978,7 @@ async function main() {
     check('les affiliés de contrôle sont créés (série ZZ)', true);
 
     const sessions = {};
-    for (const key of ['client', 'nu', 'lecteur', 'editeur', 'regles', 'derogateur', 'candidatures', 'decideur', 'accepteur', 'tresorier']) {
+    for (const key of ['client', 'nu', 'lecteur', 'editeur', 'regles', 'derogateur', 'candidatures', 'decideur', 'accepteur', 'tresorier', 'payeur', 'codeur', 'gardien']) {
       sessions[key] = await signIn(target, state[key].email);
     }
     sessions.affA = await signIn(target, state.userA.email);
@@ -805,6 +987,7 @@ async function main() {
     await checkRules(admin, sessions, state);
     await checkIsolation(target, admin, sessions, state);
     await checkApplications(target, admin, sessions, state);
+    await checkAffiliates(target, accessToken, admin, sessions, state);
   } catch (error) {
     results.failed += 1;
     log.fail(`interruption : ${error.message}`);

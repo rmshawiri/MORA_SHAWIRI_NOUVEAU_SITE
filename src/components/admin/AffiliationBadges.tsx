@@ -2,8 +2,9 @@ import {
   APPLICATION_STATUS_LABELS,
   type ApplicationStatus,
 } from '@/lib/affiliation/applications';
+import { AFFILIATE_STATUS_LABELS, PAYOUT_ACCOUNT_STATUS_LABELS, RULE_STATE_LABELS, type RuleState } from '@/lib/affiliation/affiliates';
 import { EMAIL_STATUS_LABELS } from '@/lib/affiliation/labels';
-import type { EmailOutboxStatus } from '@/lib/supabase/types-affiliation';
+import type { AffiliateStatus, EmailOutboxStatus, PayoutAccountStatus } from '@/lib/supabase/types-affiliation';
 
 /** Statut d'une candidature, dans les couleurs de l'administration. */
 export function ApplicationStatusBadge({ status }: { status: ApplicationStatus }) {
@@ -23,4 +24,34 @@ export function EmailStatusBadge({ status }: { status: EmailOutboxStatus }) {
   const className =
     status === 'ENVOYE' ? 'admin-badge--ok' : status === 'ECHEC' ? 'admin-badge--danger' : 'admin-badge--muted';
   return <span className={`admin-badge ${className}`}>{EMAIL_STATUS_LABELS[status]}</span>;
+}
+
+export function AffiliateStatusBadge({ status }: { status: AffiliateStatus }) {
+  const className =
+    status === 'ACTIF'
+      ? 'admin-badge--ok'
+      : status === 'PREPARATION'
+        ? 'admin-badge--gold'
+        : status === 'TERMINE'
+          ? 'admin-badge--danger'
+          : 'admin-badge--muted';
+  return <span className={`admin-badge ${className}`}>{AFFILIATE_STATUS_LABELS[status]}</span>;
+}
+
+export function RuleStateBadge({ state }: { state: RuleState }) {
+  const className =
+    state === 'EN_VIGUEUR' ? 'admin-badge--ok' : state === 'PROGRAMMEE' ? 'admin-badge--gold' : 'admin-badge--muted';
+  return <span className={`admin-badge ${className}`}>{RULE_STATE_LABELS[state]}</span>;
+}
+
+export function PayoutAccountBadge({ status }: { status: PayoutAccountStatus }) {
+  const className =
+    status === 'ACTIF'
+      ? 'admin-badge--ok'
+      : status === 'DEMANDE'
+        ? 'admin-badge--gold'
+        : status === 'REFUSE'
+          ? 'admin-badge--danger'
+          : 'admin-badge--muted';
+  return <span className={`admin-badge ${className}`}>{PAYOUT_ACCOUNT_STATUS_LABELS[status]}</span>;
 }

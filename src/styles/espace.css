@@ -322,3 +322,19 @@
   gap: var(--sp-2);
   justify-items: start;
 }
+
+/* Espace affilié (phase 4H) : lien à copier, lisible et sécable sur mobile. */
+.espace .aff-link { display: grid; gap: var(--sp-2); margin-bottom: var(--sp-4); }
+.espace .aff-link__url {
+  display: block;
+  padding: 10px 12px;
+  border-radius: var(--r-btn);
+  background: var(--gray-light);
+  overflow-wrap: anywhere;
+  word-break: break-all;
+  font-size: .9375rem;
+}
+.espace .aff-link__status { margin: 0; min-height: 1.25em; font-size: var(--text-caption); color: var(--text-secondary); }
+.espace .aff-link > * { min-width: 0; }
+.espace .aff-link .btn-row { display: flex; flex-flow: row wrap; width: 100%; }
+.espace .aff-link .btn-row > .btn { flex: 1 1 140px; min-width: 0; width: auto; }

@@ -231,3 +231,180 @@ export function renderApplicationStatus(
     }
   }
 }
+
+// -----------------------------------------------------------------------------
+// Affilié — activation et statuts (lot 4H-3)
+// -----------------------------------------------------------------------------
+
+const AFFILIATE_REASON =
+  'Vous recevez cet e-mail parce que vous participez au programme d’affiliation de MORA Shawiri.';
+
+export type ActivationEmailInput = {
+  firstName: string;
+  reference: string;
+  link: string;
+  spaceUrl: string;
+  /** Compte créé à l'activation : la personne choisit son mot de passe. */
+  newAccount: boolean;
+  passwordUrl: string;
+  email: string;
+};
+
+/** Activation : accès à l'espace, référence, lien personnel. */
+export function renderAffiliateActivated(input: ActivationEmailInput): AffiliationEmail {
+  const blocks: EmailBlock[] = [
+    { kind: 'greeting', text: `Bonjour ${input.firstName},` },
+    {
+      kind: 'paragraph',
+      text:
+        'Votre affiliation au programme de MORA Shawiri est active. Votre espace affilié vous attend : ' +
+        'vous y retrouvez votre lien personnel, vos conditions, vos prospects, vos commissions et vos versements.',
+    },
+    {
+      kind: 'rows',
+      rows: [
+        { label: 'Référence affilié', value: input.reference },
+        { label: 'Votre lien personnel', value: input.link, href: input.link },
+      ],
+    },
+  ];
+  if (input.newAccount) {
+    blocks.push(
+      {
+        kind: 'paragraph',
+        text:
+          `Un compte a été ouvert à votre adresse (${input.email}). Pour votre première connexion, choisissez ` +
+          'votre mot de passe : saisissez votre adresse sur la page ci-dessous, un lien sécurisé vous sera envoyé.',
+      },
+      { kind: 'cta', button: { label: 'Choisir mon mot de passe', href: input.passwordUrl } },
+      { kind: 'fallback', href: input.passwordUrl },
+    );
+  } else {
+    blocks.push(
+      {
+        kind: 'paragraph',
+        text: `Connectez-vous avec votre compte habituel (${input.email}) : l’espace affilié s’y ajoute.`,
+      },
+      { kind: 'cta', button: { label: 'Ouvrir mon espace affilié', href: input.spaceUrl } },
+      { kind: 'fallback', href: input.spaceUrl },
+    );
+  }
+  blocks.push({
+    kind: 'note',
+    text: 'Votre lien et vos conditions sont personnels. Ne communiquez jamais votre mot de passe : MORA Shawiri ne vous le demandera pas.',
+  });
+  return {
+    subject: 'Votre espace affilié est ouvert — MORA Shawiri',
+    rendered: renderEmail({
+      preheader: `Votre affiliation ${input.reference} est active.`,
+      title: 'Votre affiliation est active',
+      blocks,
+      reason: AFFILIATE_REASON,
+    }),
+  };
+}
+
+export type AffiliateStatusEmail = 'SUSPENDU' | 'REACTIVE' | 'TERMINE';
+
+export function renderAffiliateStatus(
+  status: AffiliateStatusEmail,
+  input: { firstName: string; message?: string | null; spaceUrl: string },
+): AffiliationEmail {
+  const message = input.message?.trim() || null;
+  const greeting: EmailBlock = { kind: 'greeting', text: `Bonjour ${input.firstName},` };
+  const extra: EmailBlock[] = message ? [{ kind: 'message', text: message }] : [];
+  const contact: EmailBlock = {
+    kind: 'paragraph',
+    text: 'Une question ? Répondez simplement à cet e-mail.',
+  };
+
+  if (status === 'SUSPENDU') {
+    return {
+      subject: 'Votre affiliation est suspendue — MORA Shawiri',
+      rendered: renderEmail({
+        preheader: 'Votre affiliation est momentanément suspendue.',
+        title: 'Affiliation suspendue',
+        blocks: [
+          greeting,
+          {
+            kind: 'paragraph',
+            text:
+              'Votre affiliation au programme de MORA Shawiri est momentanément suspendue. Pendant la suspension, ' +
+              'vos liens et vos codes n’attribuent pas de nouvelles affaires. Votre historique et vos commissions ' +
+              'déjà enregistrées sont conservés.',
+          },
+          ...extra,
+          contact,
+        ],
+        reason: AFFILIATE_REASON,
+      }),
+    };
+  }
+  if (status === 'REACTIVE') {
+    return {
+      subject: 'Votre affiliation est réactivée — MORA Shawiri',
+      rendered: renderEmail({
+        preheader: 'Votre affiliation est de nouveau active.',
+        title: 'Affiliation réactivée',
+        blocks: [
+          greeting,
+          {
+            kind: 'paragraph',
+            text: 'Votre affiliation au programme de MORA Shawiri est de nouveau active : vos liens et vos codes fonctionnent à nouveau.',
+          },
+          ...extra,
+          { kind: 'cta', button: { label: 'Ouvrir mon espace affilié', href: input.spaceUrl } },
+        ],
+        reason: AFFILIATE_REASON,
+      }),
+    };
+  }
+  return {
+    subject: 'Fin de votre affiliation — MORA Shawiri',
+    rendered: renderEmail({
+      preheader: 'Votre affiliation au programme a pris fin.',
+      title: 'Fin de votre affiliation',
+      blocks: [
+        greeting,
+        {
+          kind: 'paragraph',
+          text:
+            'Votre affiliation au programme de MORA Shawiri a pris fin. Vos liens et vos codes n’attribuent plus ' +
+            'de nouvelles affaires. Les commissions déjà acquises restent dues selon les conditions applicables, ' +
+            'et votre historique reste consultable dans votre espace.',
+        },
+        ...extra,
+        { kind: 'paragraph', text: 'Merci pour votre contribution.' },
+      ],
+      reason: AFFILIATE_REASON,
+    }),
+  };
+}
+
+/** Décision sur une demande de coordonnées de versement (décision J). */
+export function renderPayoutAccountReviewed(
+  approved: boolean,
+  input: { firstName: string; methodLabel: string; note?: string | null },
+): AffiliationEmail {
+  const blocks: EmailBlock[] = [
+    { kind: 'greeting', text: `Bonjour ${input.firstName},` },
+    {
+      kind: 'paragraph',
+      text: approved
+        ? `Vos coordonnées de versement (${input.methodLabel}) sont validées : elles serviront aux prochains versements.`
+        : `Votre demande de coordonnées de versement (${input.methodLabel}) n’a pas été validée. Vos coordonnées précédentes restent en vigueur.`,
+    },
+  ];
+  if (input.note?.trim()) blocks.push({ kind: 'message', text: input.note.trim() });
+  return {
+    subject: approved
+      ? 'Vos coordonnées de versement sont validées — MORA Shawiri'
+      : 'Vos coordonnées de versement — MORA Shawiri',
+    rendered: renderEmail({
+      preheader: approved ? 'Vos coordonnées de versement sont validées.' : 'Réponse à votre demande.',
+      title: approved ? 'Coordonnées validées' : 'Coordonnées non validées',
+      blocks,
+      reason: AFFILIATE_REASON,
+    }),
+  };
+}

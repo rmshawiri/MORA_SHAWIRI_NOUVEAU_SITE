@@ -224,7 +224,11 @@ export default async function CandidaturePage({
             {application.affiliate_id ? (
               <>
                 <dt>Fiche affilié</dt>
-                <dd>Créée en préparation à l’acceptation.</dd>
+                <dd>
+                  <Link href={`/administration/affiliation/affilies/${application.affiliate_id}/`}>
+                    Ouvrir la fiche affilié
+                  </Link>
+                </dd>
               </>
             ) : null}
           </dl>
