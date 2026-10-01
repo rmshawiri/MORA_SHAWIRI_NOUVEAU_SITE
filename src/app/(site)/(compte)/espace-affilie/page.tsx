@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 
-import { CampaignForm, PayoutRequestForm } from '@/components/affiliation/AffiliateSpaceForm';
+import { CampaignForm, CancelProspectButton, PayoutRequestForm, ProspectForm } from '@/components/affiliation/AffiliateSpaceForm';
 import LinkCopyShare from '@/components/affiliation/LinkCopyShare';
 import PageHero from '@/components/sections/PageHero';
 import {
@@ -18,7 +18,9 @@ import {
 } from '@/lib/affiliation/affiliates';
 import { maskPayoutValue } from '@/lib/affiliation/applications';
 import { formatMoment } from '@/lib/affiliation/labels';
-import { createOwnCampaign, requestPayoutChange } from '@/lib/affiliation/space-actions';
+import { PROSPECT_STATUS_LABELS } from '@/lib/affiliation/prospects';
+import { cancelProspect, createOwnCampaign, declareProspect, requestPayoutChange } from '@/lib/affiliation/space-actions';
+import { formatKmf, toCents } from '@/lib/domain/affiliation';
 import { requirePrivateAccess } from '@/lib/auth/guards';
 import { AUTH_ROUTES } from '@/lib/auth/routes';
 import { RULE_ORIGIN_LABELS } from '@/lib/domain/affiliation';
@@ -31,6 +33,7 @@ import type {
   AffiliateCategoryRow,
   AffiliateCodeRow,
   AffiliatePayoutAccountRow,
+  AffiliateProspectRow,
   AffiliateRow,
   AffiliateRuleRow,
   PayoutFrequency,
@@ -92,7 +95,7 @@ export default async function EspaceAffiliePage() {
     );
   }
 
-  const [category, terms, rules, campaigns, codes, accounts, methods] = await Promise.all([
+  const [category, terms, rules, campaigns, codes, accounts, methods, stats, prospects, conversions] = await Promise.all([
     supabase.from('affiliate_categories').select('*').eq('id', affiliate.category_id).maybeSingle(),
     supabase.rpc('affiliate_effective_terms', { p_affiliate_id: affiliate.id }),
     supabase.from('affiliate_rules').select('*').order('valid_from', { ascending: false }),
@@ -104,7 +107,17 @@ export default async function EspaceAffiliePage() {
       .eq('affiliate_id', affiliate.id)
       .order('requested_at', { ascending: false }),
     supabase.rpc('affiliate_payout_methods'),
+    supabase.rpc('affiliate_stats', { p_affiliate_id: affiliate.id }),
+    supabase
+      .from('affiliate_prospects')
+      .select('id, affiliate_id, status, full_name, company, phone, email, need, comment, consent_confirmed, lead_id, review_reason, reviewed_at, recognized_at, protected_until, converted_at, created_at, updated_at')
+      .eq('affiliate_id', affiliate.id)
+      .order('created_at', { ascending: false }),
+    supabase.rpc('my_affiliate_conversions'),
   ]);
+  const figures = (stats.data ?? [])[0];
+  const prospectRows = (prospects.data ?? []) as AffiliateProspectRow[];
+  const conversionRows = conversions.data ?? [];
 
   const categoryRow = category.data as AffiliateCategoryRow | null;
   const effective = (terms.data ?? [])[0];
@@ -198,6 +211,36 @@ export default async function EspaceAffiliePage() {
               </dl>
             </div>
 
+            {figures ? (
+              <div className="auth-card">
+                <div className="auth-card__head">
+                  <h2>En chiffres</h2>
+                </div>
+                <dl className="aff-figures">
+                  <div>
+                    <dt>Clics sur vos liens</dt>
+                    <dd>{figures.clicks}</dd>
+                  </div>
+                  <div>
+                    <dt>Prospects déclarés</dt>
+                    <dd>{figures.prospects}</dd>
+                  </div>
+                  <div>
+                    <dt>Demandes attribuées</dt>
+                    <dd>{figures.requests}</dd>
+                  </div>
+                  <div>
+                    <dt>Commandes attribuées</dt>
+                    <dd>{figures.conversions}</dd>
+                  </div>
+                  <div>
+                    <dt>Chiffre d’affaires attribué</dt>
+                    <dd>{formatKmf(toCents(figures.attributed_amount))}</dd>
+                  </div>
+                </dl>
+              </div>
+            ) : null}
+
             <div className="auth-card">
               <div className="auth-card__head">
                 <h2>Mes conditions de commission</h2>
@@ -259,6 +302,90 @@ export default async function EspaceAffiliePage() {
                 </>
               ) : null}
               {affiliate.status !== 'TERMINE' ? <CampaignForm action={createOwnCampaign} /> : null}
+            </div>
+
+            <div className="auth-card">
+              <div className="auth-card__head">
+                <h2>Mes prospects</h2>
+              </div>
+              {live ? <ProspectForm action={declareProspect} /> : null}
+              {prospectRows.length === 0 ? (
+                <p>Aucun prospect déclaré pour le moment.</p>
+              ) : (
+                <div className="espace-table-wrap">
+                  <table className="espace-table">
+                    <caption className="sr-only">Prospects déclarés</caption>
+                    <thead>
+                      <tr>
+                        <th scope="col">Prospect</th>
+                        <th scope="col">Déclaré le</th>
+                        <th scope="col">Statut</th>
+                        <th scope="col">
+                          <span className="sr-only">Action</span>
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {prospectRows.map((prospect) => (
+                        <tr key={prospect.id}>
+                          <th scope="row">
+                            {prospect.full_name}
+                            {prospect.company ? <small> — {prospect.company}</small> : null}
+                          </th>
+                          <td>{formatMoment(prospect.created_at)}</td>
+                          <td>
+                            {PROSPECT_STATUS_LABELS[prospect.status]}
+                            {prospect.status === 'RECONNU' && prospect.protected_until ? (
+                              <small> — protégé jusqu’au {formatMoment(prospect.protected_until)}</small>
+                            ) : null}
+                          </td>
+                          <td>
+                            {prospect.status === 'DECLARE' || prospect.status === 'A_VERIFIER' ? (
+                              <CancelProspectButton action={cancelProspect} prospectId={prospect.id} />
+                            ) : null}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+
+            <div className="auth-card">
+              <div className="auth-card__head">
+                <h2>Mes conversions</h2>
+              </div>
+              {conversionRows.length === 0 ? (
+                <p>Aucune commande ne vous est encore attribuée.</p>
+              ) : (
+                <div className="espace-table-wrap">
+                  <table className="espace-table">
+                    <caption className="sr-only">Commandes attribuées</caption>
+                    <thead>
+                      <tr>
+                        <th scope="col">Commande</th>
+                        <th scope="col">Offre</th>
+                        <th scope="col">Montant</th>
+                        <th scope="col">Date</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {conversionRows.map((row) => (
+                        <tr key={row.order_reference}>
+                          <th scope="row">{row.order_reference}</th>
+                          <td>{row.offer ?? '—'}</td>
+                          <td>{formatKmf(toCents(row.amount))}</td>
+                          <td>{formatMoment(row.ordered_at)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+              <p className="form__note">
+                Par confidentialité, les coordonnées des clients ne sont jamais affichées ici.
+              </p>
             </div>
 
             <div className="auth-card">

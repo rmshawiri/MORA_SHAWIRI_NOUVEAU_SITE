@@ -33,10 +33,47 @@
 
 import { NextResponse, type NextRequest } from 'next/server';
 
+import { recordClick } from '@/lib/affiliation/click';
+import { attributionCookie, isAutomatedAgent, readReferral } from '@/lib/affiliation/tracking';
 import { PRIVATE_PREFIXES, matchesPrefix, signInUrlFor } from '@/lib/auth/routes';
 import { refreshSupabaseSession } from '@/lib/supabase/middleware';
 
+/**
+ * 3. **Lien d'affiliation (phase 4H).** Une page ouverte par `/?ref=…`
+ *    enregistre le clic, pose le cookie d'attribution (un jeton aléatoire,
+ *    `HttpOnly`) et redirige vers la même adresse nettoyée de `ref` et `c`.
+ *    Ce n'est pas une autorisation non plus : la base revérifie le jeton au
+ *    moment de rattacher une demande.
+ */
+async function handleReferral(request: NextRequest): Promise<NextResponse | null> {
+  if (request.method !== 'GET') return null;
+  const { pathname } = request.nextUrl;
+  if (pathname.startsWith('/api/') || pathname.startsWith('/administration/')) return null;
+  const hit = readReferral(request.nextUrl);
+  if (!hit) return null;
+
+  const redirect = NextResponse.redirect(hit.cleanUrl, 307);
+  const userAgent = request.headers.get('user-agent');
+  if (!hit.slug || isAutomatedAgent(userAgent)) return redirect;
+
+  const ip = (request.headers.get('x-forwarded-for') ?? '').split(',')[0]?.trim() || 'inconnue';
+  const click = await recordClick({
+    slug: hit.slug,
+    campaign: hit.campaign,
+    landing: hit.cleanUrl.pathname,
+    ip,
+    userAgent: userAgent ?? '',
+  });
+  if (click) {
+    redirect.cookies.set(attributionCookie(click.token, click.windowDays, request.nextUrl.protocol === 'https:'));
+  }
+  return redirect;
+}
+
 export default async function proxy(request: NextRequest) {
+  const referral = await handleReferral(request);
+  if (referral) return referral;
+
   const { response, user } = await refreshSupabaseSession(request);
 
   const { pathname } = request.nextUrl;

@@ -38,6 +38,8 @@ const mailLink = <a href={site.emailHref}>{site.email}</a>;
 const phoneLink = <a href={site.phoneHref}>{site.phone}</a>;
 
 const UPDATED = 'Dernière mise à jour : 16 septembre 2026';
+/** Politiques de confidentialité et des cookies : programme d'affiliation (phase 4H). */
+const UPDATED_AFFILIATION = 'Dernière mise à jour : 1er octobre 2026';
 
 export const legalDocuments: readonly LegalDocument[] = [
   {
@@ -220,7 +222,7 @@ export const legalDocuments: readonly LegalDocument[] = [
     metaTitle: 'Politique de confidentialité',
     description:
       'Données collectées, finalités, durée de conservation, destinataires, sécurité et droits des personnes sur le site MORA Shawiri.',
-    updated: UPDATED,
+    updated: UPDATED_AFFILIATION,
     lead: 'Quelles informations nous recueillons, pourquoi, combien de temps nous les conservons et comment exercer vos droits.',
     body: (
       <>
@@ -247,8 +249,10 @@ export const legalDocuments: readonly LegalDocument[] = [
           <li>les échanges que vous initiez avec nous par courriel, téléphone ou WhatsApp.</li>
         </ul>
         <p>
-          Nous ne collectons aucune donnée sensible et ne demandons jamais d’informations bancaires
-          par l’intermédiaire du site.
+          Nous ne collectons aucune donnée sensible. Le site ne demande des coordonnées de
+          versement — numéro de mobile money, coordonnées bancaires ou adresse PayPal — qu’aux
+          partenaires du programme d’affiliation, pour leur verser leurs commissions ; il ne
+          demande jamais de données de carte bancaire.
         </p>
 
         <h2>3. Formulaires, demandes et rendez-vous</h2>
@@ -261,6 +265,22 @@ export const legalDocuments: readonly LegalDocument[] = [
         <p>
           Ces informations sont utilisées exclusivement pour vous répondre, établir un devis et
           assurer le suivi de la relation commerciale.
+        </p>
+
+        <h2>3 bis. Programme d’affiliation</h2>
+        <p>
+          Les informations d’une candidature au programme d’affiliation — identité, coordonnées,
+          profil, motivation et moyen de versement souhaité — sont enregistrées pour étudier la
+          candidature et, si elle est retenue, gérer la participation au programme : liens,
+          commissions et versements. Les coordonnées de versement ne sont accessibles qu’aux
+          personnes habilitées de MORA Shawiri.
+        </p>
+        <p>
+          Lorsqu’un partenaire déclare un prospect, il ne transmet que son nom, ses coordonnées et
+          son besoin, et s’engage à avoir obtenu son accord au préalable. Ces informations servent
+          uniquement à vérifier l’origine de la recommandation et à prendre contact avec la
+          personne concernée ; le partenaire n’a jamais accès aux données des clients de MORA
+          Shawiri.
         </p>
 
         <h2>4. Base du traitement</h2>
@@ -288,7 +308,9 @@ export const legalDocuments: readonly LegalDocument[] = [
         <h2>7. Cookies et mesure d’audience</h2>
         <p>
           Ce site ne dépose aucun cookie publicitaire ni traceur à des fins de profilage, et aucun
-          outil de mesure d’audience n’est activé à ce jour. Le détail figure dans la{' '}
+          outil de mesure d’audience n’est activé à ce jour. Seuls un cookie de session et, à
+          l’arrivée par le lien d’un partenaire, un cookie d’attribution d’affiliation sont
+          utilisés. Le détail figure dans la{' '}
           <Link href="/politique-de-cookies/">politique des cookies</Link>. Si un tel outil était
           mis en place, cette politique serait mise à jour et votre consentement serait recueilli
           avant tout dépôt de cookie non essentiel.
@@ -302,6 +324,10 @@ export const legalDocuments: readonly LegalDocument[] = [
             obligations légales de conservation comptable ;
           </li>
           <li>Échanges informels (messagerie) : supprimés dès qu’ils ne sont plus utiles au suivi.</li>
+          <li>
+            Programme d’affiliation : pendant la participation au programme, puis selon les
+            obligations légales de conservation comptable pour les commissions et versements.
+          </li>
         </ul>
 
         <h2>9. Destinataires des données</h2>
@@ -354,7 +380,7 @@ export const legalDocuments: readonly LegalDocument[] = [
     metaTitle: 'Politique des cookies',
     description:
       'Ce que sont les cookies, ceux que le site MORA Shawiri utilise réellement aujourd’hui, et comment les gérer depuis votre navigateur.',
-    updated: UPDATED,
+    updated: UPDATED_AFFILIATION,
     lead: 'Ce site n’utilise aujourd’hui aucun cookie de mesure d’audience ni de publicité. Voici le détail, et ce qui changerait si cela évoluait.',
     body: (
       <>
@@ -381,16 +407,32 @@ export const legalDocuments: readonly LegalDocument[] = [
         <h2>3. Ce que ce site utilise aujourd’hui</h2>
         <p>
           <strong>
-            Le site MORA Shawiri ne dépose actuellement aucun cookie de mesure d’audience, aucun
-            cookie publicitaire et aucun traceur de profilage.
+            Le site MORA Shawiri ne dépose aucun cookie de mesure d’audience, aucun cookie
+            publicitaire et aucun traceur de profilage.
           </strong>{' '}
-          Il ne propose ni compte utilisateur, ni panier, ni paiement en ligne : les cookies
-          d’authentification, de session et de paiement décrits ci-dessous ne sont donc pas
-          utilisés.
+          Il n’utilise que les deux cookies suivants, chacun pour une seule finalité :
         </p>
+        <ul>
+          <li>
+            <strong>Cookie de session</strong> — lorsque vous vous connectez à votre espace
+            personnel, un cookie technique maintient votre connexion. Il est strictement
+            nécessaire au service que vous demandez et disparaît à la déconnexion ou à son
+            expiration.
+          </li>
+          <li>
+            <strong>Cookie d’attribution d’affiliation</strong> (<code>mora_aff</code>) — déposé
+            uniquement lorsque vous arrivez sur le site par le lien d’un partenaire du programme
+            d’affiliation. Il contient un identifiant aléatoire, sans aucune donnée vous
+            concernant, et sert seulement à reconnaître quel partenaire vous a recommandé MORA
+            Shawiri si vous nous adressez ensuite une demande. Il n’est lisible par aucun script,
+            n’est transmis à aucun tiers, et expire au terme de la durée d’attribution du
+            programme — 90 jours par défaut.
+          </li>
+        </ul>
         <p>
-          Aucun bandeau de consentement n’est affiché, parce qu’aucun cookie soumis à consentement
-          n’est déposé.
+          Aucun bandeau de consentement n’est affiché : aucun cookie de mesure d’audience, de
+          publicité ou de profilage n’est déposé. Vous pouvez supprimer ces cookies à tout moment
+          depuis votre navigateur (voir la section 8).
         </p>
 
         <h2>4. Catégories de cookies</h2>
@@ -447,8 +489,8 @@ export const legalDocuments: readonly LegalDocument[] = [
 
         <h2>7. Sécurité des cookies</h2>
         <p>
-          Lorsque des cookies techniques seront nécessaires — par exemple avec l’arrivée d’un espace
-          client — ils seront configurés avec les paramètres de sécurité appropriés :
+          Les cookies techniques du site sont configurés avec les paramètres de sécurité
+          appropriés :
           <code>HttpOnly</code> pour les cookies qui n’ont pas à être lus par un script,{' '}
           <code>Secure</code> pour n’être transmis qu’en connexion chiffrée, et un attribut{' '}
           <code>SameSite</code> adapté à leur usage.

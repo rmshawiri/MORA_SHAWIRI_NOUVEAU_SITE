@@ -338,3 +338,9 @@
 .espace .aff-link > * { min-width: 0; }
 .espace .aff-link .btn-row { display: flex; flex-flow: row wrap; width: 100%; }
 .espace .aff-link .btn-row > .btn { flex: 1 1 140px; min-width: 0; width: auto; }
+.espace .aff-consent-line { display: flex; gap: var(--sp-3); align-items: flex-start; font-size: var(--text-caption); }
+.espace .aff-consent-line input { flex: none; width: 18px; height: 18px; margin-top: 3px; }
+.espace .aff-figures { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 140px), 1fr)); gap: var(--sp-3); margin: 0; }
+.espace .aff-figures > div { padding: var(--sp-3); border: 1px solid var(--border); border-radius: var(--r-btn); background: var(--white); min-width: 0; }
+.espace .aff-figures dt { font-size: var(--text-caption); color: var(--text-secondary); }
+.espace .aff-figures dd { margin: 4px 0 0; font-family: var(--font-display); font-weight: 700; color: var(--mora-blue-deep); overflow-wrap: anywhere; }

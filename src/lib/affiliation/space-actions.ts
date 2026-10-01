@@ -18,6 +18,8 @@ import { revalidatePath } from 'next/cache';
 import type { AdminActionState } from '@/lib/admin/actions';
 import { getServerSupabaseClient } from '@/lib/supabase/server';
 
+import { validateProspect } from './prospects';
+
 const ko = (message: string): AdminActionState => ({ status: 'error', message });
 const ok = (message: string): AdminActionState => ({ status: 'ok', message });
 
@@ -71,4 +73,48 @@ export async function createOwnCampaign(_previous: AdminActionState, formData: F
   }
   revalidatePath('/espace-affilie/');
   return ok('Votre nouveau lien de campagne est prêt.');
+}
+
+export async function declareProspect(_previous: AdminActionState, formData: FormData): Promise<AdminActionState> {
+  const supabase = await getServerSupabaseClient();
+  if (!supabase) return ko('Le service est momentanément indisponible.');
+  const draft = {
+    fullName: field(formData, 'full_name', 120),
+    company: field(formData, 'company', 160),
+    phone: field(formData, 'phone', 40),
+    email: field(formData, 'email', 160),
+    need: field(formData, 'need', 1000),
+    comment: field(formData, 'comment', 1000),
+    consent: formData.get('consent') === '1',
+  };
+  const errors = validateProspect(draft);
+  const first = Object.values(errors)[0];
+  if (first) return ko(first);
+  const { error } = await supabase.rpc('declare_affiliate_prospect', {
+    p_full_name: draft.fullName,
+    p_company: draft.company || null,
+    p_phone: draft.phone,
+    p_email: draft.email || null,
+    p_need: draft.need,
+    p_comment: draft.comment || null,
+    p_consent: draft.consent,
+  });
+  if (error) {
+    if (error.code === '23514' && error.message && error.message.length < 200) return ko(error.message);
+    if (error.code === '54000') return ko('Trop de déclarations aujourd’hui : réessayez demain.');
+    if (error.code === '42501') return ko('Seul un affilié actif peut déclarer un prospect.');
+    return ko('La déclaration n’a pas pu être enregistrée.');
+  }
+  revalidatePath('/espace-affilie/');
+  return ok('Votre prospect est déclaré. MORA Shawiri vérifie son origine : vous suivez la décision ici.');
+}
+
+export async function cancelProspect(_previous: AdminActionState, formData: FormData): Promise<AdminActionState> {
+  const supabase = await getServerSupabaseClient();
+  if (!supabase) return ko('Le service est momentanément indisponible.');
+  const id = field(formData, 'prospect', 40);
+  const { error } = await supabase.rpc('cancel_affiliate_prospect', { p_prospect_id: id });
+  if (error) return ko('Cette déclaration ne peut plus être annulée.');
+  revalidatePath('/espace-affilie/');
+  return ok('La déclaration est annulée.');
 }

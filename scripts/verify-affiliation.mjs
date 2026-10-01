@@ -33,7 +33,7 @@
  * base protège, à juste titre, contre toute suppression applicative.
  */
 
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 
 import { createClient } from '@supabase/supabase-js';
 
@@ -61,11 +61,12 @@ const PREFIX = 'verif-affiliation';
 const PASSWORD = `Verif-4H-${randomUUID()}`;
 const RUN = randomUUID().slice(0, 6).toUpperCase().replace(/[^A-Z]/g, 'X');
 const CATEGORY_CODE = `ZZ_VERIF_${RUN}`;
-const SEQUENCES = ['AFIL', 'FIAF', 'RVAF', 'COMAF'];
+const SEQUENCES = ['AFIL', 'FIAF', 'RVAF', 'COMAF', 'DMCL', 'CMCL'];
 const TABLES = [
   'affiliates', 'affiliate_rules', 'affiliate_categories', 'affiliate_notes', 'affiliate_events',
   'affiliate_applications', 'affiliate_application_events', 'email_outbox',
   'affiliate_payout_accounts', 'affiliate_campaigns', 'affiliate_codes',
+  'affiliate_attributions', 'affiliate_prospects', 'affiliate_code_uses', 'orders', 'quote_requests', 'leads',
 ];
 
 const sessionClient = (target) =>
@@ -786,10 +787,213 @@ async function checkAffiliates(target, accessToken, admin, sessions, state) {
     [...kinds].join(', '));
 }
 
+
+/* ========================================================================== */
+/* 4H-4 — clics, attribution, prospects, codes appliqués                      */
+/* ========================================================================== */
+
+async function checkAttribution(target, admin, sessions, state) {
+  log.step('Attribution : clics, demandes, commandes, prospects, codes');
+  const serial = (n) => `ZZ${String(n).padStart(4, '0')}`;
+  const hash = (seed) => createHash('sha256').update(`${RUN}-${seed}`).digest('hex');
+
+  // Clics : enregistrés par le serveur seul.
+  const click = (slug, campaign = null, seed = 'v1') =>
+    admin.rpc('record_affiliate_click', { p_slug: slug, p_campaign: campaign, p_landing: '/services/', p_visitor_hash: hash(seed) });
+  const first = await click(state.affA.slug);
+  check('un clic sur le lien d’un affilié actif rend un jeton', Boolean(first.data?.[0]?.token), first.error?.message);
+  check('la durée du cookie est la fenêtre de l’affilié (90 jours)', first.data?.[0]?.window_days === 90);
+  const again = await click(state.affA.slug);
+  check('le même visiteur dans la demi-heure n’est compté qu’une fois', again.data?.[0]?.token === first.data?.[0]?.token);
+  const other = await click(state.affA.slug, null, 'v2');
+  check('un autre visiteur compte un autre clic', other.data?.[0]?.token && other.data[0].token !== first.data?.[0]?.token);
+  check('un lien inconnu ne pose rien', ((await click('verif-inconnu')).data ?? []).length === 0);
+  check('une campagne inconnue ne pose rien', ((await click(state.affA.slug, 'inconnue')).data ?? []).length === 0);
+  check('l’anonyme n’enregistre pas de clic lui-même',
+    Boolean((await sessionClient(target).rpc('record_affiliate_click', { p_slug: state.affA.slug, p_campaign: null, p_landing: '/', p_visitor_hash: hash('x') })).error));
+  const { data: rawClick } = await admin.from('affiliate_clicks').select('visitor_hash, landing_path').eq('token', first.data?.[0]?.token).single();
+  check('le clic garde une empreinte, jamais une adresse IP', /^[0-9a-f]{64}$/.test(rawClick.visitor_hash) && rawClick.landing_path === '/services/');
+  check('une session ne lit pas l’empreinte d’un visiteur', Boolean((await sessions.lecteur.from('affiliate_clicks').select('visitor_hash').limit(1)).error));
+
+  // Demandes de contrôle, sans numéro réel (série ZZ).
+  const lead = async (label) => {
+    const { data, error } = await admin.from('leads').insert({ email: `${PREFIX}-${label}-${RUN.toLowerCase()}@${TEST_DOMAIN}`, full_name: `Contrôle ${label}` }).select().single();
+    if (error) throw new Error(`prospect ${label} : ${error.message}`);
+    return data;
+  };
+  const request = async (leadRow, n) => {
+    const { data, error } = await admin.from('quote_requests').insert({
+      reference: `MORA-DMCL-${serial(n)}`, lead_id: leadRow.id, subject: 'Contrôle 4H', message: 'Contrôle automatisé',
+    }).select().single();
+    if (error) throw new Error(`demande : ${error.message}`);
+    state.requestIds.push(data.id);
+    return data;
+  };
+  state.requestIds = [];
+  state.orderIds = [];
+  state.leadEmails = [];
+  const leadClient = await lead('client');
+  const req1 = await request(leadClient, 9101);
+  const attached = await admin.rpc('attach_click_to_request', { p_reference: req1.reference, p_click_token: first.data[0].token });
+  check('une demande se rattache au dernier clic valide', Boolean(attached.data), attached.error?.message);
+  const dup = await admin.rpc('attach_click_to_request', { p_reference: req1.reference, p_click_token: other.data[0].token });
+  check('une demande ne reçoit qu’une attribution courante', !dup.data);
+
+  const leadSelf = await admin.from('leads').insert({ email: state.userA.email, full_name: 'Moi-même' }).select().single();
+  state.selfLeadId = leadSelf.data?.id;
+  const reqSelf = await request(leadSelf.data, 9102);
+  check('auto-affiliation : la demande de l’affilié lui-même n’est pas rattachée',
+    !(await admin.rpc('attach_click_to_request', { p_reference: reqSelf.reference, p_click_token: other.data[0].token })).data);
+
+  const old = await click(state.affA.slug, null, 'ancien');
+  await admin.from('affiliate_clicks').update({ created_at: new Date(Date.now() - 91 * 86400000).toISOString() }).eq('token', old.data[0].token);
+  const req3 = await request(await lead('tardif'), 9103);
+  check('un clic au-delà de la fenêtre n’attribue rien',
+    !(await admin.rpc('attach_click_to_request', { p_reference: req3.reference, p_click_token: old.data[0].token })).data);
+
+  // La commande hérite de l'attribution de sa demande.
+  const order = async (n, leadRow, requestRow = null) => {
+    const { data, error } = await admin.from('orders').insert({
+      reference: `MORA-CMCL-${serial(n)}`, user_id: state.client.userId, customer_name: 'Contrôle 4H',
+      customer_email: leadRow.email, lead_id: leadRow.id, quote_request_id: requestRow?.id ?? null,
+    }).select().single();
+    if (error) throw new Error(`commande : ${error.message}`);
+    state.orderIds.push(data.id);
+    await admin.from('order_items').insert({ order_id: data.id, designation: 'Site vitrine — contrôle', unit_price: 300000, quantity: 1 });
+    return data;
+  };
+  const order1 = await order(9201, leadClient, req1);
+  const { data: inherited } = await admin.from('affiliate_attributions').select('*').eq('order_id', order1.id);
+  check('la commande hérite de l’attribution de sa demande',
+    (inherited ?? []).length === 1 && inherited[0].affiliate_id === state.affA.id && inherited[0].source === 'LIEN');
+
+  // Prospects : déclarés par l'affilié, reconnus par MORA Shawiri.
+  const declare = (client, extra = {}) =>
+    client.rpc('declare_affiliate_prospect', {
+      p_full_name: 'Prospect Contrôle', p_company: null, p_phone: '+269 777 00 01',
+      p_email: `${PREFIX}-prospect-${RUN.toLowerCase()}@${TEST_DOMAIN}`, p_need: 'Une boutique en ligne',
+      p_comment: null, p_consent: true, ...extra,
+    });
+  check('sans l’accord du prospect, la déclaration est refusée', Boolean((await declare(sessions.affA, { p_consent: false })).error));
+  const declared = await declare(sessions.affA);
+  check('l’affilié actif déclare un prospect', declared.data?.status === 'DECLARE', declared.error?.message);
+  state.prospectId = declared.data?.id;
+  check('il ne déclare pas deux fois le même prospect', Boolean((await declare(sessions.affA)).error));
+  check('il ne se déclare pas lui-même',
+    Boolean((await declare(sessions.affA, { p_email: state.userA.email, p_phone: '+269 777 99 99' })).error));
+  check('l’affilié lit sa déclaration, sans l’indice réservé à l’administration',
+    Boolean((await sessions.affA.from('affiliate_prospects').select('review_hint').eq('id', state.prospectId)).error));
+  check('un autre affilié ne la lit pas', empty(await sessions.affB.from('affiliate_prospects').select('id').eq('id', state.prospectId)));
+  check('l’affilié ne reconnaît pas son propre prospect',
+    Boolean((await sessions.affA.rpc('review_affiliate_prospect', { p_prospect_id: state.prospectId, p_status: 'RECONNU' })).error));
+  check('les indices de rapprochement sont fermés à l’affilié',
+    Boolean((await sessions.affB.rpc('affiliate_prospect_hints', { p_affiliate_id: null })).error));
+  check('un refus sans motif est refusé',
+    Boolean((await sessions.attributeur.rpc('review_affiliate_prospect', { p_prospect_id: state.prospectId, p_status: 'REFUSE' })).error));
+  const recognized = await sessions.attributeur.rpc('review_affiliate_prospect', { p_prospect_id: state.prospectId, p_status: 'RECONNU' });
+  check('MORA Shawiri reconnaît le prospect, rattaché à une fiche et protégé',
+    recognized.data?.status === 'RECONNU' && Boolean(recognized.data?.lead_id) && Boolean(recognized.data?.protected_until), recognized.error?.message);
+  const months = (Date.parse(recognized.data?.protected_until) - Date.now()) / (30.4 * 86400000);
+  check('la protection par défaut dure 6 mois', months > 5.8 && months < 6.2, months.toFixed(2));
+  const { data: prospectLead } = await admin.from('leads').select('*').eq('id', recognized.data.lead_id).single();
+  const order2 = await order(9202, prospectLead);
+  const { data: viaProspect } = await admin.from('affiliate_attributions').select('*').eq('order_id', order2.id);
+  check('une commande du prospect protégé est attribuée à son affilié',
+    (viaProspect ?? []).length === 1 && viaProspect[0].source === 'PROSPECT' && viaProspect[0].affiliate_id === state.affA.id);
+  const { data: converted } = await admin.from('affiliate_prospects').select('status').eq('id', state.prospectId).single();
+  check('le prospect passe à « converti »', converted.status === 'CONVERTI');
+
+  // Verrou : une attribution validée ne se déplace pas.
+  const leadManual = await lead('manuel');
+  const order3 = await order(9203, leadManual);
+  check('une attribution manuelle sans justification est refusée',
+    Boolean((await sessions.attributeur.rpc('attribute_affair', { p_target_type: 'ORDER', p_target_id: order3.id, p_affiliate_id: state.affA.id, p_reason: ' ' })).error));
+  check('affiliates.view seul n’attribue rien',
+    Boolean((await sessions.lecteur.rpc('attribute_affair', { p_target_type: 'ORDER', p_target_id: order3.id, p_affiliate_id: state.affA.id, p_reason: 'x' })).error));
+  const manual = await sessions.attributeur.rpc('attribute_affair', {
+    p_target_type: 'ORDER', p_target_id: order3.id, p_affiliate_id: state.affA.id, p_reason: 'Transmis par WhatsApp — contrôle',
+  });
+  check('l’attribution manuelle est aussitôt validée', manual.data?.status === 'VALIDEE', manual.error?.message);
+
+  const { data: codeB } = await admin.from('affiliate_codes')
+    .insert({ affiliate_id: state.affB.id, code: `VB${RUN}`, discount_kind: 'PERCENT', discount_value: 10 }).select().single();
+  const { data: codeA } = await admin.from('affiliate_codes')
+    .insert({ affiliate_id: state.affA.id, code: `VA${RUN}`, discount_kind: 'PERCENT', discount_value: 10, max_discount_amount: 20000 }).select().single();
+  check('un code d’un autre affilié ne déplace pas une attribution validée',
+    Boolean((await sessions.attributeur.rpc('apply_affiliate_code', { p_order_id: order3.id, p_code: codeB.code })).error));
+
+  // Un code l'emporte sur un lien non validé, et sa remise est exacte.
+  const applied = await sessions.attributeur.rpc('apply_affiliate_code', { p_order_id: order1.id, p_code: codeB.code.toLowerCase() });
+  check('un code valide s’applique (casse indifférente)', Boolean(applied.data), applied.error?.message);
+  const { data: afterCode } = await admin.from('orders').select('discount_amount, total_amount').eq('id', order1.id).single();
+  check('la remise de 10 % figure sur la commande (30 000 KMF)', Number(afterCode.discount_amount) === 30000 && Number(afterCode.total_amount) === 270000, JSON.stringify(afterCode));
+  const { data: nowAttr } = await admin.from('affiliate_attributions').select('affiliate_id, source, status').eq('order_id', order1.id).in('status', ['ACTIVE', 'VALIDEE']);
+  check('le code remplace l’attribution par lien (décision B)', nowAttr?.[0]?.source === 'CODE' && nowAttr[0].affiliate_id === state.affB.id);
+  check('un seul code par commande (décision I)',
+    Boolean((await sessions.attributeur.rpc('apply_affiliate_code', { p_order_id: order1.id, p_code: codeA.code })).error));
+  const removed = await sessions.attributeur.rpc('remove_affiliate_code', { p_order_id: order1.id, p_reason: 'Contrôle' });
+  check('le code se retire', !removed.error, removed.error?.message);
+  const { data: restored } = await admin.from('orders').select('discount_amount, total_amount').eq('id', order1.id).single();
+  check('la remise est annulée à l’identique', Number(restored.discount_amount) === 0 && Number(restored.total_amount) === 300000, JSON.stringify(restored));
+  const capped = await sessions.attributeur.rpc('apply_affiliate_code', { p_order_id: order1.id, p_code: codeA.code });
+  const { data: cappedOrder } = await admin.from('orders').select('discount_amount').eq('id', order1.id).single();
+  check('le plafond de réduction d’un code est respecté (20 000 KMF)', !capped.error && Number(cappedOrder.discount_amount) === 20000, capped.error?.message);
+  check('l’affilié n’applique pas son propre code',
+    Boolean((await sessions.affA.rpc('apply_affiliate_code', { p_order_id: order2.id, p_code: codeA.code })).error));
+  check('une utilisation de code ne se supprime pas', refused(await admin.from('affiliate_code_uses').delete().eq('order_id', order1.id).select()));
+  check('une attribution ne se supprime pas', refused(await admin.from('affiliate_attributions').delete().eq('order_id', order3.id).select()));
+
+  // Ce que voit l'affilié : ses conversions, sans aucune donnée du client.
+  const mine = await sessions.affA.rpc('my_affiliate_conversions');
+  const refs = (mine.data ?? []).map((row) => row.order_reference);
+  check('l’affilié voit ses commandes attribuées', refs.includes(order1.reference) && refs.includes(order2.reference) && refs.includes(order3.reference), refs.join(','));
+  check('sans nom, adresse ni téléphone du client',
+    (mine.data ?? []).every((row) => !Object.keys(row).some((key) => /customer|email|phone|name/.test(key))));
+  check('un autre affilié ne les voit pas', !((await sessions.affB.rpc('my_affiliate_conversions')).data ?? []).some((row) => refs.includes(row.order_reference)));
+  check('l’affilié ne lit pas les attributions brutes', empty(await sessions.affA.from('affiliate_attributions').select('id').limit(1)));
+  const statsA = await sessions.affA.rpc('affiliate_stats', { p_affiliate_id: state.affA.id });
+  check('l’affilié lit ses chiffres réels', (statsA.data?.[0]?.clicks ?? 0) >= 3 && statsA.data?.[0]?.conversions >= 2, JSON.stringify(statsA.data));
+  check('mais pas ceux d’un autre affilié', Boolean((await sessions.affA.rpc('affiliate_stats', { p_affiliate_id: state.affB.id })).error));
+}
+
 /* ========================================================================== */
 
 async function teardown(target, accessToken, admin, state, before) {
   log.step('Nettoyage des données de contrôle');
+  // 4H-4 : attributions et utilisations de code d'abord (elles référencent
+  // commandes, codes et prospects), puis commandes et demandes de contrôle,
+  // reconnues à leur série ZZ et à leur libellé — même après une exécution
+  // interrompue.
+  await runSql(target, accessToken, `
+    begin;
+    alter table public.affiliate_attributions disable trigger affiliate_attributions_guard;
+    alter table public.affiliate_code_uses disable trigger affiliate_code_uses_guard;
+    alter table public.affiliate_prospects disable trigger affiliate_prospects_guard;
+    alter table public.affiliate_events disable trigger affiliate_events_append_only;
+    delete from public.affiliate_code_uses u using public.orders o
+     where u.order_id = o.id and o.reference like 'MORA-CMCL-ZZ%' and o.customer_name = 'Contrôle 4H';
+    delete from public.affiliate_attributions at using public.affiliates a
+     where at.affiliate_id = a.id and (a.slug like '${PREFIX}-%' or a.contact_email like '${PREFIX}-%');
+    delete from public.affiliate_prospects p using public.affiliates a
+     where p.affiliate_id = a.id and (a.slug like '${PREFIX}-%' or a.contact_email like '${PREFIX}-%');
+    delete from public.order_items i using public.orders o
+     where i.order_id = o.id and o.reference like 'MORA-CMCL-ZZ%' and o.customer_name = 'Contrôle 4H';
+    delete from public.order_events e using public.orders o
+     where e.order_id = o.id and o.reference like 'MORA-CMCL-ZZ%' and o.customer_name = 'Contrôle 4H';
+    delete from public.order_status_history h using public.orders o
+     where h.order_id = o.id and o.reference like 'MORA-CMCL-ZZ%' and o.customer_name = 'Contrôle 4H';
+    delete from public.orders where reference like 'MORA-CMCL-ZZ%' and customer_name = 'Contrôle 4H';
+    delete from public.quote_request_events e using public.quote_requests r
+     where e.quote_request_id = r.id and r.reference like 'MORA-DMCL-ZZ%' and r.subject = 'Contrôle 4H';
+    delete from public.quote_requests where reference like 'MORA-DMCL-ZZ%' and subject = 'Contrôle 4H';
+    delete from public.leads where email like '${PREFIX}-%';
+    alter table public.affiliate_attributions enable trigger affiliate_attributions_guard;
+    alter table public.affiliate_code_uses enable trigger affiliate_code_uses_guard;
+    alter table public.affiliate_prospects enable trigger affiliate_prospects_guard;
+    alter table public.affiliate_events enable trigger affiliate_events_append_only;
+    commit;
+  `).catch((error) => log.fail(`démontage de l'attribution : ${error.message}`));
+
 
   // Candidatures de contrôle : leur historique (protégé en ajout seul) et
   // leurs e-mails d'abord, puis les candidatures, puis les fiches nées d'une
@@ -947,6 +1151,10 @@ async function main() {
     state.payeur = await createAccount(admin, { roleCode: 'ADMIN', label: 'payeur', grants: ['affiliates.view', 'payouts.view', 'payouts.manage'] });
     state.codeur = await createAccount(admin, { roleCode: 'ADMIN', label: 'codeur', grants: ['affiliates.view', 'affiliate_codes.manage'] });
     state.gardien = await createAccount(admin, { roleCode: 'ADMIN', label: 'gardien', grants: ['affiliates.view', 'affiliates.disable'] });
+    state.attributeur = await createAccount(admin, {
+      roleCode: 'ADMIN', label: 'attributeur',
+      grants: ['affiliates.view', 'affiliate_attributions.manage', 'affiliate_codes.manage', 'orders.view', 'orders.update'],
+    });
     state.candidateEmail = `${PREFIX}-candidat-${randomUUID().slice(0, 8)}@${TEST_DOMAIN}`;
     state.derogateur = await createAccount(admin, {
       roleCode: 'ADMIN', label: 'derogateur', grants: ['affiliates.view', 'affiliate_rules.manage', 'affiliate_rules.derogate'],
@@ -978,7 +1186,7 @@ async function main() {
     check('les affiliés de contrôle sont créés (série ZZ)', true);
 
     const sessions = {};
-    for (const key of ['client', 'nu', 'lecteur', 'editeur', 'regles', 'derogateur', 'candidatures', 'decideur', 'accepteur', 'tresorier', 'payeur', 'codeur', 'gardien']) {
+    for (const key of ['client', 'nu', 'lecteur', 'editeur', 'regles', 'derogateur', 'candidatures', 'decideur', 'accepteur', 'tresorier', 'payeur', 'codeur', 'gardien', 'attributeur']) {
       sessions[key] = await signIn(target, state[key].email);
     }
     sessions.affA = await signIn(target, state.userA.email);
@@ -986,6 +1194,7 @@ async function main() {
 
     await checkRules(admin, sessions, state);
     await checkIsolation(target, admin, sessions, state);
+    await checkAttribution(target, admin, sessions, state);
     await checkApplications(target, admin, sessions, state);
     await checkAffiliates(target, accessToken, admin, sessions, state);
   } catch (error) {

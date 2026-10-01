@@ -3,6 +3,7 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 
 import AdminPage from '@/components/admin/AdminPage';
+import AffiliationTrace from '@/components/admin/AffiliationTrace';
 import ConfirmForm from '@/components/admin/ConfirmForm';
 import QuoteDraftForm from '@/components/admin/QuoteDraftForm';
 import RelationNoteForm from '@/components/admin/RelationNoteForm';
@@ -58,11 +59,14 @@ export const metadata: Metadata = {
  */
 export default async function DemandePage({
   params,
+  searchParams,
 }: {
   params: Promise<{ reference: string }>;
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const context = await requireModule('demandes');
   const { reference } = await params;
+  const { affiliation: affiliationNotice } = await searchParams;
 
   const detail = await findQuoteRequest(decodeURIComponent(reference));
 
@@ -401,6 +405,15 @@ export default async function DemandePage({
 
         {canUpdate ? <RelationNoteForm reference={request.reference} /> : null}
       </section>
+
+      {/* Phase 4H — l'attribution affiliée de la demande. */}
+      <AffiliationTrace
+        context={context}
+        target="REQUEST"
+        id={request.id}
+        path={`/administration/demandes/${request.reference}/`}
+        notice={affiliationNotice}
+      />
     </AdminPage>
   );
 }

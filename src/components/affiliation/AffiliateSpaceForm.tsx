@@ -115,3 +115,86 @@ export function CampaignForm({
     </form>
   );
 }
+
+export function ProspectForm({
+  action,
+}: {
+  action: (previous: AdminActionState, formData: FormData) => Promise<AdminActionState>;
+}) {
+  const [state, formAction] = useActionState(action, INITIAL);
+  const [open, setOpen] = useState(false);
+  if (!open) {
+    return (
+      <>
+        <Notice state={state} />
+        <button type="button" className="btn btn--primary" onClick={() => setOpen(true)}>
+          Déclarer un prospect
+        </button>
+      </>
+    );
+  }
+  return (
+    <form action={formAction} className="form" key={state.status === 'ok' ? state.message : 'form'}>
+      <Notice state={state} />
+      <div className="form__row">
+        <div className="field">
+          <label htmlFor="pr-name">Nom du prospect <span className="req" aria-hidden="true">*</span></label>
+          <input id="pr-name" name="full_name" required maxLength={120} autoComplete="off" />
+        </div>
+        <div className="field">
+          <label htmlFor="pr-company">Entreprise ou organisation</label>
+          <input id="pr-company" name="company" maxLength={160} autoComplete="off" />
+        </div>
+      </div>
+      <div className="form__row">
+        <div className="field">
+          <label htmlFor="pr-phone">Téléphone ou WhatsApp <span className="req" aria-hidden="true">*</span></label>
+          <input id="pr-phone" name="phone" type="tel" inputMode="tel" required maxLength={40} autoComplete="off" />
+        </div>
+        <div className="field">
+          <label htmlFor="pr-email">E-mail</label>
+          <input id="pr-email" name="email" type="email" inputMode="email" maxLength={160} autoComplete="off" />
+        </div>
+      </div>
+      <div className="field">
+        <label htmlFor="pr-need">Son besoin <span className="req" aria-hidden="true">*</span></label>
+        <textarea id="pr-need" name="need" rows={3} required maxLength={1000} />
+      </div>
+      <div className="field">
+        <label htmlFor="pr-comment">Commentaire</label>
+        <textarea id="pr-comment" name="comment" rows={2} maxLength={1000} />
+      </div>
+      <label className="aff-consent-line">
+        <input type="checkbox" name="consent" value="1" required />
+        <span>J’ai l’accord de cette personne pour transmettre ses coordonnées et son besoin à MORA Shawiri.</span>
+      </label>
+      <p className="form__note">Ne transmettez que ce qui est utile. L’origine du prospect est vérifiée par MORA Shawiri.</p>
+      <div className="btn-row">
+        <Submit label="Déclarer" />
+        <button type="button" className="btn btn--ghost" onClick={() => setOpen(false)}>
+          Fermer
+        </button>
+      </div>
+    </form>
+  );
+}
+
+export function CancelProspectButton({
+  action,
+  prospectId,
+}: {
+  action: (previous: AdminActionState, formData: FormData) => Promise<AdminActionState>;
+  prospectId: string;
+}) {
+  const [state, formAction] = useActionState(action, INITIAL);
+  if (state.status === 'ok') return <Notice state={state} />;
+  return (
+    <form action={formAction}>
+      <Notice state={state} />
+      <input type="hidden" name="prospect" value={prospectId} />
+      <button type="submit" className="btn btn--ghost">
+        Annuler la déclaration
+      </button>
+    </form>
+  );
+}

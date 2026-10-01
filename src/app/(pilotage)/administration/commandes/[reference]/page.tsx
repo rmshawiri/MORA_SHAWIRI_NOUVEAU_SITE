@@ -3,6 +3,7 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 
 import AdminPage from '@/components/admin/AdminPage';
+import AffiliationTrace from '@/components/admin/AffiliationTrace';
 import CommerceReasonForm from '@/components/admin/CommerceReasonForm';
 import ConfirmForm from '@/components/admin/ConfirmForm';
 import OrderMoneyForm from '@/components/admin/OrderMoneyForm';
@@ -62,10 +63,13 @@ export const metadata: Metadata = {
  */
 export default async function CommandeFichePage({
   params,
+  searchParams,
 }: {
   params: Promise<{ reference: string }>;
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const { reference } = await params;
+  const { affiliation: affiliationNotice } = await searchParams;
   const context = await requireModule('commandes');
 
   const detail = await findOrder(decodeURIComponent(reference));
@@ -602,6 +606,16 @@ export default async function CommandeFichePage({
           </p>
         ) : null}
       </section>
+
+      {/* Phase 4H — l'attribution affiliée de la commande (traçabilité § 36). */}
+      <AffiliationTrace
+        context={context}
+        target="ORDER"
+        id={order.id}
+        path={`/administration/commandes/${order.reference}/`}
+        notice={affiliationNotice}
+        orderOpen={order.status !== 'TERMINEE' && order.status !== 'ANNULEE' && Number(order.paid_amount) === 0}
+      />
     </AdminPage>
   );
 }

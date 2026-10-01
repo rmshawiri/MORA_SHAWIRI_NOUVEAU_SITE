@@ -255,6 +255,73 @@ export type AffiliateCodeRow = {
   updated_at: string;
 };
 
+export type ProspectStatus = 'DECLARE' | 'A_VERIFIER' | 'RECONNU' | 'CONVERTI' | 'REFUSE' | 'ANNULE';
+
+/** Sans `review_hint` : réservé à l'administration, jamais accordé à une session. */
+export type AffiliateProspectRow = {
+  id: string;
+  affiliate_id: string;
+  status: ProspectStatus;
+  full_name: string;
+  company: string | null;
+  phone: string;
+  email: string | null;
+  need: string;
+  comment: string | null;
+  consent_confirmed: boolean;
+  lead_id: string | null;
+  review_reason: string | null;
+  reviewed_at: string | null;
+  recognized_at: string | null;
+  protected_until: string | null;
+  converted_at: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type AttributionSource = 'LIEN' | 'CODE' | 'PROSPECT' | 'ADMINISTRATION';
+export type AttributionStatus = 'ACTIVE' | 'VALIDEE' | 'REMPLACEE' | 'REVOQUEE';
+
+export type AffiliateAttributionRow = {
+  id: string;
+  affiliate_id: string;
+  source: AttributionSource;
+  status: AttributionStatus;
+  quote_request_id: string | null;
+  order_id: string | null;
+  lead_id: string | null;
+  click_id: string | null;
+  campaign_id: string | null;
+  code_id: string | null;
+  prospect_id: string | null;
+  derived_from_id: string | null;
+  reason: string | null;
+  created_by: string | null;
+  created_at: string;
+  validated_by: string | null;
+  validated_at: string | null;
+  ended_by: string | null;
+  ended_at: string | null;
+  end_reason: string | null;
+};
+
+export type AffiliateCodeUseRow = {
+  id: string;
+  code_id: string;
+  affiliate_id: string;
+  order_id: string;
+  attribution_id: string | null;
+  status: 'ACTIVE' | 'RETIREE';
+  discount_total: number;
+  lines: Json;
+  code_snapshot: Json;
+  applied_by: string | null;
+  applied_at: string;
+  removed_by: string | null;
+  removed_at: string | null;
+  remove_reason: string | null;
+};
+
 type Rel = {
   foreignKeyName: string;
   columns: string[];
@@ -302,6 +369,10 @@ export type AffiliationTables = {
     Pick<AffiliateCodeRow, 'affiliate_id' | 'code' | 'discount_kind' | 'discount_value'> & Partial<AffiliateCodeRow>,
     Partial<AffiliateCodeRow>
   >;
+  affiliate_prospects: T<AffiliateProspectRow>;
+  affiliate_attributions: T<AffiliateAttributionRow>;
+  affiliate_code_uses: T<AffiliateCodeUseRow>;
+  affiliate_clicks: T<{ id: string; affiliate_id: string; campaign_id: string | null; landing_path: string | null; window_days: number; created_at: string }>;
   email_outbox: T<
     EmailOutboxRow,
     Pick<EmailOutboxRow, 'template' | 'recipient' | 'subject' | 'html_body' | 'text_body'> &
@@ -439,4 +510,62 @@ export type AffiliationFunctions = {
     Returns: AffiliateCampaignRow;
   };
   find_auth_user_by_email: { Args: { p_email: string }; Returns: string | null };
+  attach_click_to_request: { Args: { p_reference: string; p_click_token: string }; Returns: string | null };
+  declare_affiliate_prospect: {
+    Args: {
+      p_full_name: string;
+      p_company: string | null;
+      p_phone: string;
+      p_email: string | null;
+      p_need: string;
+      p_comment: string | null;
+      p_consent: boolean;
+    };
+    Returns: AffiliateProspectRow;
+  };
+  cancel_affiliate_prospect: { Args: { p_prospect_id: string }; Returns: AffiliateProspectRow };
+  review_affiliate_prospect: {
+    Args: { p_prospect_id: string; p_status: string; p_reason?: string | null; p_lead_email?: string | null };
+    Returns: AffiliateProspectRow;
+  };
+  attribute_affair: {
+    Args: { p_target_type: 'ORDER' | 'REQUEST'; p_target_id: string; p_affiliate_id: string; p_reason: string };
+    Returns: AffiliateAttributionRow;
+  };
+  validate_attribution: { Args: { p_attribution_id: string }; Returns: AffiliateAttributionRow };
+  revoke_attribution: { Args: { p_attribution_id: string; p_reason: string }; Returns: AffiliateAttributionRow };
+  apply_affiliate_code: {
+    Args: { p_order_id: string; p_code: string; p_reason?: string | null };
+    Returns: AffiliateCodeUseRow;
+  };
+  remove_affiliate_code: { Args: { p_order_id: string; p_reason: string }; Returns: AffiliateCodeUseRow };
+  my_affiliate_conversions: {
+    Args: Record<string, never>;
+    Returns: {
+      order_reference: string;
+      ordered_at: string;
+      offer: string | null;
+      amount: number;
+      order_status: string;
+      settlement: string;
+      source: string;
+      attribution: string;
+    }[];
+  };
+  affiliate_stats: {
+    Args: { p_affiliate_id: string };
+    Returns: {
+      clicks: number;
+      prospects: number;
+      prospects_recognized: number;
+      requests: number;
+      conversions: number;
+      attributed_amount: number;
+    }[];
+  };
+  affiliate_click_stats: {
+    Args: { p_affiliate_id: string };
+    Returns: { campaign_id: string | null; clicks: number; requests: number }[];
+  };
+  affiliate_prospect_hints: { Args: { p_affiliate_id: string | null }; Returns: { prospect_id: string; hint: string }[] };
 };

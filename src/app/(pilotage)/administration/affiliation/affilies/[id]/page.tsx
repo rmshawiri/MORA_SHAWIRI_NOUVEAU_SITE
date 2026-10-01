@@ -3,6 +3,7 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 
 import AdminPage from '@/components/admin/AdminPage';
+import AffiliateAttributionPanel from '@/components/admin/AffiliateAttributionPanel';
 import AffiliateRuleEditor from '@/components/admin/AffiliateRuleEditor';
 import AffiliationDecisionForm, { type DecisionInput } from '@/components/admin/AffiliationDecisionForm';
 import {
@@ -80,6 +81,11 @@ const RESULTS: Record<string, string> = {
   NOTE: 'La note est enregistrée.',
   IDENTITE: 'L’identité est mise à jour.',
   RENVOI: 'L’e-mail est reparti.',
+};
+const PROSPECT_RESULTS: Record<string, string> = {
+  PROSPECT_A_VERIFIER: 'Le prospect est pris en vérification.',
+  PROSPECT_RECONNU: 'Le prospect est reconnu et protégé pour cet affilié.',
+  PROSPECT_REFUSE: 'L’origine du prospect est refusée.',
 };
 const MAIL_RESULTS: Record<string, string> = {
   sent: ' L’affilié a été notifié par e-mail.',
@@ -162,7 +168,7 @@ export default async function AffiliePage({
 
   const pick = (table: Record<string, string>, key: unknown) =>
     typeof key === 'string' && Object.hasOwn(table, key) ? table[key] : undefined;
-  const result = pick(RESULTS, query.resultat);
+  const result = pick(RESULTS, query.resultat) ?? pick(PROSPECT_RESULTS, query.affiliation);
   const mailResult = pick(MAIL_RESULTS, query.mail) ?? '';
 
   const site = getSiteUrl();
@@ -572,6 +578,16 @@ export default async function AffiliePage({
           />
         ) : null}
       </section>
+
+      {/* ------------------------------------------------------------ Attribution */}
+      {affiliate.status !== 'PREPARATION' ? (
+        <AffiliateAttributionPanel
+          context={context}
+          affiliateId={affiliate.id}
+          campaigns={campaigns}
+          path={`/administration/affiliation/affilies/${affiliate.id}/`}
+        />
+      ) : null}
 
       {/* ------------------------------------------------- Liens et campagnes */}
       <section className="admin-card">

@@ -41,6 +41,9 @@ export default async function AffiliationPage() {
           <Link className="btn btn--ghost" href="/administration/affiliation/affilies/">
             Affiliés
           </Link>
+          <Link className="btn btn--ghost" href="/administration/affiliation/prospects/">
+            Prospects déclarés
+          </Link>
           <Link className="btn btn--ghost" href="/administration/affiliation/categories/">
             Catégories et règles
           </Link>
