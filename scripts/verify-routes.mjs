@@ -113,6 +113,7 @@ async function anonymousRoutes(base) {
     '/services/',
     '/boutique/',
     '/affiliation/',
+    '/affiliation/inscription/',
     '/qui-sommes-nous/',
     '/faq/',
     '/contact/',
@@ -246,6 +247,15 @@ async function publicIntegrity(base) {
   for (const rate of ['10', '12', '15']) {
     check(`le taux ${rate} % figure toujours sur la page Affiliation`, affiliation.body.includes(`${rate}`));
   }
+  // Phase 4H : les trois appels à l'inscription ouvrent la candidature.
+  const toInscription = (affiliation.body.match(/href="\/affiliation\/inscription\/"/g) ?? []).length;
+  check('les trois CTA d’inscription ouvrent /affiliation/inscription/', toInscription === 3, String(toInscription));
+  const inscription = await visit(base, '/affiliation/inscription/');
+  check('la page de candidature répond', inscription.status === 200);
+  check(
+    'la candidature ne propose aucune catégorie interne',
+    !/Équipe MORA Shawiri|Recruté MORA Shawiri/.test(inscription.body),
+  );
 
   // La feuille du site public ne doit pas embarquer les styles de compte.
   const styleLinks = [...home.body.matchAll(/href="([^"]*\.css)"/g)].map((match) => match[1]);
@@ -1091,6 +1101,7 @@ async function secretLeakChecks(base) {
     '/',
     '/services/',
     '/affiliation/',
+    '/affiliation/inscription/',
     '/contact/',
     '/boutique/',
     '/connexion/',

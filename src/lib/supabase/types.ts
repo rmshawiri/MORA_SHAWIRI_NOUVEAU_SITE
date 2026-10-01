@@ -13,6 +13,8 @@
  * Chaque phase ultérieure ajoute les siennes en même temps que sa migration.
  */
 
+import type { AffiliationFunctions, AffiliationTables } from './types-affiliation';
+
 export type Json = string | number | boolean | null | { [key: string]: Json } | Json[];
 
 export type ProfileStatus = 'ACTIF' | 'SUSPENDU' | 'DESACTIVE';
@@ -830,6 +832,8 @@ export type PaymentMethodRow = {
   account_holder: string | null;
   requires_proof: boolean;
   sort_order: number;
+  /** Phase 4H : ce moyen peut servir à verser des commissions. */
+  payout_enabled: boolean;
   metadata: Json;
   created_at: string;
   updated_at: string;
@@ -1563,9 +1567,9 @@ export type Database = {
         OrderStatusHistoryRelationships
       >;
       order_events: Table<OrderEventRow, never, never, OrderEventRelationships>;
-    };
+    } & AffiliationTables;
     Views: Record<never, never>;
-    Functions: {
+    Functions: AffiliationFunctions & {
       current_permissions: {
         Args: Record<string, never>;
         Returns: string[];

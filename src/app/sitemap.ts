@@ -13,6 +13,7 @@ const staticRoutes: { path: string; priority: number; changeFrequency: 'monthly'
   { path: '/faq/', priority: 0.8, changeFrequency: 'monthly' },
   { path: '/qui-sommes-nous/', priority: 0.7, changeFrequency: 'yearly' },
   { path: '/affiliation/', priority: 0.7, changeFrequency: 'monthly' },
+  { path: '/affiliation/inscription/', priority: 0.6, changeFrequency: 'yearly' },
   { path: '/rendez-vous/', priority: 0.7, changeFrequency: 'yearly' },
   { path: '/contact/', priority: 0.7, changeFrequency: 'yearly' },
   { path: '/blog/', priority: 0.6, changeFrequency: 'monthly' },

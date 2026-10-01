@@ -1,0 +1,152 @@
+/*
+ * Page d'inscription au programme d'affiliation — phase 4H.
+ *
+ * Chargée par cette seule page : aucune règle d'ici n'atteint une autre page,
+ * et le CSS du site existant reste octet pour octet celui qui a été validé.
+ *
+ * Elle n'invente aucune identité : elle complète les classes de la prise de
+ * rendez-vous (`rdv-*`) et du formulaire de contact (`form`, `field`), avec
+ * les jetons du design system (`--mora-blue`, `--shawiri-gold`, `--sp-*`…).
+ */
+
+/* Repères d'étapes : six pastilles, la courante en or. */
+.aff-steps {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: var(--sp-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  counter-reset: none;
+}
+.aff-steps li {
+  display: grid;
+  justify-items: center;
+  gap: 6px;
+  min-width: 0;
+  text-align: center;
+  color: var(--text-secondary);
+  font-size: var(--text-caption);
+}
+.aff-steps__dot {
+  display: inline-grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 2px solid var(--gray-secondary, #e5e7eb);
+  background: var(--white);
+  font-weight: 700;
+  font-size: .8125rem;
+  color: var(--text-secondary);
+}
+.aff-steps li.is-done .aff-steps__dot {
+  border-color: var(--mora-blue);
+  background: var(--mora-blue);
+  color: var(--white);
+}
+.aff-steps li.is-current .aff-steps__dot {
+  border-color: var(--mora-blue);
+  background: var(--shawiri-gold);
+  color: var(--mora-blue-deep);
+}
+.aff-steps li.is-current { color: var(--mora-blue-deep); font-weight: 700; }
+.aff-steps__label { overflow-wrap: anywhere; line-height: 1.25; }
+
+/* Le titre d'étape reçoit le focus à chaque changement : sans contour criard. */
+.aff-step-title { margin: 0; font-family: var(--font-display); }
+.aff-step-title:focus { outline: none; }
+.aff-step-title:focus-visible { outline: 3px solid var(--shawiri-gold); outline-offset: 4px; }
+.aff-step-lead { margin: 0; }
+
+.aff-restored {
+  margin: 0;
+  padding: var(--sp-3) var(--sp-4);
+  border-radius: var(--r-btn);
+  background: var(--gray-light, #f8f9fa);
+  font-size: var(--text-caption);
+  color: var(--text-secondary);
+}
+
+.aff-optional { font-weight: 400; color: var(--text-secondary); }
+
+/* Choix en cartes : de vrais boutons radio, visuellement ceux du rendez-vous. */
+.aff-choices { margin: 0; padding: 0; border: 0; min-width: 0; display: grid; gap: var(--sp-3); }
+.aff-choices__legend {
+  padding: 0;
+  margin-bottom: var(--sp-2);
+  font-weight: 600;
+  color: var(--mora-blue-deep);
+}
+.aff-opt { position: relative; cursor: pointer; align-items: flex-start; }
+.aff-opt__input {
+  position: absolute;
+  opacity: 0;
+  width: 1px;
+  height: 1px;
+  margin: 0;
+  pointer-events: none;
+}
+.aff-opt:focus-within { outline: 3px solid var(--shawiri-gold); outline-offset: 2px; }
+.aff-opt__title { display: block; color: var(--mora-blue-deep); }
+.aff-opt__desc { display: block; margin-top: 4px; font-size: var(--text-caption); color: var(--text-secondary); font-weight: 400; }
+.aff-options--compact { grid-template-columns: repeat(auto-fit, minmax(min(100%, 200px), 1fr)); }
+
+/* Récapitulatif par étape, chacune modifiable. */
+.aff-recap { display: grid; gap: var(--sp-5); }
+.aff-recap__group { display: grid; gap: var(--sp-3); min-width: 0; }
+.aff-recap__head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--sp-3); }
+.aff-recap__head h3 { margin: 0; font-size: 1.0625rem; }
+
+.aff-consent {
+  display: flex;
+  gap: var(--sp-3);
+  align-items: flex-start;
+  padding: var(--sp-4);
+  border: 1px solid var(--border, #e5e7eb);
+  border-radius: var(--r-btn);
+  background: var(--white);
+}
+.aff-consent input {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  margin-top: 2px;
+  accent-color: var(--mora-blue);
+}
+.aff-consent label { font-size: var(--text-caption); line-height: 1.55; }
+.aff-consent a { color: var(--mora-blue); text-decoration: underline; }
+
+.aff-honeypot {
+  position: absolute !important;
+  left: -10000px;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+}
+
+/* Suite du parcours, dans l'encart latéral. */
+.aff-next { counter-reset: aff-next; display: grid; gap: var(--sp-4); }
+.aff-next li { display: grid; grid-template-columns: 32px minmax(0, 1fr); gap: var(--sp-3); align-items: start; }
+.aff-next li::before {
+  counter-increment: aff-next;
+  content: counter(aff-next);
+  display: inline-grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--shawiri-gold);
+  color: var(--mora-blue-deep);
+  font-weight: 800;
+}
+.aff-next strong { display: block; font-family: var(--font-display); color: var(--white); }
+.aff-next span { color: rgba(255, 255, 255, .82); font-size: var(--text-caption); }
+
+@media (max-width: 720px) {
+  /* Six libellés ne tiennent pas sur un téléphone : les pastilles restent, et
+     le titre de l'étape s'affiche en clair juste en dessous. Les libellés
+     demeurent lisibles par les lecteurs d'écran. */
+  .aff-steps__label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+  .aff-recap__head { flex-wrap: wrap; }
+}

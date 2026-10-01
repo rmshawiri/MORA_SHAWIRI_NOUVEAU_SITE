@@ -229,7 +229,7 @@ export default function AffiliationPage() {
                 relation utile.
               </p>
             </div>
-            <Link className="btn btn--gold" href="/contact/">
+            <Link className="btn btn--gold" href="/affiliation/inscription/">
               Devenir partenaire <ArrowRight />
             </Link>
           </div>
@@ -308,6 +308,7 @@ export default function AffiliationPage() {
         title="Devenez partenaire dès aujourd’hui"
         text="Inscription gratuite en deux minutes : envoyez-nous un message en mentionnant « Affiliation »."
         primaryLabel="M’inscrire au programme"
+        primaryHref="/affiliation/inscription/"
         whatsappMessage="Bonjour MORA Shawiri, je souhaite rejoindre le programme d’affiliation."
       />
     </>

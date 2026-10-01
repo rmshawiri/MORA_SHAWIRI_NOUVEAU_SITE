@@ -62,6 +62,10 @@ const PASSWORD = `Verif-4H-${randomUUID()}`;
 const RUN = randomUUID().slice(0, 6).toUpperCase().replace(/[^A-Z]/g, 'X');
 const CATEGORY_CODE = `ZZ_VERIF_${RUN}`;
 const SEQUENCES = ['AFIL', 'FIAF', 'RVAF', 'COMAF'];
+const TABLES = [
+  'affiliates', 'affiliate_rules', 'affiliate_categories', 'affiliate_notes', 'affiliate_events',
+  'affiliate_applications', 'affiliate_application_events', 'email_outbox',
+];
 
 const sessionClient = (target) =>
   createClient(target.url, target.publishableKey, {
@@ -466,10 +470,196 @@ async function checkIsolation(target, admin, sessions, state) {
   check('le code d’une catégorie est stable', refused(catCode));
 }
 
+
+/* ========================================================================== */
+/* 4H-2 — candidatures                                                        */
+/* ========================================================================== */
+
+const application = (overrides = {}) => ({
+  p_first_name: 'Contrôle',
+  p_last_name: `Verif ${RUN}`,
+  p_email: `${PREFIX}-candidat-${randomUUID().slice(0, 8)}@${TEST_DOMAIN}`,
+  p_phone: '+269 000 00 00',
+  p_country: 'Union des Comores',
+  p_city: 'Moroni',
+  p_profile: 'APPORTEUR',
+  p_answers: { secteurs: 'Commerce', clientele: 'PME de Moroni' },
+  p_motivation: 'Contrôle automatisé de la phase 4H.',
+  p_idea: null,
+  p_payout_method: 'MVOLA',
+  p_payout_details: { numero: '000 00 00', titulaire: 'Contrôle Verif' },
+  p_consent: true,
+  p_consent_version: 'affiliation-candidature-1',
+  p_client_hash: `verif-${randomUUID()}`,
+  ...overrides,
+});
+
+async function checkApplications(target, admin, sessions, state) {
+  log.step('Candidatures : dépôt public, décisions, confidentialité');
+
+  const anon = sessionClient(target);
+
+  const methods = await anon.rpc('affiliate_payout_methods');
+  const codes = (methods.data ?? []).map((row) => row.code);
+  check('l’anonyme lit les moyens de versement proposés', !methods.error && codes.includes('MVOLA'), methods.error?.message);
+  check('Wakati n’est pas proposé pour les versements', !codes.includes('WAKATI'));
+  check('la liste publique ne transporte aucun numéro de compte',
+    (methods.data ?? []).every((row) => !('account_number' in row) && !('instructions' in row)));
+
+  const first = await anon.rpc('submit_affiliate_application', application({ p_email: state.candidateEmail }));
+  check('un visiteur anonyme dépose une candidature', !first.error && first.data?.[0]?.duplicate === false, first.error?.message);
+  state.applicationId = first.data?.[0]?.application_id;
+  state.applicationIds = [state.applicationId];
+
+  const again = await anon.rpc('submit_affiliate_application', application({ p_email: state.candidateEmail.toUpperCase() }));
+  check('un second dépôt de la même adresse rejoint le premier, sans doublon',
+    again.data?.[0]?.duplicate === true && again.data?.[0]?.application_id === state.applicationId, again.error?.message);
+
+  check('le consentement est obligatoire',
+    Boolean((await anon.rpc('submit_affiliate_application', application({ p_consent: false }))).error));
+  check('un moyen non autorisé pour les versements est refusé',
+    Boolean((await anon.rpc('submit_affiliate_application', application({ p_payout_method: 'WAKATI' }))).error));
+  check('des coordonnées incomplètes sont refusées',
+    Boolean((await anon.rpc('submit_affiliate_application', application({ p_payout_details: { numero: '000 00 00' } }))).error));
+  check('un champ de versement étranger au moyen est refusé',
+    Boolean((await anon.rpc('submit_affiliate_application', application({
+      p_payout_details: { numero: '000 00 00', titulaire: 'X', compte: 'intrus' },
+    }))).error));
+  check('un profil interne ne peut pas être demandé',
+    Boolean((await anon.rpc('submit_affiliate_application', application({ p_profile: 'EQUIPE' }))).error));
+  check('des réponses imbriquées sont refusées',
+    Boolean((await anon.rpc('submit_affiliate_application', application({ p_answers: { secteurs: { x: 1 } } }))).error));
+
+  const hash = `verif-limite-${randomUUID()}`;
+  let limited = false;
+  for (let i = 0; i < 4; i += 1) {
+    const result = await anon.rpc('submit_affiliate_application', application({ p_client_hash: hash }));
+    if (result.data?.[0]?.application_id) state.applicationIds.push(result.data[0].application_id);
+    if (result.error?.code === '54000') limited = true;
+  }
+  check('la base limite les dépôts répétés depuis une même empreinte', limited);
+
+  // Aucune lecture, aucune écriture directe pour les sessions sans droit.
+  const outsiders = [
+    ['l’anonyme', anon],
+    ['un client', sessions.client],
+    ['un affilié', sessions.affA],
+    ['un ADMIN sans permission', sessions.nu],
+  ];
+  for (const [who, client] of outsiders) {
+    check(`${who} ne lit aucune candidature`, empty(await client.from('affiliate_applications').select('id').limit(1)));
+    check(`${who} ne lit aucun e-mail journalisé`, empty(await client.from('email_outbox').select('id').limit(1)));
+  }
+  check('l’anonyme n’écrit pas directement une candidature',
+    Boolean((await anon.from('affiliate_applications').insert({ first_name: 'x' })).error));
+
+  // Lecture administrative : sans les coordonnées de versement.
+  const read = await sessions.candidatures.from('affiliate_applications').select('id, email, payout_method_code').eq('id', state.applicationId);
+  check('affiliate_applications.view lit la candidature', (read.data ?? []).length === 1, read.error?.message);
+  const details = await sessions.candidatures.from('affiliate_applications').select('payout_details').eq('id', state.applicationId);
+  check('la colonne des coordonnées n’est lisible par aucune session', Boolean(details.error));
+  const viaFunction = await sessions.candidatures.rpc('application_payout_details', { p_application_id: state.applicationId });
+  check('sans payouts.view, les coordonnées restent fermées', Boolean(viaFunction.error));
+  const withPayouts = await sessions.tresorier.rpc('application_payout_details', { p_application_id: state.applicationId });
+  check('payouts.view lit les coordonnées souhaitées', withPayouts.data?.numero === '000 00 00', withPayouts.error?.message);
+
+  // Décisions.
+  const review = (client, status, extra = {}) =>
+    client.rpc('review_affiliate_application', {
+      p_application_id: state.applicationId, p_status: status, p_message: null, p_reason: null, ...extra,
+    });
+  check('affiliate_applications.view seul ne décide rien', Boolean((await review(sessions.candidatures, 'EN_ETUDE')).error));
+  const study = await review(sessions.decideur, 'EN_ETUDE');
+  check('affiliate_applications.manage passe la candidature à l’étude', !study.error && study.data?.status === 'EN_ETUDE', study.error?.message);
+  check('une demande d’informations exige un message', Boolean((await review(sessions.decideur, 'INFOS_REQUISES')).error));
+  const info = await review(sessions.decideur, 'INFOS_REQUISES', { p_message: 'Pouvez-vous préciser vos secteurs ?' });
+  check('la demande d’informations est enregistrée', !info.error && info.data?.info_request?.startsWith('Pouvez-vous'), info.error?.message);
+  check('un refus exige un motif interne', Boolean((await review(sessions.decideur, 'REFUSEE')).error));
+
+  const tamper = await admin.from('affiliate_applications').update({ email: 'autre@exemple.org' }).eq('id', state.applicationId).select();
+  check('le contenu transmis par le candidat ne se réécrit pas, même avec la clé de service', refused(tamper));
+  const jump = await admin.from('affiliate_applications').update({ status: 'NOUVELLE' }).eq('id', state.applicationId).select();
+  check('le graphe des statuts tient pour tous les rôles', refused(jump));
+
+  // Acceptation : exige aussi affiliates.create.
+  const accept = (client) =>
+    client.rpc('accept_affiliate_application', {
+      p_application_id: state.applicationId, p_category_id: state.category.id, p_message: null,
+    });
+  check('accepter sans affiliates.create est refusé', Boolean((await accept(sessions.decideur)).error));
+  const accepted = await accept(sessions.accepteur);
+  check('l’acceptation crée une fiche affilié en préparation',
+    !accepted.error && accepted.data?.status === 'PREPARATION' && accepted.data?.reference === null, accepted.error?.message);
+  state.acceptedAffiliateId = accepted.data?.id;
+  check('le lien principal est propre et sans donnée sensible',
+    /^[a-z0-9]+(-[a-z0-9]+)*$/.test(accepted.data?.slug ?? '') && !String(accepted.data?.slug).includes('@'),
+    accepted.data?.slug);
+  const replay = await accept(sessions.accepteur);
+  check('rejouer l’acceptation rend la même fiche, sans en créer une seconde', replay.data?.id === state.acceptedAffiliateId);
+  const refuseAfter = await review(sessions.decideur, 'REFUSEE', { p_reason: 'test' });
+  check('une candidature acceptée ne peut plus être refusée', Boolean(refuseAfter.error));
+
+  const { data: events } = await admin.from('affiliate_application_events')
+    .select('event_type, actor_id').eq('application_id', state.applicationId);
+  const kinds = new Set((events ?? []).map((e) => e.event_type));
+  check('l’historique trace réception, étude, demande et acceptation',
+    ['CANDIDATURE_RECUE', 'STATUT_EN_ETUDE', 'STATUT_INFOS_REQUISES', 'STATUT_ACCEPTEE'].every((k) => kinds.has(k)),
+    [...kinds].join(', '));
+  const { count: audits } = await admin.from('audit_logs').select('id', { count: 'exact', head: true })
+    .eq('resource_id', state.applicationId).like('action', 'affiliation.candidature.%');
+  check('le journal d’audit reçoit les décisions', (audits ?? 0) >= 3, String(audits));
+
+  const note = await sessions.decideur.rpc('note_affiliate_application', { p_application_id: state.applicationId, p_body: 'Note de contrôle' });
+  check('une note interne s’ajoute à l’historique', !note.error, note.error?.message);
+  const eventsTamper = await admin.from('affiliate_application_events').delete().eq('application_id', state.applicationId).select();
+  check('l’historique d’une candidature ne se supprime pas', refused(eventsTamper));
+
+  // Journal des e-mails : écrit par le serveur seul, lu sous permission.
+  const { data: mail, error: mailError } = await admin.from('email_outbox').insert({
+    template: 'affiliation.candidature.controle', recipient: state.candidateEmail, subject: 'Contrôle',
+    html_body: '<p>x</p>', text_body: 'x', entity_type: 'affiliate_application', entity_id: state.applicationId,
+  }).select().single();
+  check('le serveur journalise un e-mail', !mailError, mailError?.message);
+  check('affiliate_applications.view lit les e-mails de la candidature',
+    ((await sessions.candidatures.from('email_outbox').select('id').eq('id', mail?.id)).data ?? []).length === 1);
+  check('une session n’écrit pas dans le journal des e-mails',
+    Boolean((await sessions.decideur.from('email_outbox').insert({
+      template: 'x.y.z', recipient: 'a@b.cd', subject: 's', html_body: 'h', text_body: 't',
+    })).error));
+  const secretError = await admin.from('email_outbox')
+    .update({ status: 'ECHEC', last_error: 'Invalid password=abc' }).eq('id', mail?.id).select();
+  check('le journal refuse une erreur qui transporterait un secret', refused(secretError));
+}
+
 /* ========================================================================== */
 
 async function teardown(target, accessToken, admin, state, before) {
   log.step('Nettoyage des données de contrôle');
+
+  // Candidatures de contrôle : leur historique (protégé en ajout seul) et
+  // leurs e-mails d'abord, puis les candidatures, puis les fiches nées d'une
+  // acceptation de contrôle.
+  const appIds = (state.applicationIds ?? []).filter(Boolean);
+  const { data: strayApps } = await admin.from('affiliate_applications').select('id').like('email', `${PREFIX}-%`);
+  for (const row of strayApps ?? []) if (!appIds.includes(row.id)) appIds.push(row.id);
+  if (appIds.length > 0) {
+    const list = appIds.map((id) => `'${id}'`).join(', ');
+    await runSql(target, accessToken, `
+      begin;
+      alter table public.affiliate_application_events disable trigger affiliate_application_events_append_only;
+      alter table public.affiliate_events disable trigger affiliate_events_append_only;
+      delete from public.email_outbox where entity_type = 'affiliate_application' and entity_id in (${list});
+      delete from public.affiliate_application_events where application_id in (${list});
+      delete from public.affiliate_applications where id in (${list});
+      alter table public.affiliate_application_events enable trigger affiliate_application_events_append_only;
+      alter table public.affiliate_events enable trigger affiliate_events_append_only;
+      commit;
+    `).catch((error) => log.fail(`démontage des candidatures : ${error.message}`));
+  }
+  await runSql(target, accessToken,
+    `delete from public.rate_limit_counters where bucket = 'affiliation.candidature' and subject_hash like 'verif-%';`,
+  ).catch(() => {});
+
 
   // Une transaction : les gardes d'immuabilité ne sont levés que le temps de
   // supprimer des données de contrôle, et reviennent quoi qu'il arrive.
@@ -495,7 +685,7 @@ async function teardown(target, accessToken, admin, state, before) {
     delete from public.affiliate_events e
      using public.affiliate_categories c
      where e.category_id = c.id and c.code like 'ZZ_VERIF_%';
-    delete from public.affiliates where slug like '${PREFIX}-%';
+    delete from public.affiliates where slug like '${PREFIX}-%' or contact_email like '${PREFIX}-%';
     delete from public.affiliate_categories where code like 'ZZ_VERIF_%';
     alter table public.affiliate_rules  enable trigger affiliate_rules_immutable;
     alter table public.affiliate_rules  enable trigger affiliate_rules_history;
@@ -510,12 +700,13 @@ async function teardown(target, accessToken, admin, state, before) {
 
   const triggers = await runSql(target, accessToken, `
     select tgname, tgenabled from pg_trigger
-     where tgname in ('affiliate_rules_immutable', 'affiliate_rules_history', 'affiliate_events_append_only');
+     where tgname in ('affiliate_rules_immutable', 'affiliate_rules_history', 'affiliate_events_append_only',
+                      'affiliate_application_events_append_only');
   `).catch(() => []);
   check('les gardes d’immuabilité sont réactivés',
-    (triggers ?? []).length === 3 && triggers.every((t) => t.tgenabled === 'O'), JSON.stringify(triggers));
+    (triggers ?? []).length === 4 && triggers.every((t) => t.tgenabled === 'O'), JSON.stringify(triggers));
 
-  for (const table of ['affiliates', 'affiliate_rules', 'affiliate_categories', 'affiliate_notes', 'affiliate_events']) {
+  for (const table of TABLES) {
     const { count } = await admin.from(table).select('id', { count: 'exact', head: true });
     check(`aucun résidu de contrôle dans ${table}`, count === before.counts[table], `${count} contre ${before.counts[table]}`);
   }
@@ -551,7 +742,7 @@ async function main() {
   const sequences = {};
   for (const row of rows ?? []) sequences[row.doc_type] = row;
   const counts = {};
-  for (const table of ['affiliates', 'affiliate_rules', 'affiliate_categories', 'affiliate_notes', 'affiliate_events']) {
+  for (const table of TABLES) {
     const { count } = await admin.from(table).select('id', { count: 'exact', head: true });
     counts[table] = count ?? 0;
   }
@@ -570,6 +761,11 @@ async function main() {
     state.lecteur = await createAccount(admin, { roleCode: 'ADMIN', label: 'lecteur', grants: ['affiliates.view'] });
     state.editeur = await createAccount(admin, { roleCode: 'ADMIN', label: 'editeur', grants: ['affiliates.view', 'affiliates.update'] });
     state.regles = await createAccount(admin, { roleCode: 'ADMIN', label: 'regles', grants: ['affiliates.view', 'affiliate_rules.manage'] });
+    state.candidatures = await createAccount(admin, { roleCode: 'ADMIN', label: 'candidatures', grants: ['affiliates.view', 'affiliate_applications.view'] });
+    state.decideur = await createAccount(admin, { roleCode: 'ADMIN', label: 'decideur', grants: ['affiliates.view', 'affiliate_applications.view', 'affiliate_applications.manage'] });
+    state.accepteur = await createAccount(admin, { roleCode: 'ADMIN', label: 'accepteur', grants: ['affiliates.view', 'affiliate_applications.view', 'affiliate_applications.manage', 'affiliates.create'] });
+    state.tresorier = await createAccount(admin, { roleCode: 'ADMIN', label: 'tresorier', grants: ['affiliates.view', 'affiliate_applications.view', 'payouts.view'] });
+    state.candidateEmail = `${PREFIX}-candidat-${randomUUID().slice(0, 8)}@${TEST_DOMAIN}`;
     state.derogateur = await createAccount(admin, {
       roleCode: 'ADMIN', label: 'derogateur', grants: ['affiliates.view', 'affiliate_rules.manage', 'affiliate_rules.derogate'],
     });
@@ -600,7 +796,7 @@ async function main() {
     check('les affiliés de contrôle sont créés (série ZZ)', true);
 
     const sessions = {};
-    for (const key of ['client', 'nu', 'lecteur', 'editeur', 'regles', 'derogateur']) {
+    for (const key of ['client', 'nu', 'lecteur', 'editeur', 'regles', 'derogateur', 'candidatures', 'decideur', 'accepteur', 'tresorier']) {
       sessions[key] = await signIn(target, state[key].email);
     }
     sessions.affA = await signIn(target, state.userA.email);
@@ -608,6 +804,7 @@ async function main() {
 
     await checkRules(admin, sessions, state);
     await checkIsolation(target, admin, sessions, state);
+    await checkApplications(target, admin, sessions, state);
   } catch (error) {
     results.failed += 1;
     log.fail(`interruption : ${error.message}`);

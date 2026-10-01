@@ -1,7 +1,7 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { whatsappLink } from '@/lib/site';
+import Link from 'next/link';
 
 /** Taux de commission publiés sur la page Affiliation. */
 const RATES = [
@@ -14,8 +14,6 @@ const DEFAULT_AMOUNT = 450_000;
 const DEFAULT_RATE = 12;
 
 const formatter = new Intl.NumberFormat('fr-FR', { maximumFractionDigits: 0 });
-
-const JOIN_MESSAGE = 'Bonjour MORA Shawiri, je souhaite rejoindre le programme d’affiliation.';
 
 /**
  * Simulateur de commission du programme d'affiliation.
@@ -86,14 +84,11 @@ export default function CommissionCalculator() {
         <p style={{ fontSize: '.875rem', margin: 0 }}>
           Versée dès l’encaissement du premier acompte, par mobile money ou virement.
         </p>
-        <a
-          className="btn btn--gold btn--block"
-          href={whatsappLink(JOIN_MESSAGE)}
-          target="_blank"
-          rel="noopener noreferrer"
-        >
+        {/* Phase 4H : seule la destination change — la candidature en ligne
+            remplace le message WhatsApp. Libellé, classes et place inchangés. */}
+        <Link className="btn btn--gold btn--block" href="/affiliation/inscription/">
           Obtenir mon code partenaire
-        </a>
+        </Link>
       </div>
     </div>
   );
