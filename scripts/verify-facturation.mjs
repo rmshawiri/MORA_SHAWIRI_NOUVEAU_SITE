@@ -389,7 +389,7 @@ async function checkReversible(state) {
        end $probe$;`,
     ).then(
       () => 'aucun',
-      (error) => /resultat=(true|false)/.exec(error.message)?.[1] ?? 'illisible',
+      (error) => ({ t: 'true', f: 'false' })[/resultat=([tf])/.exec(error.message)?.[1] ?? ''] ?? 'illisible',
     );
 
   check('réglage false : une session AAL1 suffit', (await probe('false', 'aal1')) === 'true');
