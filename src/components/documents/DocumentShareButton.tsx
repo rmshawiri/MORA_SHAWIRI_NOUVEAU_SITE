@@ -2,6 +2,8 @@
 
 import { useState } from 'react';
 
+import { canShareFile, fetchDocumentFile, shareFile } from '@/lib/documents/share';
+
 /**
  * Envoi d'une pièce officielle — le **vrai fichier PDF**, pas un lien.
  *
@@ -51,14 +53,6 @@ const MESSAGES = {
   shareFailed: 'Le partage n’a pas pu s’ouvrir. Réessayez, ou téléchargez le PDF pour le joindre vous-même.',
 } as const;
 
-function canShareFiles(): boolean {
-  return (
-    typeof navigator !== 'undefined' &&
-    typeof navigator.share === 'function' &&
-    typeof navigator.canShare === 'function'
-  );
-}
-
 function saveFile(url: string, fileName: string): void {
   const link = document.createElement('a');
   link.href = url;
@@ -90,43 +84,33 @@ export default function DocumentShareButton({
   async function prepare() {
     setState({ step: 'preparing' });
 
-    let blob: Blob;
-    try {
-      const response = await fetch(href, { credentials: 'same-origin', cache: 'no-store' });
-      const type = response.headers.get('content-type') ?? '';
-      if (!response.ok || !type.includes('application/pdf')) throw new Error('réponse inattendue');
-      blob = await response.blob();
-      if (blob.size === 0) throw new Error('fichier vide');
-    } catch {
+    const fetched = await fetchDocumentFile(href, fileName);
+    if (!fetched.ok) {
       setState({ step: 'error', message: MESSAGES.fetchFailed });
       return;
     }
 
-    const file = new File([blob], fileName, { type: 'application/pdf' });
-
-    if (canShareFiles() && navigator.canShare({ files: [file] })) {
-      setState({ step: 'ready', file });
+    if (canShareFile(navigator, fetched.file)) {
+      setState({ step: 'ready', file: fetched.file });
       return;
     }
 
     // Repli honnête : téléchargement du vrai fichier, et la marche à suivre.
-    const url = URL.createObjectURL(file);
-    saveFile(url, fileName);
-    setState({ step: 'fallback', url });
+    // Une exception imprévue ne laisse jamais le bouton sur « Préparation… ».
+    try {
+      const url = URL.createObjectURL(fetched.file);
+      saveFile(url, fileName);
+      setState({ step: 'fallback', url });
+    } catch {
+      setState({ step: 'error', message: MESSAGES.shareFailed });
+    }
   }
 
   async function share(file: File) {
-    try {
-      await navigator.share({ files: [file], title });
-      setState({ step: 'shared' });
-    } catch (error) {
-      // Fermer la feuille de partage est un choix, pas une panne.
-      if (error instanceof DOMException && error.name === 'AbortError') {
-        setState({ step: 'cancelled', file });
-      } else {
-        setState({ step: 'error', message: MESSAGES.shareFailed });
-      }
-    }
+    const outcome = await shareFile(navigator, file, title);
+    if (outcome === 'shared') setState({ step: 'shared' });
+    else if (outcome === 'cancelled') setState({ step: 'cancelled', file });
+    else setState({ step: 'error', message: MESSAGES.shareFailed });
   }
 
   const notice = (message: string, failed = false) => (

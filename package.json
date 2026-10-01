@@ -20,7 +20,9 @@
     "docs:verify": "node scripts/verify-documents.mjs",
     "relation:verify": "node scripts/verify-relation.mjs",
     "routes:verify": "node scripts/verify-routes.mjs",
-    "commerce:verify": "node scripts/verify-commerce.mjs"
+    "commerce:verify": "node scripts/verify-commerce.mjs",
+    "facturation:verify": "node --import tsx scripts/verify-facturation.mjs",
+    "pdf:samples": "tsx scripts/render-invoice-samples.ts"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.7",
