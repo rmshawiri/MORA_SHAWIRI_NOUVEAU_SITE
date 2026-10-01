@@ -1,0 +1,294 @@
+/* ==========================================================================
+   MORA Shawiri — Socle des espaces privés (Client, Affilié, authentification)
+
+   Feuille **séparée**, chargée uniquement par le groupe de routes `(compte)`.
+   Ni `globals.css` ni `admin.css` ne sont touchés, et aucune page publique ne
+   charge ce fichier.
+
+   ## Pourquoi ce fichier existe
+
+   Le propriétaire a validé la densité de l'administration après le correctif
+   qui a suivi la phase 4G. Il a demandé que les autres espaces privés partent
+   **dès le départ** sur une densité comparable — l'Espace Client existant, les
+   écrans d'authentification, et les espaces à venir (Client complet en 4I,
+   Affilié en 4H).
+
+   Le principe est celui de `admin.css` : **la densité est portée par les
+   jetons, pas par les pages.** Les jetons de `globals.css` sont redéfinis
+   dans la seule portée de `.espace`, posée par le gabarit du groupe
+   `(compte)`. Tout écran rendu dans ce groupe hérite de l'échelle sans rien
+   demander, y compris le bandeau `PageHero` et les champs `.field` du design
+   system public, qui lisent ces jetons.
+
+   ## Ce qui est partagé, et ce qui ne l'est pas
+
+   Les **valeurs** sont alignées sur celles de l'administration validée : corps
+   de 15 px, titre de carte de 18 px, espacements resserrés de la même façon,
+   mêmes rayons. Le **fichier**, lui, n'est pas partagé. C'est volontaire :
+
+     * l'administration est validée telle quelle. Une feuille commune ferait
+       qu'un réglage pensé pour un écran client modifierait l'administration,
+       et inversement ;
+     * les deux publics diffèrent. L'Espace Client est surtout ouvert au
+       téléphone, par des personnes qui ne s'en servent pas tous les jours :
+       champs et boutons y gardent 44 px, et le texte saisi reste à 16 px — en
+       deçà, Safari sur iPhone agrandit la page à chaque focus ;
+     * l'administration vit dans sa propre coquille `(pilotage)`, sans
+       l'en-tête du site ; les espaces privés gardent l'habillage vitrine.
+
+   `tests/unit/espace-prive.test.ts` vérifie que les valeurs partagées restent
+   égales : une divergence n'est pas interdite, mais elle doit être décidée,
+   pas subie.
+
+   ## Pour un futur espace (Affilié en 4H, modules Client en 4I)
+
+     1. le placer dans le groupe `(compte)` — ou, s'il lui faut un gabarit
+        propre, importer cette feuille et poser `className="espace"` sur son
+        conteneur ;
+     2. composer avec `auth-card`, `auth-meta`, `auth-badge`, `espace-table`,
+        `espace-timeline` et les `.field` / `.btn` du design system ;
+     3. ne jamais emprunter une classe `admin-*` : `admin.css` n'est pas
+        chargée ici, et la classe arriverait sans style ;
+     4. ne fixer aucune taille dans une page : si une valeur manque, elle
+        s'ajoute ici, comme jeton ou comme composant.
+
+   Structure : 1. Jetons · 2. Bandeau de page · 3. Formulaires et boutons
+              4. Tableaux · 5. Chronologie · 6. Responsive
+   ========================================================================== */
+
+/* ------------------------------------------------------------- 1. JETONS */
+
+.espace {
+  /* ---- Échelle typographique ------------------------------------------
+     Corps, petits textes et titres de carte reprennent les valeurs de
+     l'administration. Le titre de page garde une légère respiration
+     (22 → 28 px) : il est posé sur le bandeau bleu du site, à côté d'un
+     en-tête public, là où l'administration n'a qu'une barre de travail. */
+  --text-hero: 1.75rem;
+  --text-h1: clamp(1.375rem, 1.2rem + .6vw, 1.75rem); /* 22 → 28px */
+  --text-h2: 1.25rem;     /* 20px */
+  --text-h3: 1.125rem;    /* 18px — titre de carte, comme en administration */
+  --text-lead: 1rem;      /* 16px */
+  --text-body: .9375rem;  /* 15px — corps, comme en administration */
+  --text-small: .875rem;  /* 14px */
+  --text-caption: .8125rem; /* 13px — libellés, aides, erreurs */
+
+  /* ---- Espacements : même resserrement que l'administration ------------ */
+  --sp-4: 14px;
+  --sp-5: 16px;
+  --sp-6: 20px;
+  --sp-8: 26px;
+  --sp-10: 32px;
+  --sp-12: 38px;
+  --sp-16: 48px;
+
+  --section-y: clamp(28px, 4vw, 48px);
+
+  /* ---- Rayons sobres, comme en administration -------------------------- */
+  --r-card: 10px;
+  --r-btn: 8px;
+
+  /* ---- Mesures propres aux espaces privés ------------------------------ */
+  --espace-control: 44px;       /* champ et bouton : cible tactile sûre */
+  --espace-form-width: 440px;   /* formulaire d'authentification */
+  --espace-wide-width: 720px;   /* tableau de bord, second facteur, commande */
+
+  font-size: var(--text-body);
+  line-height: 1.55;
+}
+
+/* --------------------------------------------------- 2. BANDEAU DE PAGE */
+
+/* `PageHero` est le composant des pages publiques : il est conservé pour que
+   l'espace privé reste visiblement « dans » le site — fil d'Ariane, sur-titre
+   or, fond bleu profond. Seule sa hauteur est ramenée : 426 px de bandeau
+   au-dessus d'un formulaire de deux champs repoussaient celui-ci sous la
+   ligne de flottaison. La marge haute (`margin-top`), qui dégage l'en-tête
+   fixe du site, n'est pas touchée. */
+.espace .page-hero {
+  padding-block: clamp(28px, 3.2vw, 44px) clamp(24px, 2.6vw, 36px);
+}
+
+.espace .page-hero .container {
+  max-width: var(--espace-wide-width);
+}
+
+.espace .page-hero .breadcrumb {
+  margin-bottom: var(--sp-3);
+}
+
+.espace .page-hero .eyebrow {
+  font-size: .75rem;
+  margin-bottom: var(--sp-2);
+}
+
+.espace .page-hero h1 {
+  margin-bottom: var(--sp-2);
+}
+
+/* ------------------------------------------- 3. FORMULAIRES ET BOUTONS */
+
+.espace .form {
+  gap: var(--sp-4);
+}
+
+.espace .field {
+  gap: 6px;
+}
+
+/* 44 px de haut et 16 px de texte saisi : voir l'en-tête de ce fichier. */
+.espace .field input:not([type='checkbox']):not([type='radio']),
+.espace .field select {
+  min-height: var(--espace-control);
+  padding: 9px 14px;
+  font-size: 1rem;
+  border-width: 1px;
+}
+
+.espace .field textarea {
+  min-height: 112px;
+  padding: 10px 14px;
+  font-size: 1rem;
+  border-width: 1px;
+}
+
+.espace .field input:focus,
+.espace .field select:focus,
+.espace .field textarea:focus {
+  box-shadow: 0 0 0 3px rgba(0, 51, 102, .12);
+}
+
+.espace .field__hint,
+.espace .field__error {
+  line-height: 1.45;
+}
+
+.espace .form-alert {
+  padding: var(--sp-3) var(--sp-4);
+  line-height: 1.5;
+}
+
+.espace .btn {
+  min-height: var(--espace-control);
+  padding: 10px 20px;
+  font-size: var(--text-body);
+  gap: 6px;
+}
+
+.espace .btn--lg {
+  min-height: 46px;
+  padding: 11px 22px;
+  font-size: var(--text-body);
+}
+
+.espace .btn-row {
+  gap: var(--sp-3);
+}
+
+/* --------------------------------------------------------- 4. TABLEAUX */
+
+/* Tableau de données d'un espace privé — lignes d'une commande, paiements.
+   Il défile à l'horizontale **à l'intérieur de son cadre** sur petit écran :
+   la page, elle, ne déborde jamais. */
+.espace-table-wrap {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  border: 1px solid var(--border);
+  border-radius: var(--r-btn);
+}
+
+.espace-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--text-small);
+  font-variant-numeric: tabular-nums;
+}
+
+.espace-table th,
+.espace-table td {
+  padding: 9px var(--sp-3);
+  text-align: left;
+  vertical-align: top;
+  border-bottom: 1px solid var(--border);
+}
+
+.espace-table thead th {
+  font-family: var(--font-display);
+  font-size: var(--text-caption);
+  font-weight: 600;
+  letter-spacing: .02em;
+  color: var(--text-secondary);
+  background: var(--gray-light);
+  white-space: nowrap;
+}
+
+.espace-table tbody th {
+  font-weight: 600;
+  color: var(--mora-blue-deep);
+}
+
+.espace-table tfoot th,
+.espace-table tfoot td {
+  background: var(--gray-light);
+  font-weight: 600;
+}
+
+.espace-table tr:last-child > th,
+.espace-table tr:last-child > td {
+  border-bottom: 0;
+}
+
+.espace-table small {
+  color: var(--text-secondary);
+}
+
+/* ------------------------------------------------------ 5. CHRONOLOGIE */
+
+.espace-timeline {
+  display: grid;
+  gap: var(--sp-3);
+  margin: 0;
+}
+
+.espace-timeline li {
+  position: relative;
+  padding-left: var(--sp-5);
+  border-left: 2px solid var(--border);
+}
+
+.espace-timeline li::before {
+  content: "";
+  position: absolute;
+  left: -6px;
+  top: 6px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--shawiri-gold);
+}
+
+.espace-timeline p {
+  margin: 0;
+}
+
+.espace-timeline__when {
+  font-size: var(--text-caption);
+  color: var(--text-secondary);
+}
+
+.espace-timeline__what {
+  font-weight: 600;
+  color: var(--mora-blue-deep);
+}
+
+/* ------------------------------------------------------- 6. RESPONSIVE */
+
+@media (max-width: 560px) {
+  .espace .page-hero .lead {
+    font-size: var(--text-body);
+  }
+
+  .espace .btn-row > .btn {
+    flex: 1 1 100%;
+  }
+}

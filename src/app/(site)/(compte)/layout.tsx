@@ -1,16 +1,24 @@
 import type { ReactNode } from 'react';
 
+import '@/styles/espace.css';
 import '@/styles/auth.css';
 
 /**
  * Groupe de routes « compte » : authentification et espaces privés.
  *
- * Deux raisons d'exister.
+ * Trois raisons d'exister.
  *
- * **La feuille de style.** `auth.css` n'est chargée que par les routes de ce
- * groupe. Le site public conserve `globals.css` et lui seul, comme la décision
- * D-13 le demande et comme la non-régression visuelle l'exige. Aucune page
- * publique ne télécharge une ligne de CSS supplémentaire.
+ * **Les feuilles de style.** `espace.css` et `auth.css` ne sont chargées que
+ * par les routes de ce groupe. Le site public conserve `globals.css` et lui
+ * seul, comme la décision D-13 le demande et comme la non-régression visuelle
+ * l'exige. Aucune page publique ne télécharge une ligne de CSS supplémentaire.
+ *
+ * **La densité des espaces privés.** Le conteneur `.espace` est la portée dans
+ * laquelle `espace.css` redéfinit les jetons du design system : titres,
+ * espacements, champs et boutons y prennent l'échelle resserrée validée pour
+ * l'administration, sans qu'aucune page n'ait de taille qui lui soit propre.
+ * L'en-tête et le pied de page du site sont rendus par le gabarit parent,
+ * **hors** de ce conteneur : ils ne bougent pas.
  *
  * **Le rendu dynamique.** Toutes ces pages lisent la session. Aucune ne doit
  * être pré-rendue ni mise en cache : une page de compte servie depuis un cache
@@ -31,5 +39,5 @@ import '@/styles/auth.css';
 export const dynamic = 'force-dynamic';
 
 export default function CompteLayout({ children }: { children: ReactNode }) {
-  return children;
+  return <div className="espace">{children}</div>;
 }

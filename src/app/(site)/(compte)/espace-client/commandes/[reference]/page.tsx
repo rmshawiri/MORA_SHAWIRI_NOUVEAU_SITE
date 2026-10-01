@@ -84,8 +84,8 @@ export default async function MaCommandePage({
                 <h2>Détail</h2>
               </div>
 
-              <div className="admin-table-wrap">
-                <table className="admin-table">
+              <div className="espace-table-wrap">
+                <table className="espace-table">
                   <caption className="sr-only">Lignes de votre commande</caption>
                   <thead>
                     <tr>
@@ -142,8 +142,8 @@ export default async function MaCommandePage({
                   </p>
                 </div>
 
-                <div className="admin-table-wrap">
-                  <table className="admin-table">
+                <div className="espace-table-wrap">
+                  <table className="espace-table">
                     <caption className="sr-only">Paiements déclarés sur cette commande</caption>
                     <thead>
                       <tr>
@@ -222,11 +222,11 @@ export default async function MaCommandePage({
                   <h2>Suivi</h2>
                 </div>
 
-                <ol className="admin-timeline">
+                <ol className="espace-timeline">
                   {events.map((event) => (
                     <li key={event.id}>
-                      <p className="admin-timeline__when">{formatMoment(event.occurred_at)}</p>
-                      <p className="admin-timeline__what">
+                      <p className="espace-timeline__when">{formatMoment(event.occurred_at)}</p>
+                      <p className="espace-timeline__what">
                         {ORDER_EVENT_LABELS[event.event_type]}
                       </p>
                     </li>

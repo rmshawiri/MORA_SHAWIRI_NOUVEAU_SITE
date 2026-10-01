@@ -12,8 +12,8 @@ import 'server-only';
  * fonctionne et sert déjà les demandes de devis depuis la phase 3.
  *
  * L'invitation part donc par le même canal, avec le même transport
- * `nodemailer`, la même identité d'expéditeur, et les mêmes contraintes de
- * rendu que les e-mails transactionnels existants.
+ * `nodemailer`, la même identité d'expéditeur, et le même gabarit que les
+ * e-mails transactionnels existants.
  *
  * ## Le jeton
  *
@@ -30,6 +30,7 @@ import 'server-only';
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import nodemailer from 'nodemailer';
 
+import { INVITATION_SUBJECT, renderInvitationEmail } from '@/lib/emails/invitation';
 import { getSiteUrl, getSmtpConfig } from '@/lib/env';
 
 /** Durée de validité d'une invitation. */
@@ -79,20 +80,6 @@ export function invitationUrl(token: string): string {
   return `${getSiteUrl()}${INVITATION_PATH}?jeton=${encodeURIComponent(token)}`;
 }
 
-/** Palette de marque, reprise de `src/lib/emails/templates.ts`. */
-const COLORS = {
-  blue: '#003366',
-  blueDeep: '#001f3f',
-  gold: '#ffd700',
-  text: '#10161d',
-  textSoft: '#555555',
-  border: '#e5e7eb',
-  page: '#f8f9fa',
-  white: '#ffffff',
-} as const;
-
-const FONT = "'Segoe UI', Roboto, Helvetica, Arial, sans-serif";
-
 /**
  * Envoie l'invitation.
  *
@@ -104,6 +91,9 @@ const FONT = "'Segoe UI', Roboto, Helvetica, Arial, sans-serif";
  * Le message ne contient **ni mot de passe, ni identifiant technique** : il
  * porte l'identifiant métier choisi et un lien à usage unique. Le mot de passe
  * est choisi par la personne invitée, et n'a donc jamais à circuler.
+ *
+ * Le contenu est rédigé dans `src/lib/emails/invitation.ts`, sur le gabarit
+ * commun des e-mails : ce module-ci ne fait que l'envoyer.
  */
 export async function sendInvitationEmail(input: {
   to: string;
@@ -117,6 +107,13 @@ export async function sendInvitationEmail(input: {
 
   const url = invitationUrl(input.token);
   const greeting = input.fullName?.trim() || input.username;
+  const { html, text } = renderInvitationEmail({
+    greeting,
+    username: input.username,
+    url,
+    invitedBy: input.invitedBy,
+    ttlHours: INVITATION_TTL_HOURS,
+  });
 
   const transporter = nodemailer.createTransport({
     host: config.host,
@@ -126,70 +123,12 @@ export async function sendInvitationEmail(input: {
   });
 
   await transporter.sendMail({
-    from: `"${config.fromName}" <${config.from}>`,
+    from: { name: config.fromName, address: config.from },
     to: input.to,
-    subject: 'Votre accès à l’administration MORA Shawiri',
-    text: [
-      `Bonjour ${greeting},`,
-      '',
-      `${input.invitedBy} vous a ouvert un accès à l’administration de MORA Shawiri.`,
-      '',
-      `Votre identifiant de connexion : ${input.username}`,
-      '',
-      'Pour activer votre compte, choisissez votre mot de passe ici :',
-      url,
-      '',
-      `Ce lien est valable ${INVITATION_TTL_HOURS} heures et ne fonctionne qu’une seule fois.`,
-      'Une application d’authentification vous sera ensuite demandée : l’administration',
-      'n’est accessible qu’avec un second facteur.',
-      '',
-      'Si vous n’attendiez pas ce message, ignorez-le : aucun compte ne sera créé.',
-      '',
-      'MORA Shawiri — Le Choix Optimal pour votre performance.',
-    ].join('\n'),
-    html: renderInvitationHtml({ greeting, username: input.username, url, invitedBy: input.invitedBy }),
+    subject: INVITATION_SUBJECT,
+    text,
+    html,
   });
 
   return true;
-}
-
-/**
- * Rendu volontairement conservateur — tableaux et styles en ligne — parce que
- * les clients de messagerie ignorent largement le CSS moderne. Même parti pris
- * que les gabarits existants.
- */
-function renderInvitationHtml(input: {
-  greeting: string;
-  username: string;
-  url: string;
-  invitedBy: string;
-}): string {
-  return `<!doctype html>
-<html lang="fr"><body style="margin:0;padding:24px;background:${COLORS.page};font-family:${FONT};color:${COLORS.text};">
-  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;margin:0 auto;background:${COLORS.white};border:1px solid ${COLORS.border};border-radius:12px;overflow:hidden;">
-    <tr><td style="background:${COLORS.blue};padding:24px;">
-      <p style="margin:0;color:${COLORS.gold};font-size:13px;letter-spacing:.08em;text-transform:uppercase;font-weight:700;">MORA Shawiri</p>
-      <p style="margin:8px 0 0;color:${COLORS.white};font-size:20px;font-weight:700;">Accès à l’administration</p>
-    </td></tr>
-    <tr><td style="padding:24px;">
-      <p style="margin:0 0 16px;">Bonjour ${escapeHtml(input.greeting)},</p>
-      <p style="margin:0 0 16px;">${escapeHtml(input.invitedBy)} vous a ouvert un accès à l’administration de MORA Shawiri.</p>
-      <p style="margin:0 0 16px;">Votre identifiant de connexion est <strong>${escapeHtml(input.username)}</strong>.</p>
-      <p style="margin:0 0 24px;">Choisissez votre mot de passe pour activer votre compte :</p>
-      <p style="margin:0 0 24px;text-align:center;">
-        <a href="${escapeHtml(input.url)}" style="display:inline-block;background:${COLORS.gold};color:${COLORS.blueDeep};font-weight:700;text-decoration:none;padding:14px 28px;border-radius:10px;">Activer mon compte</a>
-      </p>
-      <p style="margin:0 0 16px;color:${COLORS.textSoft};font-size:14px;">Ce lien est valable ${INVITATION_TTL_HOURS} heures et ne fonctionne qu’une seule fois. Une application d’authentification vous sera ensuite demandée : l’administration n’est accessible qu’avec un second facteur.</p>
-      <p style="margin:0;color:${COLORS.textSoft};font-size:14px;">Si vous n’attendiez pas ce message, ignorez-le : aucun compte ne sera créé.</p>
-    </td></tr>
-  </table>
-</body></html>`;
-}
-
-function escapeHtml(value: string): string {
-  return value
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
 }

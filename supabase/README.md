@@ -221,6 +221,34 @@ livraison manque. Configurer un SMTP personnalisé lèvera cette limite — c'es
 une décision du propriétaire, car elle place les identifiants de la boîte
 d'envoi chez Supabase.
 
+### Modèles des e-mails d'authentification
+
+Les e-mails de confirmation d'inscription et de réinitialisation du mot de
+passe sont composés **par Supabase**, à partir de modèles stockés dans la
+configuration du projet. Leur source versionnée est `src/lib/emails/auth.ts`,
+rendue par le gabarit commun des e-mails du site ; le dépôt se fait par l'API
+de gestion :
+
+```bash
+npm run auth:emails -- --env shared --dry-run --preview ./apercus
+npm run auth:emails -- --env shared --backup ./modeles-avant.json
+```
+
+Le script ne touche que quatre champs (`mailer_subjects_confirmation`,
+`mailer_templates_confirmation_content`, `mailer_subjects_recovery`,
+`mailer_templates_recovery_content`), insère `{{ .ConfirmationURL }}` tel
+quel, lit la validité réelle des liens (`mailer_otp_exp`) pour l'annoncer, puis
+relit la configuration et échoue si elle diffère de la source. `--backup`
+conserve les valeurs remplacées : c'est le chemin de retour arrière.
+
+**Bloquant constaté le 1er octobre 2026** : le dépôt est refusé (HTTP 400,
+« Email template modification is not available for free tier projects using
+the default email provider »). Sur le plan Free, il faut d'abord configurer un
+SMTP personnalisé — ce qui donnerait aussi l'expéditeur MORA Shawiri et lèverait
+la limite de livraison ci-dessus. Les deux sont des décisions du propriétaire.
+Une fois le SMTP en place, la commande ci-dessus suffit ; rien d'autre n'est à
+modifier dans le code.
+
 ### Vérifications
 
 ```bash

@@ -13,6 +13,7 @@
     "db:migrate": "node scripts/apply-migrations.mjs",
     "db:provision": "node scripts/provision-admins.mjs",
     "db:configure": "node scripts/configure-auth.mjs",
+    "auth:emails": "node --import tsx scripts/configure-auth-emails.mjs",
     "db:verify": "node scripts/verify-security.mjs",
     "auth:verify": "node scripts/verify-auth.mjs",
     "perms:verify": "node scripts/verify-permissions.mjs",
