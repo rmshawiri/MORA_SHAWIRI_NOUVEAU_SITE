@@ -408,3 +408,51 @@ export function renderPayoutAccountReviewed(
     }),
   };
 }
+
+export type PayoutConfirmedInput = {
+  firstName: string;
+  reference: string;
+  amount: string;
+  paidOn: string;
+  methodLabel: string;
+  transaction: string | null;
+  lines: number;
+  spaceUrl: string;
+};
+
+/**
+ * Versement confirmé — phase 4H-6. Aucune coordonnée de versement dans le
+ * message : le moyen est nommé, jamais son numéro.
+ */
+export function renderPayoutConfirmed(input: PayoutConfirmedInput): AffiliationEmail {
+  const rows: MailRow[] = [
+    { label: 'Référence du versement', value: input.reference },
+    { label: 'Montant', value: input.amount },
+    { label: 'Date', value: input.paidOn },
+    { label: 'Moyen', value: input.methodLabel },
+  ];
+  if (input.transaction) rows.push({ label: 'Référence de transaction', value: input.transaction });
+  const blocks: EmailBlock[] = [
+    { kind: 'greeting', text: `Bonjour ${input.firstName},` },
+    {
+      kind: 'paragraph',
+      text: `MORA Shawiri vous a versé vos commissions. Ce versement regroupe ${input.lines} élément(s) : commissions et, le cas échéant, ajustements.`,
+    },
+    { kind: 'rows', rows },
+    { kind: 'cta', button: { label: 'Voir le détail dans mon espace', href: input.spaceUrl } },
+    { kind: 'fallback', href: input.spaceUrl },
+    {
+      kind: 'note',
+      text: 'Si vous ne retrouvez pas ce montant sur votre compte sous quelques jours, répondez simplement à cet e-mail.',
+    },
+  ];
+  return {
+    subject: `Versement ${input.reference} — MORA Shawiri`,
+    rendered: renderEmail({
+      preheader: `Versement de ${input.amount} confirmé.`,
+      title: 'Votre versement est effectué',
+      blocks,
+      reason: AFFILIATE_REASON,
+    }),
+  };
+}

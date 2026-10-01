@@ -46,6 +46,11 @@ export default async function AffiliationPage() {
               Commissions
             </Link>
           ) : null}
+          {context.can('payouts.view') ? (
+            <Link className="btn btn--ghost" href="/administration/affiliation/versements/">
+              Versements
+            </Link>
+          ) : null}
           <Link className="btn btn--ghost" href="/administration/affiliation/prospects/">
             Prospects déclarés
           </Link>

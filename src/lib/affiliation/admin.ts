@@ -20,6 +20,9 @@ import type {
   AffiliateEventRow,
   AffiliateNoteRow,
   AffiliatePayoutAccountRow,
+  AffiliatePayoutItemRow,
+  AffiliatePayoutRow,
+  AffiliationFunctions,
   AffiliateRow,
   AffiliateRuleRow,
   CommissionStatus,
@@ -393,4 +396,65 @@ export async function listLooseAdjustments(affiliateId: string): Promise<Affilia
     .order('created_at', { ascending: false })
     .limit(200);
   return (data ?? []) as AffiliateAdjustmentRow[];
+}
+
+// -----------------------------------------------------------------------------
+// Versements — phase 4H-6
+// -----------------------------------------------------------------------------
+
+export type PayableEntry = AffiliationFunctions['affiliate_payable_overview']['Returns'][number];
+
+export async function listPayable(): Promise<PayableEntry[]> {
+  const supabase = await getServerSupabaseClient();
+  if (!supabase) return [];
+  const { data } = await supabase.rpc('affiliate_payable_overview');
+  return data ?? [];
+}
+
+export type PayoutListEntry = AffiliatePayoutRow & { affiliate_name: string };
+
+const PAYOUT_COLUMNS =
+  'id, affiliate_id, status, reference, document_id, period_label, total_amount, currency, method_code, method_snapshot, transaction_reference, prepared_at, confirmed_at, cancelled_at, created_at, updated_at';
+
+export async function listPayouts(filter: { affiliateId?: string } = {}): Promise<PayoutListEntry[]> {
+  const supabase = await getServerSupabaseClient();
+  if (!supabase) return [];
+  let query = supabase.from('affiliate_payouts').select(PAYOUT_COLUMNS).order('created_at', { ascending: false }).limit(300);
+  if (filter.affiliateId) query = query.eq('affiliate_id', filter.affiliateId);
+  const { data } = await query;
+  const rows = (data ?? []) as unknown as AffiliatePayoutRow[];
+  if (rows.length === 0) return [];
+  const { data: affiliates } = await supabase
+    .from('affiliates')
+    .select('id, display_name')
+    .in('id', [...new Set(rows.map((row) => row.affiliate_id))]);
+  const names = new Map(((affiliates ?? []) as { id: string; display_name: string }[]).map((row) => [row.id, row.display_name]));
+  return rows.map((row) => ({ ...row, affiliate_name: names.get(row.affiliate_id) ?? '—' }));
+}
+
+export type PayoutDetail = {
+  payout: AffiliatePayoutRow;
+  items: AffiliatePayoutItemRow[];
+  internal: AffiliationFunctions['affiliate_payout_internal']['Returns'][number] | null;
+  affiliate: Pick<AffiliateRow, 'id' | 'display_name' | 'reference' | 'user_id' | 'status'> | null;
+};
+
+export async function findPayout(id: string): Promise<PayoutDetail | null> {
+  if (!/^[0-9a-f-]{36}$/.test(id)) return null;
+  const supabase = await getServerSupabaseClient();
+  if (!supabase) return null;
+  const { data } = await supabase.from('affiliate_payouts').select(PAYOUT_COLUMNS).eq('id', id).maybeSingle();
+  if (!data) return null;
+  const payout = data as unknown as AffiliatePayoutRow;
+  const [items, internal, affiliate] = await Promise.all([
+    supabase.from('affiliate_payout_items').select('*').eq('payout_id', id).order('created_at'),
+    supabase.rpc('affiliate_payout_internal', { p_payout_id: id }),
+    supabase.from('affiliates').select('id, display_name, reference, user_id, status').eq('id', payout.affiliate_id).maybeSingle(),
+  ]);
+  return {
+    payout,
+    items: (items.data ?? []) as AffiliatePayoutItemRow[],
+    internal: internal.data?.[0] ?? null,
+    affiliate: (affiliate.data ?? null) as PayoutDetail['affiliate'],
+  };
 }

@@ -12,6 +12,7 @@ import {
   PayoutAccountBadge,
   RuleStateBadge,
 } from '@/components/admin/AffiliationBadges';
+import { PayoutStatusBadge } from '@/components/admin/AffiliationBadges';
 import CommissionsTable from '@/components/admin/CommissionsTable';
 import ConfirmForm from '@/components/admin/ConfirmForm';
 import { retryEmail } from '@/lib/affiliation/actions';
@@ -47,6 +48,7 @@ import {
   findAffiliate,
   formatMoment,
   listCommissions,
+  listPayouts,
   readCommissionTotals,
   listCategories,
   listOffers,
@@ -56,6 +58,7 @@ import {
 import { maskPayoutValue } from '@/lib/affiliation/applications';
 import { adjustCommission } from '@/lib/affiliation/commission-actions';
 import { kmf } from '@/lib/affiliation/commissions';
+import { formatPayoutDay } from '@/lib/affiliation/payouts';
 import { RULE_ORIGIN_LABELS } from '@/lib/domain/affiliation';
 import { getSiteUrl } from '@/lib/env';
 import { requireModule } from '@/lib/rbac/guards';
@@ -160,12 +163,13 @@ export default async function AffiliePage({
   };
   const isSelf = affiliate.user_id !== null && affiliate.user_id === context.access.userId;
 
-  const [categories, offers, methods, commissions, totals] = await Promise.all([
+  const [categories, offers, methods, commissions, totals, payouts] = await Promise.all([
     can.rules ? listCategories() : Promise.resolve([]),
     can.rules || can.codes ? listOffers() : Promise.resolve([]),
     listPayoutMethods(),
     can.commissions ? listCommissions({ affiliateId: id }) : Promise.resolve([]),
     can.commissions ? readCommissionTotals(id) : Promise.resolve(null),
+    can.payoutView ? listPayouts({ affiliateId: id }) : Promise.resolve([]),
   ]);
   const payoutDetails = can.payoutView
     ? Object.fromEntries(
@@ -633,6 +637,52 @@ export default async function AffiliePage({
                   { kind: 'textarea', name: 'reason', label: 'Motif', required: true, maxLength: 1000 },
                 ]}
               />
+            </div>
+          ) : null}
+        </section>
+      ) : null}
+
+      {/* ------------------------------------------------------------ Versements */}
+      {can.payoutView && affiliate.status !== 'PREPARATION' ? (
+        <section className="admin-card">
+          <div className="admin-card__head">
+            <h2>Versements</h2>
+            <p>
+              {payouts.length === 0
+                ? 'Aucun versement.'
+                : `${payouts.filter((p) => p.status === 'CONFIRME').length} versement(s) confirmé(s).`}{' '}
+              <Link href="/administration/affiliation/versements/">Préparer ou suivre les versements</Link>
+            </p>
+          </div>
+          {payouts.length > 0 ? (
+            <div className="admin-table-wrap">
+              <table className="admin-table">
+                <caption className="sr-only">Versements de {affiliate.display_name}</caption>
+                <thead>
+                  <tr>
+                    <th scope="col">Versement</th>
+                    <th scope="col">Montant</th>
+                    <th scope="col">État</th>
+                    <th scope="col">Date</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {payouts.map((payout) => (
+                    <tr key={payout.id}>
+                      <th scope="row">
+                        <Link href={`/administration/affiliation/versements/${payout.id}/`}>
+                          {payout.reference ?? payout.period_label ?? 'Brouillon'}
+                        </Link>
+                      </th>
+                      <td>{kmf(payout.total_amount)}</td>
+                      <td>
+                        <PayoutStatusBadge status={payout.status} />
+                      </td>
+                      <td>{payout.confirmed_at ? formatPayoutDay(payout.confirmed_at) : formatMoment(payout.cancelled_at ?? payout.prepared_at)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           ) : null}
         </section>

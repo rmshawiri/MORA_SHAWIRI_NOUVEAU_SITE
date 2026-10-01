@@ -19,6 +19,7 @@ import {
 import { maskPayoutValue } from '@/lib/affiliation/applications';
 import { ADJUSTMENT_KIND_LABELS, COMMISSION_STATUS_HINTS, COMMISSION_STATUS_LABELS, kmf } from '@/lib/affiliation/commissions';
 import { formatMoment } from '@/lib/affiliation/labels';
+import { formatPayoutDay, readMethodSnapshot, readPayoutLine } from '@/lib/affiliation/payouts';
 import { PROSPECT_STATUS_LABELS } from '@/lib/affiliation/prospects';
 import { cancelProspect, createOwnCampaign, declareProspect, requestPayoutChange } from '@/lib/affiliation/space-actions';
 import { formatKmf, toCents } from '@/lib/domain/affiliation';
@@ -36,6 +37,8 @@ import type {
   AffiliateCodeRow,
   AffiliateCommissionRow,
   AffiliatePayoutAccountRow,
+  AffiliatePayoutItemRow,
+  AffiliatePayoutRow,
   AffiliateProspectRow,
   AffiliateRow,
   AffiliateRuleRow,
@@ -98,7 +101,7 @@ export default async function EspaceAffiliePage() {
     );
   }
 
-  const [category, terms, rules, campaigns, codes, accounts, methods, stats, prospects, conversions, commissions, adjustments, totals] = await Promise.all([
+  const [category, terms, rules, campaigns, codes, accounts, methods, stats, prospects, conversions, commissions, adjustments, totals, payouts] = await Promise.all([
     supabase.from('affiliate_categories').select('*').eq('id', affiliate.category_id).maybeSingle(),
     supabase.rpc('affiliate_effective_terms', { p_affiliate_id: affiliate.id }),
     supabase.from('affiliate_rules').select('*').order('valid_from', { ascending: false }),
@@ -122,7 +125,21 @@ export default async function EspaceAffiliePage() {
     supabase.from('affiliate_commissions').select('*').eq('affiliate_id', affiliate.id).order('created_at', { ascending: false }).limit(200),
     supabase.from('affiliate_commission_adjustments').select('*').eq('affiliate_id', affiliate.id).order('created_at', { ascending: false }).limit(200),
     supabase.rpc('affiliate_commission_totals', { p_affiliate_id: affiliate.id }),
+    // RLS : l'affilié ne lit que ses versements confirmés, sans note interne
+    // ni justificatif (colonnes non accordées).
+    supabase
+      .from('affiliate_payouts')
+      .select('id, affiliate_id, status, reference, period_label, total_amount, currency, method_snapshot, transaction_reference, confirmed_at')
+      .eq('affiliate_id', affiliate.id)
+      .order('confirmed_at', { ascending: false })
+      .limit(100),
   ]);
+  const payoutRows = (payouts.data ?? []) as unknown as AffiliatePayoutRow[];
+  const { data: payoutItemData } =
+    payoutRows.length > 0
+      ? await supabase.from('affiliate_payout_items').select('*').in('payout_id', payoutRows.map((row) => row.id)).order('created_at')
+      : { data: [] };
+  const payoutItems = (payoutItemData ?? []) as AffiliatePayoutItemRow[];
   const commissionRows = (commissions.data ?? []) as AffiliateCommissionRow[];
   const adjustmentRows = (adjustments.data ?? []) as AffiliateAdjustmentRow[];
   const commissionTotals = (totals.data ?? [])[0];
@@ -476,6 +493,60 @@ export default async function EspaceAffiliePage() {
               <p className="form__note">
                 Une commission prévisionnelle peut évoluer avec la commande. Acquise, elle ne change plus : une correction
                 éventuelle apparaît comme un ajustement, imputé sur un versement suivant.
+              </p>
+            </div>
+
+            <div className="auth-card">
+              <div className="auth-card__head">
+                <h2>Mes versements</h2>
+              </div>
+              {payoutRows.length === 0 ? (
+                <p>
+                  Aucun versement pour le moment. Vos commissions acquises sont versées{' '}
+                  {effective?.payout_frequency ? PAYOUT_FREQUENCY_LABELS[effective.payout_frequency as PayoutFrequency].toLowerCase() : 'selon vos conditions'}.
+                </p>
+              ) : (
+                <div className="aff-payouts">
+                  {payoutRows.map((payout) => {
+                    const method = readMethodSnapshot(payout.method_snapshot);
+                    const lines = payoutItems.filter((item) => item.payout_id === payout.id);
+                    return (
+                      <details key={payout.id} className="aff-payout">
+                        <summary>
+                          <span className="aff-payout__ref">{payout.reference}</span>
+                          <span className="aff-payout__amount">{kmf(payout.total_amount)}</span>
+                          <span className="aff-sub">
+                            {formatPayoutDay(payout.confirmed_at)} · {method?.label ?? '—'}
+                          </span>
+                        </summary>
+                        <dl className="auth-meta">
+                          {payout.transaction_reference ? (
+                            <div>
+                              <dt>Référence de transaction</dt>
+                              <dd>{payout.transaction_reference}</dd>
+                            </div>
+                          ) : null}
+                          {lines.map((item) => {
+                            const line = readPayoutLine(item.snapshot);
+                            return (
+                              <div key={item.id}>
+                                <dt>{line?.label ?? 'Élément'}</dt>
+                                <dd>
+                                  {kmf(item.amount)}
+                                  {line?.detail ? ` — ${line.detail}` : ''}
+                                </dd>
+                              </div>
+                            );
+                          })}
+                        </dl>
+                      </details>
+                    );
+                  })}
+                </div>
+              )}
+              <p className="form__note">
+                Un versement confirmé ne change plus. Une correction éventuelle apparaît comme un ajustement sur un versement
+                suivant. Le relevé de chaque versement sera bientôt téléchargeable ici.
               </p>
             </div>
 

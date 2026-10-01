@@ -20,6 +20,13 @@ const nextConfig: NextConfig = {
   images: {
     formats: ['image/avif', 'image/webp'],
   },
+  // Les justificatifs (paiements 4G, versements 4H) sont acceptés jusqu'à
+  // 5 Mo par l'application et par leurs buckets. La limite par défaut d'une
+  // action serveur (1 Mo) les refusait avant tout contrôle, avec une erreur
+  // muette. L'hébergeur plafonne de son côté une requête à 4,5 Mo.
+  experimental: {
+    serverActions: { bodySizeLimit: '5mb' },
+  },
   async headers() {
     return [{ source: '/:path*', headers: securityHeaders }];
   },

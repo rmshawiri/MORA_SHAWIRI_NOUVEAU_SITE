@@ -346,4 +346,11 @@
 .espace .aff-figures dd { margin: 4px 0 0; font-family: var(--font-display); font-weight: 700; color: var(--mora-blue-deep); overflow-wrap: anywhere; }
 .espace .aff-figures + * { margin-top: var(--sp-4); }
 .espace .aff-subhead { margin: var(--sp-5) 0 var(--sp-2); }
+.espace .aff-payouts { display: grid; gap: var(--sp-2); }
+.espace .aff-payout { border: 1px solid var(--border); border-radius: var(--r-btn); background: var(--white); }
+.espace .aff-payout summary { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px var(--sp-3); padding: var(--sp-3); cursor: pointer; }
+.espace .aff-payout summary .aff-sub { grid-column: 1 / -1; margin-top: 0; }
+.espace .aff-payout__ref { font-weight: 700; color: var(--mora-blue-deep); overflow-wrap: anywhere; }
+.espace .aff-payout__amount { font-family: var(--font-display); font-weight: 700; color: var(--mora-blue-deep); white-space: nowrap; }
+.espace .aff-payout .auth-meta { margin: 0; padding: 0 var(--sp-3) var(--sp-3); }
 .espace .aff-sub { display: block; margin-top: 2px; font-size: var(--text-caption); font-weight: 400; color: var(--text-secondary); }

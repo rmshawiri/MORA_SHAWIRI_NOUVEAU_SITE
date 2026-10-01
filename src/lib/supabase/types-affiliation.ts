@@ -673,4 +673,50 @@ export type AffiliationFunctions = {
       adjustments_pending: number;
     }[];
   };
+  prepare_affiliate_payout: {
+    Args: { p_affiliate_id: string; p_commission_ids?: string[] | null; p_period_label?: string | null };
+    Returns: AffiliatePayoutRow;
+  };
+  remove_payout_item: { Args: { p_item_id: string }; Returns: AffiliatePayoutRow };
+  cancel_affiliate_payout: { Args: { p_payout_id: string; p_reason: string }; Returns: AffiliatePayoutRow };
+  confirm_affiliate_payout: {
+    Args: {
+      p_payout_id: string;
+      p_method_code: string;
+      p_transaction_reference: string | null;
+      p_paid_on: string;
+      p_note?: string | null;
+    };
+    Returns: AffiliatePayoutRow;
+  };
+  attach_payout_proof: { Args: { p_payout_id: string; p_path: string }; Returns: AffiliatePayoutRow };
+  affiliate_payable_overview: {
+    Args: Record<string, never>;
+    Returns: {
+      affiliate_id: string;
+      display_name: string;
+      reference: string | null;
+      status: AffiliateStatus;
+      commissions: number;
+      acquired: number;
+      adjustments: number;
+      payable: number;
+      min_amount: number | null;
+      frequency: PayoutFrequency;
+      next_date: string | null;
+      draft_id: string | null;
+    }[];
+  };
+  affiliate_payout_internal: {
+    Args: { p_payout_id: string };
+    Returns: {
+      note: string | null;
+      proof_path: string | null;
+      prepared_by: string | null;
+      confirmed_by: string | null;
+      cancelled_by: string | null;
+      cancel_reason: string | null;
+      payout_account_id: string | null;
+    }[];
+  };
 };

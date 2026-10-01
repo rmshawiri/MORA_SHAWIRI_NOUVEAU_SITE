@@ -64,6 +64,8 @@ export type DecisionInput =
       options: readonly { value: string; label: string }[];
       defaultValues?: readonly string[];
     }
+  /** Un fichier joint : son type réel est revérifié par le serveur. */
+  | { kind: 'file'; name: string; label: string; hint?: string; required?: boolean; accept: string }
   /** Regroupe des champs sur une ligne, comme partout dans l'administration. */
   | { kind: 'row'; inputs: readonly DecisionInput[] };
 
@@ -208,6 +210,8 @@ function DecisionField({ input }: { input: DecisionInput }) {
             </option>
           ))}
         </select>
+      ) : input.kind === 'file' ? (
+        <input className="admin-input" type="file" name={input.name} required={input.required} accept={input.accept} />
       ) : input.kind === 'datetime' || input.kind === 'date' ? (
         <input
           className="admin-input"

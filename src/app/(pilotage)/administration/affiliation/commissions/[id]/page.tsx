@@ -137,6 +137,16 @@ export default async function CommissionPage({
               <dd>{formatMoment(commission.paid_at)}</dd>
             </>
           ) : null}
+          {commission.payout_id ? (
+            <>
+              <dt>Versement</dt>
+              <dd>
+                <Link href={`/administration/affiliation/versements/${commission.payout_id}/`}>
+                  {commission.status === 'A_VERSER' ? 'Versement en préparation' : 'Voir le versement'}
+                </Link>
+              </dd>
+            </>
+          ) : null}
         </dl>
       </section>
 

@@ -68,6 +68,7 @@ const TABLES = [
   'affiliate_payout_accounts', 'affiliate_campaigns', 'affiliate_codes',
   'affiliate_attributions', 'affiliate_prospects', 'affiliate_code_uses', 'orders', 'quote_requests', 'leads',
   'affiliate_commissions', 'affiliate_commission_adjustments', 'notification_events', 'payments', 'refunds', 'services',
+  'affiliate_payouts', 'affiliate_payout_items', 'documents',
 ];
 
 const sessionClient = (target) =>
@@ -1139,6 +1140,151 @@ async function checkCommissions(target, accessToken, admin, sessions, state) {
     [...seen].join(', '));
 }
 
+async function checkPayouts(target, accessToken, admin, sessions, state) {
+  log.step('Versements : préparation, double paiement, confirmation, RVAF, justificatif');
+  const affId = state.affB.id;
+  const { data: c1 } = await admin.from('affiliate_commissions').select('*').eq('affiliate_id', affId).eq('status', 'ACQUISE').single();
+  if (!c1) throw new Error('aucune commission acquise pour les versements');
+  const prepare = (client, extra = {}) =>
+    client.rpc('prepare_affiliate_payout', { p_affiliate_id: affId, p_commission_ids: null, p_period_label: 'Octobre 2026 — contrôle', ...extra });
+  const statusOf = async (id) => (await admin.from('affiliate_commissions').select('status, payout_id, paid_at').eq('id', id).single()).data;
+
+  // Échéances (L) : fin de mois par défaut, et chaque fréquence configurable.
+  const next = await runSql(target, accessToken, `
+    select public.affiliate_next_payout_date('FIN_DE_MOIS', '2026-10-01') m, public.affiliate_next_payout_date('TRIMESTRIEL', '2026-10-01') t,
+           public.affiliate_next_payout_date('HEBDOMADAIRE', '2026-10-01') h, public.affiliate_next_payout_date('HEBDOMADAIRE', '2026-10-02') hv,
+           public.affiliate_next_payout_date('A_LA_DEMANDE', '2026-10-01') d`);
+  check('échéances : fin de mois, fin de trimestre, vendredi, à la demande',
+    next?.[0]?.m === '2026-10-31' && next[0].t === '2026-12-31' && next[0].h === '2026-10-02' && next[0].hv === '2026-10-02' && next[0].d === null,
+    JSON.stringify(next));
+
+  // Lecture de ce qui est à verser.
+  const overview = await sessions.tresorier.rpc('affiliate_payable_overview');
+  const row = (overview.data ?? []).find((r) => r.affiliate_id === affId);
+  check('payouts.view lit ce qui est à verser, net des ajustements (20 000 KMF)', Number(row?.payable) === 20000 && Boolean(row.frequency),
+    JSON.stringify(row ?? overview.error?.message));
+  check('affiliates.view seul ne le lit pas', Boolean((await sessions.lecteur.rpc('affiliate_payable_overview')).error));
+
+  // Préparer : permission, jamais l'affilié.
+  check('payouts.view seul ne prépare rien', Boolean((await prepare(sessions.tresorier)).error));
+  check('l’affilié ne prépare pas son versement', Boolean((await prepare(sessions.affB)).error));
+  const draft = await prepare(sessions.payeur);
+  check('payouts.manage prépare un versement : commission et ajustements regroupés (20 000 KMF)',
+    draft.data?.status === 'BROUILLON' && Number(draft.data?.total_amount) === 20000, draft.error?.message ?? JSON.stringify(draft.data));
+  const { data: items } = await admin.from('affiliate_payout_items').select('*').eq('payout_id', draft.data?.id);
+  check('trois lignes : la commission et ses deux ajustements', (items ?? []).length === 3, String(items?.length));
+  check('la commission passe « à verser » dans ce versement', (await statusOf(c1.id))?.status === 'A_VERSER');
+  check('un second brouillon pour le même affilié est refusé', Boolean((await prepare(sessions.payeur)).error));
+  check('une commission ne figure jamais dans deux lignes',
+    refused(await admin.from('affiliate_payout_items').insert({ payout_id: draft.data.id, commission_id: c1.id, amount: 1, snapshot: {} }).select()));
+  check('l’affilié ne voit pas un versement en préparation', empty(await sessions.affB.from('affiliate_payouts').select('id').eq('id', draft.data.id)));
+
+  // Retirer, annuler, seuil (K).
+  const commissionItem = (items ?? []).find((i) => i.commission_id === c1.id);
+  const removed = await sessions.payeur.rpc('remove_payout_item', { p_item_id: commissionItem?.id });
+  check('retirer la commission en retire aussi ses ajustements', !removed.error && Number(removed.data?.total_amount) === 0, removed.error?.message);
+  check('elle redevient acquise', (await statusOf(c1.id))?.status === 'ACQUISE');
+  check('annuler un brouillon exige un motif', Boolean((await sessions.payeur.rpc('cancel_affiliate_payout', { p_payout_id: draft.data.id, p_reason: ' ' })).error));
+  const cancelled = await sessions.payeur.rpc('cancel_affiliate_payout', { p_payout_id: draft.data.id, p_reason: 'Contrôle — brouillon annulé' });
+  check('le brouillon annulé reste dans l’historique', cancelled.data?.status === 'ANNULE', cancelled.error?.message);
+  check('un versement ne se supprime jamais', refused(await admin.from('affiliate_payouts').delete().eq('id', draft.data.id).select()));
+  await admin.from('affiliates').update({ payout_min_amount: 50000 }).eq('id', affId);
+  const belowMin = await prepare(sessions.payeur);
+  check('K : le seuil propre à l’affilié est respecté', Boolean(belowMin.error) && /seuil/.test(belowMin.error?.message ?? ''), belowMin.error?.message);
+  await admin.from('affiliates').update({ payout_min_amount: null }).eq('id', affId);
+
+  // Coordonnées validées de l'affilié, pour l'instantané masqué.
+  const proposed = await sessions.payeur.rpc('propose_payout_account', { p_affiliate_id: affId, p_method: 'MVOLA', p_details: { numero: '321 12 34', titulaire: 'Contrôle B' } });
+  const approved = await sessions.payeur.rpc('review_payout_account', { p_account_id: proposed.data?.id, p_approve: true, p_note: null });
+  check('les coordonnées Mvola de l’affilié sont validées', approved.data?.status === 'ACTIF', approved.error?.message ?? proposed.error?.message);
+
+  const draft2 = await prepare(sessions.payeur, { p_commission_ids: [c1.id] });
+  check('un versement se prépare sur une sélection de commissions', Number(draft2.data?.total_amount) === 20000, draft2.error?.message);
+  const confirm = (client, extra = {}) => client.rpc('confirm_affiliate_payout', {
+    p_payout_id: draft2.data?.id, p_method_code: 'MVOLA', p_transaction_reference: `MV-${RUN}`,
+    p_paid_on: new Date().toISOString().slice(0, 10), p_note: null, ...extra,
+  });
+  check('payouts.view seul ne confirme pas', Boolean((await confirm(sessions.tresorier)).error));
+  check('l’affilié ne confirme pas son versement', Boolean((await confirm(sessions.affB)).error));
+  check('un moyen exclu des versements est refusé', Boolean((await confirm(sessions.payeur, { p_method_code: 'WAKATI' })).error));
+  check('la référence de transaction est exigée hors espèces', Boolean((await confirm(sessions.payeur, { p_transaction_reference: ' ' })).error));
+  check('une date future est refusée', Boolean((await confirm(sessions.payeur, { p_paid_on: '2099-01-01' })).error));
+  check('un moyen sans coordonnées validées exige une note',
+    Boolean((await confirm(sessions.payeur, { p_method_code: 'VIREMENT', p_note: null })).error));
+
+  const confirmed = await confirm(sessions.payeur);
+  const payout = confirmed.data;
+  check('le versement est confirmé avec sa référence MORA-RVAF', payout?.status === 'CONFIRME' && /^MORA-RVAF-[A-Z]+\d{4}$/.test(payout?.reference ?? ''),
+    confirmed.error?.message ?? payout?.reference);
+  check('le moyen réellement utilisé est figé, coordonnées masquées',
+    payout?.method_snapshot?.code === 'MVOLA' && payout.method_snapshot.details?.numero === '•••• 2 34' && payout.method_snapshot.details?.titulaire === 'Contrôle B',
+    JSON.stringify(payout?.method_snapshot));
+  check('la référence de transaction est conservée', payout?.transaction_reference === `MV-${RUN}`);
+  const after = await statusOf(c1.id);
+  check('la commission est versée, datée', after?.status === 'VERSEE' && Boolean(after.paid_at));
+  const { data: imputed } = await admin.from('affiliate_commission_adjustments').select('status, payout_id').eq('commission_id', c1.id);
+  check('ses ajustements sont imputés sur ce versement', (imputed ?? []).every((a) => a.status === 'IMPUTE' && a.payout_id === payout?.id));
+  const { data: doc } = await admin.from('documents').select('id, reference, doc_type, entity_type, entity_id, owner_id').eq('id', payout?.document_id).single();
+  check('le RVAF est émis par le moteur de documents commun', doc?.doc_type === 'RVAF' && doc.reference === payout?.reference
+    && doc.entity_id === payout?.id && doc.owner_id === state.userB.userId, JSON.stringify(doc));
+  const { data: snap } = await admin.from('document_snapshots').select('content, content_sha256').eq('document_id', payout?.document_id).single();
+  check('son instantané fige lignes, total, moyen et empreinte',
+    Number(snap?.content?.total) === 20000 && snap.content.lines?.length === 3 && snap.content.payout?.method?.code === 'MVOLA'
+      && /^[0-9a-f]{64}$/.test(snap.content_sha256 ?? '') && !/Contrôle commission|@/.test(JSON.stringify(snap.content.lines)),
+    JSON.stringify(snap?.content?.lines?.length));
+  const { data: notif } = await admin.from('notification_events').select('event_type').eq('entity_id', payout?.id);
+  check('un événement de notification est préparé', (notif ?? []).some((n) => n.event_type === 'affiliation.versement.confirme'));
+
+  // Un versement confirmé est définitif.
+  check('un versement confirmé ne se réécrit pas, même par la clé de service',
+    refused(await admin.from('affiliate_payouts').update({ total_amount: 1 }).eq('id', payout.id).select()));
+  check('ni ne se supprime', refused(await admin.from('affiliate_payouts').delete().eq('id', payout.id).select()));
+  check('ses lignes ne bougent plus', refused(await admin.from('affiliate_payout_items').delete().eq('payout_id', payout.id).select()));
+  check('il ne s’annule pas', Boolean((await sessions.payeur.rpc('cancel_affiliate_payout', { p_payout_id: payout.id, p_reason: 'x' })).error));
+  check('il ne se confirme pas deux fois', Boolean((await confirm(sessions.payeur)).error));
+  check('la commission versée ne revient pas dans un brouillon', Boolean((await prepare(sessions.payeur, { p_commission_ids: [c1.id] })).error));
+
+  // L'affilié lit ses versements, et seulement l'essentiel.
+  check('l’affilié lit son versement confirmé', ((await sessions.affB.from('affiliate_payouts').select('id, reference, total_amount').eq('id', payout.id)).data ?? []).length === 1);
+  check('mais ni la note interne ni le justificatif', Boolean((await sessions.affB.from('affiliate_payouts').select('note, proof_path').eq('id', payout.id)).error));
+  check('un autre affilié ne le lit pas', empty(await sessions.affA.from('affiliate_payouts').select('id').eq('id', payout.id)));
+  check('l’affilié lit les lignes de son versement', ((await sessions.affB.from('affiliate_payout_items').select('id').eq('payout_id', payout.id)).data ?? []).length === 3);
+  const totals = await sessions.affB.rpc('affiliate_commission_totals', { p_affiliate_id: affId });
+  check('ses totaux comptent 20 000 KMF versés', Number(totals.data?.[0]?.paid) === 20000, JSON.stringify(totals.data));
+
+  // Justificatif privé, rattaché une seule fois.
+  const proof = (path) => sessions.payeur.rpc('attach_payout_proof', { p_payout_id: payout.id, p_path: path });
+  check('un chemin de justificatif étranger est refusé', Boolean((await proof(`RVAF/${randomUUID()}/${randomUUID()}.pdf`)).error));
+  const attached = await proof(`RVAF/${payout.id}/${randomUUID()}.pdf`);
+  check('le justificatif se rattache au versement confirmé', Boolean(attached.data?.proof_path), attached.error?.message);
+  check('il ne se remplace pas', Boolean((await proof(`RVAF/${payout.id}/${randomUUID()}.pdf`)).error));
+  const { data: bucket } = await admin.storage.getBucket('affiliation-justificatifs');
+  check('le dépôt des justificatifs est privé', bucket?.public === false);
+
+  // H : annulation après versement — qualifiée comme telle.
+  const late = await sessions.commissaire.rpc('cancel_commission', { p_commission_id: c1.id, p_reason: 'Contrôle — affaire annulée après versement' });
+  const { data: lateAdj } = await admin.from('affiliate_commission_adjustments').select('kind, amount, status').eq('commission_id', c1.id).eq('status', 'A_IMPUTER');
+  check('une commission versée puis annulée produit « annulation après versement » (−20 000 KMF)',
+    !late.error && lateAdj?.length === 1 && lateAdj[0].kind === 'ANNULATION_APRES_VERSEMENT' && Number(lateAdj[0].amount) === -20000,
+    late.error?.message ?? JSON.stringify(lateAdj));
+  const { data: unchanged } = await admin.from('affiliate_payouts').select('status, total_amount').eq('id', payout.id).single();
+  check('le versement passé reste intact', unchanged?.status === 'CONFIRME' && Number(unchanged.total_amount) === 20000);
+  check('la commission versée garde son statut', (await statusOf(c1.id))?.status === 'VERSEE');
+  const negative = await prepare(sessions.payeur);
+  check('un solde négatif ne se verse pas : il attend les commissions suivantes', Boolean(negative.error), negative.error?.message);
+  const totals2 = await sessions.affB.rpc('affiliate_commission_totals', { p_affiliate_id: affId });
+  check('les totaux montrent l’ajustement à imputer', Number(totals2.data?.[0]?.adjustments_pending) === -20000, JSON.stringify(totals2.data));
+
+  const { data: events } = await admin.from('affiliate_events').select('event_type').eq('affiliate_id', affId);
+  const seen = new Set((events ?? []).map((e) => e.event_type));
+  check('l’historique trace préparation, annulation, confirmation, justificatif, annulation après versement',
+    ['VERSEMENT_PREPARE', 'VERSEMENT_ANNULE', 'VERSEMENT_CONFIRME', 'JUSTIFICATIF_RATTACHE', 'COMMISSION_ANNULEE_APRES_VERSEMENT'].every((t) => seen.has(t)),
+    [...seen].join(', '));
+  const { count: audits } = await admin.from('audit_logs').select('id', { count: 'exact', head: true })
+    .eq('resource_id', affId).like('action', 'affiliation.%');
+  check('le journal d’audit reçoit chaque acte', (audits ?? 0) >= 5, String(audits));
+}
+
 /* ========================================================================== */
 
 async function teardown(target, accessToken, admin, state, before) {
@@ -1155,12 +1301,26 @@ async function teardown(target, accessToken, admin, state, before) {
     alter table public.affiliate_events disable trigger affiliate_events_append_only;
     alter table public.affiliate_commissions disable trigger affiliate_commissions_guard;
     alter table public.affiliate_commission_adjustments disable trigger affiliate_adjustments_guard;
+    alter table public.affiliate_payouts disable trigger affiliate_payouts_guard;
+    alter table public.affiliate_payout_items disable trigger affiliate_payout_items_guard;
+    create temporary table zz_payouts on commit drop as
+      select p.id, p.document_id from public.affiliate_payouts p join public.affiliates a on a.id = p.affiliate_id
+       where a.slug like '${PREFIX}-%' or a.contact_email like '${PREFIX}-%';
+    delete from public.notification_events where entity_id in (select id from zz_payouts);
+    delete from public.affiliate_payout_items where payout_id in (select id from zz_payouts);
     delete from public.notification_events n using public.affiliate_commissions c, public.affiliates a
      where n.entity_id = c.id and c.affiliate_id = a.id and (a.slug like '${PREFIX}-%' or a.contact_email like '${PREFIX}-%');
     delete from public.affiliate_commission_adjustments j using public.affiliates a
      where j.affiliate_id = a.id and (a.slug like '${PREFIX}-%' or a.contact_email like '${PREFIX}-%');
     delete from public.affiliate_commissions c using public.affiliates a
      where c.affiliate_id = a.id and (a.slug like '${PREFIX}-%' or a.contact_email like '${PREFIX}-%');
+    -- Les versements après les commissions et ajustements qui les désignent.
+    delete from public.affiliate_payouts where id in (select id from zz_payouts);
+    -- Une pièce émise s'annule avant de se supprimer (règle de 4D).
+    update public.documents set status = 'ANNULE' where id in (select document_id from zz_payouts where document_id is not null);
+    delete from public.documents where id in (select document_id from zz_payouts where document_id is not null);
+    alter table public.affiliate_payouts enable trigger affiliate_payouts_guard;
+    alter table public.affiliate_payout_items enable trigger affiliate_payout_items_guard;
     alter table public.affiliate_commissions enable trigger affiliate_commissions_guard;
     alter table public.affiliate_commission_adjustments enable trigger affiliate_adjustments_guard;
     delete from public.refunds f using public.orders o
@@ -1272,10 +1432,11 @@ async function teardown(target, accessToken, admin, state, before) {
   const triggers = await runSql(target, accessToken, `
     select tgname, tgenabled from pg_trigger
      where tgname in ('affiliate_rules_immutable', 'affiliate_rules_history', 'affiliate_events_append_only',
-                      'affiliate_application_events_append_only', 'affiliate_commissions_guard', 'affiliate_adjustments_guard');
+                      'affiliate_application_events_append_only', 'affiliate_commissions_guard', 'affiliate_adjustments_guard',
+                      'affiliate_payouts_guard', 'affiliate_payout_items_guard');
   `).catch(() => []);
   check('les gardes d’immuabilité sont réactivés',
-    (triggers ?? []).length === 6 && triggers.every((t) => t.tgenabled === 'O'), JSON.stringify(triggers));
+    (triggers ?? []).length === 8 && triggers.every((t) => t.tgenabled === 'O'), JSON.stringify(triggers));
 
   for (const table of TABLES) {
     const { count } = await admin.from(table).select('id', { count: 'exact', head: true });
@@ -1331,6 +1492,13 @@ async function main() {
   }
   const before = { sequences, counts };
   const state = { startedAt: new Date().toISOString() };
+
+  // Mode de reprise : nettoie les données de contrôle laissées par une
+  // exécution interrompue, sans rien contrôler d'autre.
+  if (process.argv.includes('--nettoyage-seul')) {
+    await teardown(target, accessToken, admin, state, before);
+    return;
+  }
 
   try {
     await checkCatalogue(admin);
@@ -1399,6 +1567,7 @@ async function main() {
     await checkIsolation(target, admin, sessions, state);
     await checkAttribution(target, admin, sessions, state);
     await checkCommissions(target, accessToken, admin, sessions, state);
+    await checkPayouts(target, accessToken, admin, sessions, state);
     await checkApplications(target, admin, sessions, state);
     await checkAffiliates(target, accessToken, admin, sessions, state);
   } catch (error) {
