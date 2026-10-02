@@ -1293,8 +1293,48 @@ async function serverActionChecks(target, base) {
   // Les compteurs de limitation utilisés par ce contrôle sont remis à zéro :
   // ce sont des compteurs de test, et les laisser fausserait une exécution
   // ultérieure depuis la même adresse.
-  const testedBuckets = ['auth.reinitialisation.ip', 'auth.reinitialisation.identifiant'];
+  const testedBuckets = [
+    'auth.reinitialisation.ip',
+    'auth.reinitialisation.identifiant',
+    'auth.reinitialisation.identifiant.jour',
+  ];
   await service.from('rate_limit_counters').delete().in('bucket', testedBuckets);
+
+  /*
+   * Compte jetable, créé pour ce contrôle et supprimé à sa fin (puis, en
+   * dernier recours, par le balayage de la section 5).
+   *
+   * Règle absolue depuis l'audit du 2 octobre 2026 : aucun contrôle ne vise un
+   * vrai compte. Ce contrôle soumettait l'identifiant réel d'un administrateur
+   * au formulaire « mot de passe oublié » : chaque exécution envoyait un vrai
+   * e-mail de réinitialisation à sa boîte. Le compte jetable porte une adresse
+   * du domaine réservé `.test` (RFC 2606) : le serveur SMTP la refuse, rien
+   * n'est jamais remis à une boîte réelle.
+   */
+  const disposable = {
+    username: `test-reset-${randomUUID().slice(0, 8)}`,
+    email: `test.route.reset.${randomUUID().slice(0, 8)}${TEST_EMAIL_DOMAIN}`,
+  };
+  const createdDisposable = await service.auth.admin.createUser({
+    email: disposable.email,
+    password: `Tst-${randomUUID()}`,
+    email_confirm: true,
+    // L'identifiant métier ne se pose que par les métadonnées applicatives
+    // (correctif 4C) : c'est ce qui rend ce compte joignable par son nom.
+    app_metadata: { username: disposable.username },
+    user_metadata: { full_name: 'Compte de test réinitialisation' },
+  });
+  if (createdDisposable.error) throw new Error(`compte jetable : ${createdDisposable.error.message}`);
+  const disposableId = createdDisposable.data.user.id;
+  // Comme `provision-admins.mjs` : l'identifiant est écrit explicitement sur
+  // le profil, la seule source que lit la connexion par identifiant.
+  await service.from('profiles').update({ username: disposable.username }).eq('id', disposableId);
+  const { data: disposableProfile } = await service.from('profiles').select('username').eq('id', disposableId).single();
+  check(
+    'le compte jetable porte son identifiant métier',
+    disposableProfile?.username === disposable.username,
+    disposableProfile?.username ?? 'aucun',
+  );
 
   /* --- Connexion refusée : message unique ------------------------------- */
 
@@ -1302,7 +1342,7 @@ async function serverActionChecks(target, base) {
 
   const wrongPassword = await submitAction(base, '/connexion/', {
     ...signInFields,
-    identifiant: 'rachade',
+    identifiant: disposable.username,
     mot_de_passe: `mauvais-${randomUUID()}`,
     site_web: '',
   });
@@ -1334,7 +1374,7 @@ async function serverActionChecks(target, base) {
 
   const automated = await submitAction(base, '/connexion/', {
     ...signInFields,
-    identifiant: 'rachade',
+    identifiant: disposable.username,
     mot_de_passe: 'peu-importe',
     site_web: 'https://spam.test',
   });
@@ -1363,7 +1403,7 @@ async function serverActionChecks(target, base) {
 
   const known = await submitAction(base, '/mot-de-passe-oublie/', {
     ...resetFields,
-    identifiant: 'rachade',
+    identifiant: disposable.username,
     site_web: '',
   });
 
@@ -1421,6 +1461,7 @@ async function serverActionChecks(target, base) {
   );
 
   await service.from('rate_limit_counters').delete().in('bucket', testedBuckets);
+  await service.auth.admin.deleteUser(disposableId);
 
   /* --- Inscription : validation et neutralité --------------------------- */
 

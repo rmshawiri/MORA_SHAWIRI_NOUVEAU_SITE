@@ -58,8 +58,17 @@ test('le gabarit porte l’identité, même quand les images sont bloquées', ()
   // Le logo est une image distante HTTPS stable, jamais une pièce jointe…
   assert.match(html, new RegExp(`<img src="${SITE}/logo-circle.png"[^>]*alt="MORA Shawiri"`));
   assert.doesNotMatch(html, /cid:/);
-  // … et le nom est écrit en toutes lettres à côté : il reste si l'image manque.
-  assert.match(html, />MORA Shawiri<\/div>/);
+  // … et le nom est écrit en toutes lettres sous lui : il reste si l'image manque.
+  assert.match(html, />MORA Shawiri<\/p>/);
+  // En-tête et pied centrés (correctif d'identité du 2 octobre 2026).
+  assert.match(html, /<td class="ms-px" align="center" style="padding:26px 32px 20px;border-bottom:3px solid #ffd700;text-align:center;">/);
+  assert.match(html, /align="center" style="background:#f8f9fa;border-top:1px solid #e5e7eb;padding:22px 32px 24px;text-align:center;"/);
+});
+
+test('un paragraphe long ou une adresse longue se coupe au lieu d’élargir l’e-mail', () => {
+  const long = `https://exemple.km/${'a'.repeat(300)}`;
+  const { html } = renderEmail({ preheader: 'p', title: 'T', blocks: [{ kind: 'paragraph', text: long }], reason: 'r' }, SITE);
+  assert.match(html, /word-break:break-word;overflow-wrap:anywhere;">https:\/\/exemple\.km\//);
 });
 
 test('le gabarit tient sur un téléphone : largeur fluide, lien de secours sécable', () => {

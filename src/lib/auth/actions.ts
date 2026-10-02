@@ -429,8 +429,13 @@ export async function requestPasswordResetAction(
       AUTH_RATE_RULES.passwordResetByIdentifier,
       resolved.email,
     );
+    // Le plafond du jour n'est consommé que si l'heure le permet : une rafale
+    // déjà bloquée ne réduit pas les demandes légitimes du lendemain.
+    const dailyAllowed = byIdentifier.allowed
+      ? (await consumeAttempt(AUTH_RATE_RULES.passwordResetByIdentifierDaily, resolved.email)).allowed
+      : false;
 
-    if (byIdentifier.allowed) {
+    if (byIdentifier.allowed && dailyAllowed) {
       const supabase = await getServerSupabaseClient();
 
       if (supabase) {

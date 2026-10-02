@@ -628,7 +628,7 @@ async function checkApplications(target, admin, sessions, state) {
     ((await sessions.candidatures.from('email_outbox').select('id').eq('id', mail?.id)).data ?? []).length === 1);
   check('une session n’écrit pas dans le journal des e-mails',
     Boolean((await sessions.decideur.from('email_outbox').insert({
-      template: 'x.y.z', recipient: 'a@b.cd', subject: 's', html_body: 'h', text_body: 't',
+      template: 'x.y.z', recipient: 'controle@mora-shawiri.test', subject: 's', html_body: 'h', text_body: 't',
     })).error));
   const secretError = await admin.from('email_outbox')
     .update({ status: 'ECHEC', last_error: 'Invalid password=abc' }).eq('id', mail?.id).select();

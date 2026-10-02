@@ -156,7 +156,7 @@ function cell(inner: string, top = 16): string {
 
 function paragraphHtml(text: string): string {
   return cell(
-    `<p style="margin:0;font-family:${FONT};font-size:15px;line-height:1.65;color:${C.text};">${escapeMultiline(text)}</p>`,
+    `<p style="margin:0;font-family:${FONT};font-size:15px;line-height:1.65;color:${C.text};word-break:break-word;overflow-wrap:anywhere;">${escapeMultiline(text)}</p>`,
   );
 }
 
@@ -291,14 +291,24 @@ function blockHtml(block: EmailBlock): string {
   }
 }
 
-/** Coordonnées publiques, reprises de la configuration centralisée du site. */
+/**
+ * Pied de page : coordonnées publiques, reprises de la configuration
+ * centralisée du site. Centré, sur fond clair, une information par ligne —
+ * il se lit de la même façon sur un écran large et sur un téléphone.
+ */
 function signatureHtml(siteUrl: string): string {
+  const line = (inner: string, extra = '') =>
+    `<p style="margin:0;font-family:${FONT};font-size:12px;line-height:1.7;color:${C.textSoft};${extra}">${inner}</p>`;
   return [
-    `<strong style="color:${C.blue};">MORA Shawiri</strong> — ${escapeHtml(site.slogan)}`,
-    `<a href="${escapeHtml(site.phoneHref)}" style="color:${C.textSoft};">${escapeHtml(site.phone)}</a> · <a href="${escapeHtml(site.emailHref)}" style="color:${C.textSoft};">${escapeHtml(site.email)}</a>`,
-    escapeHtml(site.addressLabel),
-    `<a href="${escapeHtml(siteUrl)}/" style="color:${C.textSoft};">${escapeHtml(displayHost(siteUrl))}</a>`,
-  ].join('<br />');
+    `<p style="margin:0;font-family:${FONT};font-size:14px;line-height:1.5;font-weight:700;color:${C.blue};">MORA Shawiri</p>`,
+    line(escapeHtml(site.slogan), 'font-style:italic;margin-bottom:8px;'),
+    line(
+      `<a href="${escapeHtml(site.phoneHref)}" style="color:${C.textSoft};text-decoration:none;">${escapeHtml(site.phone)}</a>` +
+        `&nbsp;&nbsp;·&nbsp;&nbsp;<a href="${escapeHtml(site.emailHref)}" style="color:${C.textSoft};text-decoration:none;">${escapeHtml(site.email)}</a>`,
+    ),
+    line(escapeHtml(site.addressLabel)),
+    line(`<a href="${escapeHtml(siteUrl)}/" style="color:${C.blue};text-decoration:underline;">${escapeHtml(displayHost(siteUrl))}</a>`),
+  ].join('');
 }
 
 /**
@@ -316,10 +326,15 @@ function renderHtml(content: EmailContent, siteUrl: string): string {
   const footer = content.footer ?? 'signature';
   const body = content.blocks.map(blockHtml).join('');
 
+  const reasonHtml = `<p style="margin:0;font-family:${FONT};font-size:11px;line-height:1.6;color:#6b7280;">${escapeHtml(content.reason)}</p>`;
   const footerHtml =
     footer === 'signature'
-      ? `${signatureHtml(siteUrl)}<br /><br /><span style="color:#6b7280;">${escapeHtml(content.reason)}</span>`
-      : `<span style="color:#6b7280;">${escapeHtml(content.reason)}</span>`;
+      ? `${signatureHtml(siteUrl)}
+            <table role="presentation" cellpadding="0" cellspacing="0" border="0" align="center" style="margin:14px auto 12px;">
+              <tr><td style="width:48px;height:2px;background:${C.gold};line-height:2px;font-size:0;">&nbsp;</td></tr>
+            </table>
+            ${reasonHtml}`
+      : reasonHtml;
 
   return `<!DOCTYPE html>
 <html lang="fr">
@@ -346,18 +361,13 @@ function renderHtml(content: EmailContent, siteUrl: string): string {
       <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="600" style="width:100%;max-width:600px;background:${C.white};border:1px solid ${C.border};border-radius:12px;overflow:hidden;">
 
         <tr>
-          <td class="ms-px" style="background:${C.blue};padding:18px 32px;border-bottom:4px solid ${C.gold};">
-            <table role="presentation" cellpadding="0" cellspacing="0" border="0">
-              <tr>
-                <td valign="middle" style="padding-right:12px;">
-                  <img src="${escapeHtml(siteUrl)}/logo-circle.png" width="44" height="44" alt="MORA Shawiri" style="display:block;width:44px;height:44px;border:0;font-family:${FONT};font-size:11px;color:${C.white};" />
-                </td>
-                <td valign="middle">
-                  <div style="font-family:${FONT};font-size:17px;font-weight:700;line-height:1.2;color:${C.white};">MORA Shawiri</div>
-                  <div style="font-family:${FONT};font-size:12px;line-height:1.4;color:${C.gold};">${escapeHtml(site.slogan)}</div>
-                </td>
-              </tr>
-            </table>
+          <td style="background:${C.blue};height:6px;line-height:6px;font-size:0;">&nbsp;</td>
+        </tr>
+        <tr>
+          <td class="ms-px" align="center" style="padding:26px 32px 20px;border-bottom:3px solid ${C.gold};text-align:center;">
+            <img src="${escapeHtml(siteUrl)}/logo-circle.png" width="72" height="72" alt="MORA Shawiri" style="display:block;margin:0 auto 10px;width:72px;height:72px;border:0;font-family:${FONT};font-size:12px;color:${C.blue};" />
+            <p style="margin:0;font-family:${FONT};font-size:19px;line-height:1.25;font-weight:700;letter-spacing:.01em;color:${C.blue};">MORA Shawiri</p>
+            <p style="margin:4px 0 0;font-family:${FONT};font-size:13px;line-height:1.4;font-style:italic;color:${C.textSoft};">${escapeHtml(site.slogan)}</p>
           </td>
         </tr>
 
@@ -369,12 +379,11 @@ function renderHtml(content: EmailContent, siteUrl: string): string {
 ${body}
 
         <tr>
-          <td class="ms-px" style="padding:28px 32px 28px;">
-            <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="border-top:1px solid ${C.border};">
-              <tr>
-                <td style="padding-top:16px;font-family:${FONT};font-size:12px;line-height:1.7;color:${C.textSoft};">${footerHtml}</td>
-              </tr>
-            </table>
+          <td style="padding:32px 0 0;font-size:0;line-height:0;">&nbsp;</td>
+        </tr>
+        <tr>
+          <td class="ms-px" align="center" style="background:${C.page};border-top:1px solid ${C.border};padding:22px 32px 24px;text-align:center;">
+            ${footerHtml}
           </td>
         </tr>
 
