@@ -63,7 +63,7 @@ async function main() {
     }
     const { snapshot } = JSON.parse(readFileSync(SNAPSHOT_FILE, 'utf8'));
     const result = await restore(target, accessToken, snapshot);
-    if (result.restored) rmSync(SNAPSHOT_FILE, { force: true });
+    if (result.identical) rmSync(SNAPSHOT_FILE, { force: true });
     process.exitCode = result.identical ? 0 : 1;
     return;
   }
@@ -90,7 +90,9 @@ async function main() {
   });
 
   const result = await restore(target, accessToken, snapshot);
-  if (result.restored) rmSync(SNAPSHOT_FILE, { force: true });
+  // Le relevé n'est effacé qu'après une restitution identique : si un contrôle
+  // interrompu a laissé des comptes, il reste disponible pour `--restaurer`.
+  if (result.identical) rmSync(SNAPSHOT_FILE, { force: true });
 
   process.exitCode = code !== 0 ? code : result.identical ? 0 : 1;
 }

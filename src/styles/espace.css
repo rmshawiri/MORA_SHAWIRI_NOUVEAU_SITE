@@ -368,7 +368,7 @@
    ====================================================================== */
 .espace .aff-space-section { padding-block: clamp(20px, 3vw, 36px); }
 .espace .aff-space { display: grid; grid-template-columns: 228px minmax(0, 1fr); gap: var(--sp-6); align-items: start; }
-.espace .aff-main { min-width: 0; display: grid; gap: var(--sp-5); }
+.espace .aff-main { min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--sp-5); }
 .espace .aff-main > .auth-card + .auth-card,
 .espace .aff-main > .auth-notice + .auth-card { margin-top: 0; }
 .espace .aff-main > .auth-notice { margin: 0; }

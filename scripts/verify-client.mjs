@@ -1187,6 +1187,26 @@ async function adminClients(ctx, base) {
   }
   await gest.rpc('unblock_client', { p_user_id: state.ca.userId, p_reason: null });
 
+  // --- Compte CLIENT + AFFILIE : bloquer la qualité CLIENT ne casse pas l'espace affilié.
+  const blockBoth = await gest.rpc('block_client', { p_user_id: state.both.userId, p_reason: 'Contrôle client + affilié' });
+  const { client: bothSession } = await signIn(target, state.both.email);
+  const ownAffiliate = await bothSession.from('affiliates').select('id').eq('user_id', state.both.userId);
+  check('CLIENT + AFFILIE bloqué comme client : profil actif, affiliation toujours lisible',
+    !blockBoth.error && blockBoth.data?.profile_suspended_by_block === false && (ownAffiliate.data ?? []).length === 1, blockBoth.error?.message);
+  if (base) {
+    const cookieBoth = sessionCookieHeader(storageKey, (await signIn(target, state.both.email)).session);
+    const affSpace = await visit(base, '/espace-affilie/', cookieBoth);
+    check('… son espace affilié reste ouvert', affSpace.status === 200 && affSpace.body.includes('aff-nav--side'));
+    const cliSpace = await visit(base, '/espace-client/', cookieBoth);
+    check('… son espace client est fermé', cliSpace.status === 200 && cliSpace.body.includes('Votre espace client est suspendu'));
+  }
+  await gest.rpc('unblock_client', { p_user_id: state.both.userId, p_reason: null });
+  // Profil réellement suspendu : les deux espaces privés se ferment.
+  await admin.from('profiles').update({ status: 'SUSPENDU' }).eq('id', state.both.userId);
+  check('profil suspendu : l’affiliation n’est plus lisible avec l’ancienne session',
+    ((await bothSession.from('affiliates').select('id').eq('user_id', state.both.userId)).data ?? []).length === 0);
+  await admin.from('profiles').update({ status: 'ACTIF' }).eq('id', state.both.userId);
+
   // --- Compte déjà suspendu par ailleurs : le déblocage client ne le réactive pas.
   await admin.from('profiles').update({ status: 'SUSPENDU' }).eq('id', state.other.userId);
   const blockOther = await gest.rpc('block_client', { p_user_id: state.other.userId, p_reason: 'Contrôle double suspension' });
@@ -1245,15 +1265,19 @@ async function adminClients(ctx, base) {
     const cookieRoot = sessionCookieHeader(storageKey, (await signIn(target, state.root.email)).session);
     check('écran : SUPER_ADMIN ouvre la fiche', (await visit(base, `/administration/clients/${state.b.reference}/`, cookieRoot)).status === 200);
 
-    // Cas réel MORA-CLI-A0001 : lecture seule, aucun clic.
+    // Cas réel MORA-CLI-A0001 (lecture seule, aucun clic). Depuis la clôture
+    // 4I-5, MORA-DMCL-A0001 et le rendez-vous réel lui sont rattachés, sur
+    // décision du propriétaire et par l'interface : la fiche les montre comme
+    // siens, et plus rien n'est en attente de rattachement.
     const real = await visit(base, '/administration/clients/MORA-CLI-A0001/', cookieGest);
-    state.realDetection = {
-      page: real.status,
-      demande: real.body.includes('MORA-DMCL-A0001') && real.body.includes('Éléments historiques rattachables'),
-      rendezVous: /<strong>Rendez-vous<\/strong>/.test(real.body),
-    };
-    check('cas réel (lecture seule) : la fiche MORA-CLI-A0001 détecte MORA-DMCL-A0001', real.status === 200 && state.realDetection.demande, `HTTP ${real.status}`);
-    check('cas réel (lecture seule) : la fiche MORA-CLI-A0001 détecte le rendez-vous historique', state.realDetection.rendezVous);
+    check('cas réel (lecture seule) : MORA-DMCL-A0001 figure dans les demandes de MORA-CLI-A0001',
+      real.status === 200 && real.body.includes('/administration/demandes/MORA-DMCL-A0001/'), `HTTP ${real.status}`);
+    check('cas réel (lecture seule) : plus aucun élément historique en attente sur MORA-CLI-A0001', real.body.includes('Aucun élément historique rattachable'));
+    for (const [label, account] of [['A', state.a], ['B', state.b], ['CLIENT + ADMIN', state.ca]]) {
+      const cookie = sessionCookieHeader(storageKey, (await signIn(target, account.email)).session);
+      const page = await visit(base, '/espace-client/demandes/', cookie);
+      check(`cas réel : MORA-DMCL-A0001 n’apparaît pas chez le client de contrôle ${label}`, page.status === 200 && !page.body.includes('MORA-DMCL-A0001'));
+    }
   }
 }
 

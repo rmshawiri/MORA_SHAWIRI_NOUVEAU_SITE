@@ -1344,6 +1344,63 @@ async function checkDocuments(target, accessToken, admin, sessions, state) {
 
 /* ========================================================================== */
 
+
+/* ========================================================================== */
+/* 4I-5 — profil suspendu : plus aucune lecture propriétaire d'affilié        */
+/* ========================================================================== */
+
+/**
+ * Exception minimale au gel de 4H, autorisée le 2 octobre 2026 : un compte
+ * dont le profil est réellement suspendu ne lit plus ses données privées
+ * d'affilié, même avec la session ouverte avant la suspension. Les accès
+ * d'administration ne changent pas.
+ */
+async function checkProfileSuspension(target, admin, sessions, state) {
+  log.step('Profil suspendu, session déjà ouverte : aucune donnée privée d’affilié');
+  const affId = state.affB.id;
+  const s = sessions.affB; // session ouverte au début du contrôle
+  const reads = async () => ({
+    affiliation: ((await s.from('affiliates').select('id').eq('id', affId)).data ?? []).length,
+    regles: ((await s.from('affiliate_rules').select('id')).data ?? []).length,
+    campagnes: ((await s.from('affiliate_campaigns').select('id').eq('affiliate_id', affId)).data ?? []).length,
+    codes: ((await s.from('affiliate_codes').select('id').eq('affiliate_id', affId)).data ?? []).length,
+    prospects: ((await s.from('affiliate_prospects').select('id').eq('affiliate_id', affId)).data ?? []).length,
+    coordonnees: ((await s.from('affiliate_payout_accounts').select('id').eq('affiliate_id', affId)).data ?? []).length,
+    commissions: ((await s.from('affiliate_commissions').select('id').eq('affiliate_id', affId)).data ?? []).length,
+    ajustements: ((await s.from('affiliate_commission_adjustments').select('id').eq('affiliate_id', affId)).data ?? []).length,
+    versements: ((await s.from('affiliate_payouts').select('id').eq('affiliate_id', affId)).data ?? []).length,
+    pieces: ((await s.from('documents').select('id').in('doc_type', ['FIAF', 'RVAF'])).data ?? []).length,
+    conversions: ((await s.rpc('my_affiliate_conversions')).data ?? []).length,
+    statistiques: (await s.rpc('affiliate_stats', { p_affiliate_id: affId })).error ? 0 : 1,
+    totaux: (await s.rpc('affiliate_commission_totals', { p_affiliate_id: affId })).error ? 0 : 1,
+    apercu_fiche: (await s.rpc('affiliate_sheet_preview', { p_affiliate_id: affId })).error ? 0 : 1,
+  });
+
+  const before = await reads();
+  check('profil actif : l’affilié lit son affiliation, ses commissions, ses versements, ses pièces',
+    before.affiliation === 1 && before.commissions >= 1 && before.versements >= 1 && before.pieces >= 1 && before.statistiques === 1 && before.totaux === 1,
+    JSON.stringify(before));
+
+  await admin.from('profiles').update({ status: 'SUSPENDU' }).eq('id', state.userB.userId);
+  const after = await reads();
+  check('profil suspendu, ancienne session : aucune donnée privée lue (fiche, règles, campagnes, codes, prospects, coordonnées, commissions, ajustements, versements, pièces, conversions, statistiques, aperçu)',
+    Object.values(after).every((n) => n === 0), JSON.stringify(after));
+  const campaign = await s.rpc('create_affiliate_campaign', { p_affiliate_id: affId, p_code: 'suspendu', p_label: 'Tentative suspendue' });
+  check('profil suspendu : aucune campagne créée', Boolean(campaign.error));
+  const contact = await s.rpc('update_my_affiliate_contact', { p_phone: '+269 000 00 99', p_city: 'Moroni', p_country: 'Comores' });
+  check('profil suspendu : coordonnées non modifiables', Boolean(contact.error));
+  check('administration intacte : affiliates.view lit toujours l’affilié',
+    ((await sessions.lecteur.from('affiliates').select('id').eq('id', affId)).data ?? []).length === 1);
+  check('administration intacte : payouts.view lit toujours ses versements',
+    ((await sessions.tresorier.from('affiliate_payouts').select('id').eq('affiliate_id', affId)).data ?? []).length >= 1);
+
+  await admin.from('profiles').update({ status: 'ACTIF' }).eq('id', state.userB.userId);
+  const back = await reads();
+  check('profil réactivé : même session, tout est de nouveau lisible', JSON.stringify(back) === JSON.stringify(before), JSON.stringify(back));
+  const other = await sessions.affA.from('affiliate_commissions').select('id').eq('affiliate_id', affId);
+  check('un autre affilié ne lit toujours rien de B', (other.data ?? []).length === 0);
+}
+
 /* ========================================================================== */
 /* Correctif de clôture 4H — éligibilité administrable, ajout direct          */
 /* ========================================================================== */
@@ -1997,6 +2054,7 @@ async function main() {
     await checkCommissions(target, accessToken, admin, sessions, state);
     await checkPayouts(target, accessToken, admin, sessions, state);
     await checkDocuments(target, accessToken, admin, sessions, state);
+    await checkProfileSuspension(target, admin, sessions, state);
     await checkApplications(target, admin, sessions, state);
     await checkAffiliates(target, accessToken, admin, sessions, state);
     await checkOfferEligibility(target, admin, sessions, state);

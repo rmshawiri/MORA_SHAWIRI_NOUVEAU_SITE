@@ -182,17 +182,30 @@ export function describeTarget(target) {
  * faire circuler.
  */
 export async function runSql(target, accessToken, sql) {
-  const response = await fetch(
-    `https://api.supabase.com/v1/projects/${target.projectRef}/database/query`,
-    {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ query: sql }),
-    },
-  );
+  // Reprise sur les seules coupures réseau (connexion réinitialisée, délai) :
+  // une erreur renvoyée par la base n'est jamais rejouée. Les requêtes des
+  // contrôles sont des lectures, des suppressions ou des affectations
+  // absolues — les rejouer après une réponse perdue ne fausse rien.
+  let response;
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      response = await fetch(
+        `https://api.supabase.com/v1/projects/${target.projectRef}/database/query`,
+        {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ query: sql }),
+        },
+      );
+      break;
+    } catch (error) {
+      if (attempt >= 5) throw error;
+      await new Promise((resolve) => setTimeout(resolve, 2000 * attempt));
+    }
+  }
 
   const text = await response.text();
 
