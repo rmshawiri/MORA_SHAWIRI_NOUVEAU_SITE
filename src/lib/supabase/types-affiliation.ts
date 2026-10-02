@@ -721,4 +721,5 @@ export type AffiliationFunctions = {
   };
   affiliate_sheet_preview: { Args: { p_affiliate_id: string }; Returns: Json };
   issue_affiliate_sheet: { Args: { p_affiliate_id: string }; Returns: DocumentRow };
+  update_my_affiliate_contact: { Args: { p_phone: string; p_city: string; p_country: string }; Returns: AffiliateRow };
 };

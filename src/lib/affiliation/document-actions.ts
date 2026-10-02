@@ -40,7 +40,7 @@ export async function issueAffiliateSheet(_p: AdminActionState, formData: FormDa
     }
     const archived = await archiveIssuedAffiliateDocument(data.reference);
     revalidatePath('/administration/affiliation/', 'layout');
-    revalidatePath('/espace-affilie/');
+    revalidatePath('/espace-affilie/', 'layout');
     destination = `/administration/affiliation/affilies/${id}/?resultat=${archived ? 'FICHE_EMISE' : 'FICHE_EMISE_SANS_ARCHIVE'}#documents`;
   } catch (error) {
     if (error instanceof PermissionDenied) return ko(DENIED);

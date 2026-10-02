@@ -357,3 +357,111 @@
 .espace .aff-payout__actions .btn-row > .btn { flex: 1 1 120px; width: auto; }
 .espace .aff-payout .auth-meta { margin: 0; padding: 0 var(--sp-3) var(--sp-3); }
 .espace .aff-sub { display: block; margin-top: 2px; font-size: var(--text-caption); font-weight: 400; color: var(--text-secondary); }
+
+/* ======================================================================
+   ESPACE AFFILIÉ — navigation et présentation (phase 4H-8)
+   ----------------------------------------------------------------------
+   Grille à deux colonnes sur ordinateur (navigation latérale + contenu),
+   une colonne en dessous de 960 px avec un menu replié. Les listes sont des
+   cartes empilées : aucune n'impose de défilement horizontal. Cibles
+   tactiles ≥ 44 px, champs à 16 px (pas de zoom automatique sur iOS).
+   ====================================================================== */
+.espace .aff-space-section { padding-block: clamp(20px, 3vw, 36px); }
+.espace .aff-space { display: grid; grid-template-columns: 228px minmax(0, 1fr); gap: var(--sp-6); align-items: start; }
+.espace .aff-main { min-width: 0; display: grid; gap: var(--sp-5); }
+.espace .aff-main > .auth-card + .auth-card,
+.espace .aff-main > .auth-notice + .auth-card { margin-top: 0; }
+.espace .aff-main > .auth-notice { margin: 0; }
+
+.espace .aff-nav--side {
+  position: sticky; top: 96px; /* sous l’en-tête fixe du site (80 px) */
+  background: var(--white); border: 1px solid var(--border); border-radius: var(--r-card);
+  box-shadow: var(--shadow-sm); padding: 8px;
+}
+.espace .aff-nav__list { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
+.espace .aff-nav__link {
+  display: flex; align-items: center; min-height: 44px; padding: 0 12px;
+  border-radius: var(--r-btn); color: var(--mora-blue-deep); text-decoration: none;
+  font-size: var(--text-small); font-weight: 600;
+}
+.espace .aff-nav__link:hover { background: var(--gray-light); }
+.espace .aff-nav__link.is-current { background: var(--mora-blue); color: var(--white); box-shadow: inset 3px 0 0 var(--shawiri-gold); }
+.espace .aff-nav__link:focus-visible { outline: 3px solid var(--shawiri-gold); outline-offset: 2px; }
+.espace .aff-nav--menu { display: none; }
+
+@media (max-width: 960px) {
+  .espace .aff-space { grid-template-columns: minmax(0, 1fr); gap: var(--sp-4); }
+  .espace .aff-nav--side { display: none; }
+  .espace .aff-nav--menu {
+    display: block; background: var(--white); border: 1px solid var(--border);
+    border-radius: var(--r-card); box-shadow: var(--shadow-sm);
+  }
+  .espace .aff-nav--menu > summary {
+    list-style: none; display: flex; align-items: center; gap: 10px; min-height: 52px;
+    padding: 0 16px; cursor: pointer; color: var(--mora-blue-deep);
+  }
+  .espace .aff-nav--menu > summary::-webkit-details-marker { display: none; }
+  .espace .aff-nav--menu > summary::after {
+    content: ''; margin-left: auto; width: 9px; height: 9px; border-right: 2px solid currentColor;
+    border-bottom: 2px solid currentColor; transform: rotate(45deg); transition: transform .15s;
+  }
+  .espace .aff-nav--menu[open] > summary::after { transform: rotate(-135deg); }
+  .espace .aff-nav__caption { font-size: var(--text-caption); color: var(--text-secondary); }
+  .espace .aff-nav__current { font-weight: 700; font-family: var(--font-display); }
+  .espace .aff-nav--menu nav { padding: 0 8px 8px; border-top: 1px solid var(--border); }
+  .espace .aff-nav--menu .aff-nav__list { padding-top: 8px; }
+}
+
+/* En-tête de carte : titre et action côte à côte, empilés sur téléphone. */
+.espace .aff-card-head { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: var(--sp-3); }
+.espace .aff-card-head > div:first-child { min-width: 0; flex: 1 1 240px; }
+.espace .aff-card-intro { margin: 4px 0 0; color: var(--text-secondary); font-size: var(--text-small); }
+.espace .aff-card-action { flex: 0 1 auto; }
+.espace .aff-card-action .btn { min-height: 44px; }
+
+/* Indicateurs. */
+.espace .aff-kpis { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 168px), 1fr)); gap: var(--sp-3); margin: 0; }
+.espace .aff-kpi { padding: 12px 14px; border: 1px solid var(--border); border-radius: var(--r-btn); background: var(--white); min-width: 0; }
+.espace .aff-kpi dt { font-size: var(--text-caption); color: var(--text-secondary); }
+.espace .aff-kpi dd { margin: 4px 0 0; font-family: var(--font-display); font-weight: 700; font-size: 1.125rem; color: var(--mora-blue-deep); overflow-wrap: anywhere; }
+.espace .aff-kpi dd.aff-kpi__hint { font-family: inherit; font-weight: 400; font-size: var(--text-caption); color: var(--text-secondary); }
+.espace .aff-kpi--gold { border-color: rgba(255, 215, 0, .7); background: rgba(255, 215, 0, .08); }
+.espace .aff-kpi--green { border-color: rgba(0, 168, 89, .4); background: rgba(0, 168, 89, .06); }
+
+/* Listes en cartes. */
+.espace .aff-items { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--sp-2); }
+.espace .aff-item { border: 1px solid var(--border); border-radius: var(--r-btn); background: var(--white); padding: 12px 14px; min-width: 0; }
+.espace .aff-item__top { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 4px 12px; }
+.espace .aff-item__title { font-weight: 700; color: var(--mora-blue-deep); overflow-wrap: anywhere; min-width: 0; }
+.espace .aff-item__amount { font-family: var(--font-display); font-weight: 700; color: var(--mora-blue-deep); white-space: nowrap; }
+.espace .aff-item__meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; margin-top: 6px; }
+.espace .aff-item__info { font-size: var(--text-caption); color: var(--text-secondary); overflow-wrap: anywhere; }
+.espace .aff-item__body { margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--border); font-size: var(--text-small); }
+.espace .aff-item__body .auth-meta { margin: 0; }
+.espace .aff-item__body .btn-row { display: flex; flex-flow: row wrap; gap: var(--sp-2); }
+.espace .aff-item__body .btn-row > .btn { flex: 1 1 120px; width: auto; min-height: 44px; }
+.espace .aff-item details > summary { cursor: pointer; min-height: 44px; display: flex; align-items: center; color: var(--mora-blue); font-weight: 600; font-size: var(--text-small); }
+.espace .aff-pill { display: inline-flex; align-items: center; padding: 2px 10px; border-radius: var(--r-pill); font-size: var(--text-caption); font-weight: 700; font-family: var(--font-display); }
+.espace .aff-pill--ok { background: rgba(0, 168, 89, .14); color: #046c3c; }
+.espace .aff-pill--todo { background: rgba(255, 215, 0, .24); color: var(--mora-blue-deep); }
+.espace .aff-pill--warn { background: rgba(214, 69, 65, .12); color: #9b1c1c; }
+.espace .aff-pill--muted { background: var(--gray-secondary); color: var(--text-secondary); }
+
+/* États vides. */
+.espace .aff-empty { padding: 18px; border: 1px dashed var(--border); border-radius: var(--r-btn); background: var(--gray-light); text-align: center; }
+.espace .aff-empty__title { margin: 0; font-weight: 700; color: var(--mora-blue-deep); }
+.espace .aff-empty__text { margin: 4px 0 0; color: var(--text-secondary); font-size: var(--text-small); }
+.espace .aff-more { margin: var(--sp-3) 0 0; font-size: var(--text-small); }
+.espace .aff-more a { display: inline-flex; align-items: center; min-height: 44px; font-weight: 600; }
+
+/* Accès rapides. */
+.espace .aff-quick { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 200px), 1fr)); gap: var(--sp-2); }
+.espace .aff-quick .btn { width: 100%; min-height: 44px; justify-content: center; }
+
+/* Codes : une remise client n'est pas une commission. */
+.espace .aff-code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 1rem; letter-spacing: .04em; overflow-wrap: anywhere; }
+.espace .aff-distinct { padding: 10px 14px; border-left: 3px solid var(--shawiri-gold); background: rgba(255, 215, 0, .1); border-radius: 0 var(--r-btn) var(--r-btn) 0; font-size: var(--text-small); margin: 0 0 var(--sp-4); }
+
+/* Formulaires de l'espace : champs à 16 px, actions à 44 px. */
+.espace .aff-main input, .espace .aff-main select, .espace .aff-main textarea { font-size: 1rem; }
+.espace .aff-main .btn { min-height: 44px; }

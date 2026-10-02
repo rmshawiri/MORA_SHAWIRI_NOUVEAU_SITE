@@ -40,7 +40,7 @@ export default function LinkCopyShare({ url, title }: { url: string; title: stri
       <code className="aff-link__url">{url}</code>
       <div className="btn-row">
         <button type="button" className="btn btn--primary" onClick={copy}>
-          Copier
+          Copier le lien
         </button>
         <button type="button" className="btn btn--ghost" onClick={share}>
           Partager

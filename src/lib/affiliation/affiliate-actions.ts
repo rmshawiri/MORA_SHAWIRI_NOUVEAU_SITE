@@ -92,7 +92,7 @@ function refresh(id?: string) {
   revalidatePath('/administration/affiliation/affilies/');
   revalidatePath('/administration/affiliation/categories/');
   if (id) revalidatePath(affiliatePath(id));
-  revalidatePath('/espace-affilie/');
+  revalidatePath('/espace-affilie/', 'layout');
 }
 
 const back = (id: string, result: string, mail: 'sent' | 'failed' | 'skipped' = 'skipped') =>

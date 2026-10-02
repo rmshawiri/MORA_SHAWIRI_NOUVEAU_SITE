@@ -198,3 +198,35 @@ export function CancelProspectButton({
     </form>
   );
 }
+
+export function ContactForm({
+  action,
+  initial,
+}: {
+  action: (previous: AdminActionState, formData: FormData) => Promise<AdminActionState>;
+  initial: { telephone: string; ville: string; pays: string };
+}) {
+  const [state, formAction] = useActionState(action, INITIAL);
+  return (
+    <form action={formAction} className="form">
+      <Notice state={state} />
+      <div className="field">
+        <label htmlFor="aff-tel">Téléphone ou WhatsApp</label>
+        <input id="aff-tel" name="telephone" type="tel" inputMode="tel" maxLength={40} autoComplete="tel" defaultValue={initial.telephone} />
+      </div>
+      <div className="form__row">
+        <div className="field">
+          <label htmlFor="aff-ville">Ville</label>
+          <input id="aff-ville" name="ville" maxLength={80} autoComplete="address-level2" defaultValue={initial.ville} />
+        </div>
+        <div className="field">
+          <label htmlFor="aff-pays">Pays</label>
+          <input id="aff-pays" name="pays" maxLength={80} autoComplete="country-name" defaultValue={initial.pays} />
+        </div>
+      </div>
+      <div className="btn-row">
+        <Submit label="Enregistrer mes coordonnées" />
+      </div>
+    </form>
+  );
+}

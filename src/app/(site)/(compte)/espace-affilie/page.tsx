@@ -1,50 +1,13 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 
-import { CampaignForm, CancelProspectButton, PayoutRequestForm, ProspectForm } from '@/components/affiliation/AffiliateSpaceForm';
-import LinkCopyShare from '@/components/affiliation/LinkCopyShare';
-import OfficialDocumentActions from '@/components/documents/OfficialDocumentActions';
-import PageHero from '@/components/sections/PageHero';
-import {
-  ACQUISITION_TRIGGER_LABELS,
-  AFFILIATE_STATUS_LABELS,
-  PAYOUT_ACCOUNT_STATUS_LABELS,
-  PAYOUT_FREQUENCY_LABELS,
-  affiliateLink,
-  codeIsCurrent,
-  describeDiscount,
-  describeRuleRow,
-  ruleInForce,
-  ruleOriginFor,
-} from '@/lib/affiliation/affiliates';
-import { maskPayoutValue } from '@/lib/affiliation/applications';
-import { ADJUSTMENT_KIND_LABELS, COMMISSION_STATUS_HINTS, COMMISSION_STATUS_LABELS, kmf } from '@/lib/affiliation/commissions';
+import { SpaceCard, SpaceEmpty, SpaceItem, SpaceKpis, SpaceList, SpaceMore } from '@/components/affiliation/SpaceUi';
+import { COMMISSION_STATUS_LABELS, kmf } from '@/lib/affiliation/commissions';
 import { formatMoment } from '@/lib/affiliation/labels';
-import { formatPayoutDay, readMethodSnapshot, readPayoutLine } from '@/lib/affiliation/payouts';
-import { PROSPECT_STATUS_LABELS } from '@/lib/affiliation/prospects';
-import { cancelProspect, createOwnCampaign, declareProspect, requestPayoutChange } from '@/lib/affiliation/space-actions';
-import { formatKmf, toCents } from '@/lib/domain/affiliation';
-import { requirePrivateAccess } from '@/lib/auth/guards';
-import { AUTH_ROUTES } from '@/lib/auth/routes';
-import { RULE_ORIGIN_LABELS } from '@/lib/domain/affiliation';
-import { getSiteUrl } from '@/lib/env';
-import { getServerSupabaseClient } from '@/lib/supabase/server';
-import type { Json } from '@/lib/supabase/types';
-import type {
-  AcquisitionTrigger,
-  AffiliateAdjustmentRow,
-  AffiliateCampaignRow,
-  AffiliateCategoryRow,
-  AffiliateCodeRow,
-  AffiliateCommissionRow,
-  AffiliatePayoutAccountRow,
-  AffiliatePayoutItemRow,
-  AffiliatePayoutRow,
-  AffiliateProspectRow,
-  AffiliateRow,
-  AffiliateRuleRow,
-  PayoutFrequency,
-} from '@/lib/supabase/types-affiliation';
+import { formatPayoutDay } from '@/lib/affiliation/payouts';
+import { commissionTone } from '@/lib/affiliation/space-labels';
+import { getMySpace, myCommissions, myConversions, myDocuments, myPayouts, myStats, myTotals } from '@/lib/affiliation/space';
+import type { AffiliateProspectRow } from '@/lib/supabase/types-affiliation';
 
 export const metadata: Metadata = {
   title: 'Mon espace affilié',
@@ -53,644 +16,163 @@ export const metadata: Metadata = {
 };
 
 /**
- * Espace affilié — phase 4H.
+ * Tableau de bord de l'espace affilié (phase 4H-8).
  *
- * Une seule source de vérité : chaque information vient des mêmes tables que
- * l'administration, filtrées par RLS (l'affilié ne lit que sa ligne, ses
- * règles et celles de sa catégorie, ses campagnes, ses codes, ses
- * coordonnées). Ce que l'administration change apparaît ici au prochain
- * affichage — la page n'est jamais mise en cache.
+ * Les chiffres sont ceux que voit l'administration, lus aux mêmes sources :
+ * `affiliate_stats` pour l'activité, `affiliate_commission_totals` pour
+ * l'argent. Aucune métrique n'est fabriquée : un chiffre que la base ne sait
+ * pas calculer n'est pas affiché.
  *
- * L'affilié consulte ; il n'agit que sur deux choses sans portée financière :
- * demander de nouvelles coordonnées (validées par MORA Shawiri) et créer ses
- * liens de campagne. Les commissions sont lues ici telles que la base les a
- * calculées ; les versements et les documents s'ajoutent avec leurs lots.
+ * L'activité récente est reconstituée à partir des données de l'affilié
+ * lui-même (prospects, commissions, versements, pièces) — jamais du journal
+ * interne de l'administration, qui porte ses motifs et ses notes.
  */
-export default async function EspaceAffiliePage() {
-  await requirePrivateAccess(AUTH_ROUTES.affiliateArea);
-  const supabase = await getServerSupabaseClient();
-  const { data: me } = supabase ? await supabase.auth.getUser() : { data: { user: null } };
-  const { data: affiliateRow } =
-    supabase && me.user
-      ? await supabase.from('affiliates').select('*').eq('user_id', me.user.id).maybeSingle()
-      : { data: null };
-  const affiliate = affiliateRow as AffiliateRow | null;
+export default async function TableauDeBordAffilie() {
+  const space = await getMySpace();
+  if (space.state !== 'ready') return null;
+  const { affiliate, supabase } = space;
 
-  if (!supabase || !affiliate || affiliate.status === 'PREPARATION') {
-    return (
-      <>
-        <PageHero
-          breadcrumb={[{ label: 'Accueil', href: '/' }, { label: 'Espace affilié' }]}
-          eyebrow="Programme d’affiliation"
-          title="Espace affilié"
-          lead="Aucune affiliation active n’est rattachée à ce compte."
-        />
-        <section className="section auth-shell auth-shell--wide">
-          <div className="container">
-            <div className="auth-shell__inner">
-              <div className="auth-card">
-                <p>
-                  Si vous avez candidaté, votre espace s’ouvrira à l’activation de votre affiliation : vous recevrez un
-                  e-mail. Vous pouvez aussi{' '}
-                  <Link href="/affiliation/inscription/">déposer une candidature</Link>.
-                </p>
-              </div>
-            </div>
-          </div>
-        </section>
-      </>
-    );
-  }
-
-  const [category, terms, rules, campaigns, codes, accounts, methods, stats, prospects, conversions, commissions, adjustments, totals, payouts] = await Promise.all([
-    supabase.from('affiliate_categories').select('*').eq('id', affiliate.category_id).maybeSingle(),
-    supabase.rpc('affiliate_effective_terms', { p_affiliate_id: affiliate.id }),
-    supabase.from('affiliate_rules').select('*').order('valid_from', { ascending: false }),
-    supabase.from('affiliate_campaigns').select('*').eq('affiliate_id', affiliate.id).order('created_at'),
-    supabase.from('affiliate_codes').select('*').eq('affiliate_id', affiliate.id).order('created_at'),
-    supabase
-      .from('affiliate_payout_accounts')
-      .select('id, affiliate_id, method_code, status, source, requested_by, requested_at, reviewed_by, reviewed_at, review_note, replaced_at, created_at, updated_at')
-      .eq('affiliate_id', affiliate.id)
-      .order('requested_at', { ascending: false }),
-    supabase.rpc('affiliate_payout_methods'),
-    supabase.rpc('affiliate_stats', { p_affiliate_id: affiliate.id }),
+  const [stats, totals, conversions, { commissions }, { payouts }, documents, prospects] = await Promise.all([
+    myStats(space),
+    myTotals(space),
+    myConversions(space),
+    myCommissions(space, 50),
+    myPayouts(space, 20),
+    myDocuments(space),
     supabase
       .from('affiliate_prospects')
-      .select('id, affiliate_id, status, full_name, company, phone, email, need, comment, consent_confirmed, lead_id, review_reason, reviewed_at, recognized_at, protected_until, converted_at, created_at, updated_at')
+      .select('id, affiliate_id, status, full_name, company, recognized_at, converted_at, created_at, updated_at')
       .eq('affiliate_id', affiliate.id)
-      .order('created_at', { ascending: false }),
-    supabase.rpc('my_affiliate_conversions'),
-    // RLS : l'affilié ne lit que ses commissions et ses ajustements, qui ne
-    // portent aucune donnée de client.
-    supabase.from('affiliate_commissions').select('*').eq('affiliate_id', affiliate.id).order('created_at', { ascending: false }).limit(200),
-    supabase.from('affiliate_commission_adjustments').select('*').eq('affiliate_id', affiliate.id).order('created_at', { ascending: false }).limit(200),
-    supabase.rpc('affiliate_commission_totals', { p_affiliate_id: affiliate.id }),
-    // RLS : l'affilié ne lit que ses versements confirmés, sans note interne
-    // ni justificatif (colonnes non accordées).
-    supabase
-      .from('affiliate_payouts')
-      .select('id, affiliate_id, status, reference, period_label, total_amount, currency, method_snapshot, transaction_reference, confirmed_at')
-      .eq('affiliate_id', affiliate.id)
-      .order('confirmed_at', { ascending: false })
-      .limit(100),
+      .order('created_at', { ascending: false })
+      .limit(20),
   ]);
-  const payoutRows = (payouts.data ?? []) as unknown as AffiliatePayoutRow[];
-  const { data: payoutItemData } =
-    payoutRows.length > 0
-      ? await supabase.from('affiliate_payout_items').select('*').in('payout_id', payoutRows.map((row) => row.id)).order('created_at')
-      : { data: [] };
-  const payoutItems = (payoutItemData ?? []) as AffiliatePayoutItemRow[];
-  // Pièces officielles dont l'affilié est le titulaire (RLS : owner_id).
-  const { data: documentData } = await supabase
-    .from('documents')
-    .select('id, reference, doc_type, status, version, issued_at')
-    .eq('owner_id', me.user!.id)
-    .in('doc_type', ['FIAF', 'RVAF'])
-    .order('issued_at', { ascending: false })
-    .limit(100);
-  const documentRows = (documentData ?? []) as { id: string; reference: string; doc_type: string; status: string; version: number; issued_at: string }[];
-  const currentSheet = documentRows.find((doc) => doc.doc_type === 'FIAF' && doc.status === 'EMIS') ?? null;
-  const previousSheets = documentRows.filter((doc) => doc.doc_type === 'FIAF' && doc.status !== 'EMIS');
-  const commissionRows = (commissions.data ?? []) as AffiliateCommissionRow[];
-  const adjustmentRows = (adjustments.data ?? []) as AffiliateAdjustmentRow[];
-  const commissionTotals = (totals.data ?? [])[0];
-  const commissionRef = new Map(commissionRows.map((row) => [row.id, row.reference]));
-  const figures = (stats.data ?? [])[0];
   const prospectRows = (prospects.data ?? []) as AffiliateProspectRow[];
-  const conversionRows = conversions.data ?? [];
 
-  const categoryRow = category.data as AffiliateCategoryRow | null;
-  const effective = (terms.data ?? [])[0];
-  const currentRules = ((rules.data ?? []) as AffiliateRuleRow[]).filter((rule) => ruleInForce(rule));
-  const campaignRows = (campaigns.data ?? []) as AffiliateCampaignRow[];
-  const codeRows = ((codes.data ?? []) as AffiliateCodeRow[]).filter((code) => codeIsCurrent(code));
-  const accountRows = (accounts.data ?? []) as AffiliatePayoutAccountRow[];
-  const methodRows = methods.data ?? [];
-  const methodLabel = (code: string) => methodRows.find((row) => row.code === code)?.label ?? code;
-  const active = accountRows.find((row) => row.status === 'ACTIF') ?? null;
-  const pending = accountRows.find((row) => row.status === 'DEMANDE') ?? null;
-  let activeDetails: Record<string, string> = {};
-  if (active) {
-    const { data } = await supabase.rpc('payout_account_details', { p_account_id: active.id });
-    if (data && typeof data === 'object' && !Array.isArray(data)) {
-      activeDetails = Object.fromEntries(
-        Object.entries(data as Record<string, Json>).filter((entry): entry is [string, string] => typeof entry[1] === 'string'),
-      );
-    }
-  }
+  // Activité récente : des faits datés, tirés des données de l'affilié.
+  type Event = { at: string; label: string; detail: string; dayOnly?: boolean };
+  const events: Event[] = [
+    ...prospectRows.flatMap((p): Event[] => [
+      { at: p.created_at, label: 'Prospect déclaré', detail: p.full_name },
+      ...(p.recognized_at ? [{ at: p.recognized_at, label: 'Prospect reconnu', detail: p.full_name }] : []),
+      ...(p.converted_at ? [{ at: p.converted_at, label: 'Prospect converti', detail: p.full_name }] : []),
+    ]),
+    ...commissions.flatMap((c): Event[] => [
+      { at: c.created_at, label: 'Commission enregistrée', detail: `${c.reference} — ${kmf(c.amount)}` },
+      ...(c.acquired_at ? [{ at: c.acquired_at, label: 'Commission acquise', detail: `${c.reference} — ${kmf(c.amount)}` }] : []),
+    ]),
+    // Seul le jour d'un versement est saisi : l'heure n'a pas de sens.
+    ...payouts.map((p): Event => ({ at: p.confirmed_at ?? p.created_at, label: 'Versement reçu', detail: `${p.reference ?? ''} — ${kmf(p.total_amount)}`, dayOnly: true })),
+    ...documents
+      .filter((d) => d.doc_type === 'FIAF')
+      .map((d): Event => ({ at: d.issued_at, label: 'Fiche affilié émise', detail: d.reference })),
+  ]
+    .sort((a, b) => b.at.localeCompare(a.at))
+    .slice(0, 8);
 
-  const site = getSiteUrl();
   const live = affiliate.status === 'ACTIF';
 
   return (
     <>
-      <PageHero
-        breadcrumb={[{ label: 'Accueil', href: '/' }, { label: 'Espace affilié' }]}
-        eyebrow="Programme d’affiliation"
-        title={`Bonjour ${affiliate.display_name}`}
-        lead={`Affiliation ${affiliate.reference} — ${AFFILIATE_STATUS_LABELS[affiliate.status].toLowerCase()}.`}
-      />
+      <SpaceCard title="Mon activité" intro="Vos chiffres, tels qu’enregistrés par MORA Shawiri.">
+        <SpaceKpis
+          label="Activité"
+          items={[
+            { label: 'Clics sur vos liens', value: String(stats?.clicks ?? 0) },
+            { label: 'Prospects déclarés', value: String(stats?.prospects ?? 0), hint: `${stats?.prospects_recognized ?? 0} reconnu(s)` },
+            { label: 'Demandes attribuées', value: String(stats?.requests ?? 0) },
+            { label: 'Commandes attribuées', value: String(stats?.conversions ?? 0) },
+            { label: 'Chiffre d’affaires attribué', value: kmf(stats?.attributed_amount ?? 0) },
+          ]}
+        />
+      </SpaceCard>
 
-      <section className="section auth-shell auth-shell--wide">
-        <div className="container">
-          <div className="auth-shell__inner">
-            {!live ? (
-              <div className="auth-notice auth-notice--warn" role="status">
-                <p>
-                  {affiliate.status === 'SUSPENDU'
-                    ? 'Votre affiliation est suspendue : vos liens et vos codes n’attribuent pas de nouvelles affaires pour le moment.'
-                    : 'Votre affiliation a pris fin : vos liens et vos codes n’attribuent plus de nouvelles affaires. Votre historique reste consultable.'}
-                </p>
-              </div>
-            ) : null}
+      <SpaceCard title="Mes commissions" intro="Les mêmes montants que dans votre dossier chez MORA Shawiri.">
+        <SpaceKpis
+          label="Commissions"
+          items={[
+            { label: 'Prévisionnelles', value: kmf(totals?.forecast ?? 0), hint: 'affaires en cours' },
+            { label: 'Acquises, à verser', value: kmf((totals?.acquired ?? 0) + (totals?.to_pay ?? 0)), hint: 'en attente du prochain versement', tone: 'gold' },
+            { label: 'Déjà versé', value: kmf(totals?.paid ?? 0), tone: 'green' },
+            ...(totals && totals.adjustments_pending !== 0
+              ? [{ label: 'Ajustements à imputer', value: kmf(totals.adjustments_pending), hint: 'sur un prochain versement' }]
+              : []),
+          ]}
+        />
+      </SpaceCard>
 
-            <div className="auth-card">
-              <div className="auth-card__head">
-                <h2>Mon affiliation</h2>
-              </div>
-              <dl className="auth-meta">
-                <div>
-                  <dt>Référence</dt>
-                  <dd>{affiliate.reference}</dd>
-                </div>
-                <div>
-                  <dt>Catégorie</dt>
-                  <dd>{categoryRow?.label ?? '—'}</dd>
-                </div>
-                <div>
-                  <dt>Statut</dt>
-                  <dd>
-                    <span className={`auth-badge ${live ? 'auth-badge--ok' : 'auth-badge--todo'}`}>
-                      {AFFILIATE_STATUS_LABELS[affiliate.status]}
-                    </span>
-                  </dd>
-                </div>
-                <div>
-                  <dt>Depuis le</dt>
-                  <dd>{affiliate.started_on ?? '—'}</dd>
-                </div>
-                {effective ? (
-                  <>
-                    <div>
-                      <dt>Commission acquise</dt>
-                      <dd>{ACQUISITION_TRIGGER_LABELS[effective.acquisition_trigger as AcquisitionTrigger]}</dd>
-                    </div>
-                    <div>
-                      <dt>Versements</dt>
-                      <dd>
-                        {PAYOUT_FREQUENCY_LABELS[effective.payout_frequency as PayoutFrequency]}
-                        {effective.payout_min_amount ? `, à partir de ${effective.payout_min_amount} KMF` : ''}
-                      </dd>
-                    </div>
-                    <div>
-                      <dt>Durée d’attribution d’un clic</dt>
-                      <dd>{effective.attribution_window_days} jours</dd>
-                    </div>
-                  </>
-                ) : null}
-              </dl>
-            </div>
-
-            {figures ? (
-              <div className="auth-card">
-                <div className="auth-card__head">
-                  <h2>En chiffres</h2>
-                </div>
-                <dl className="aff-figures">
-                  <div>
-                    <dt>Clics sur vos liens</dt>
-                    <dd>{figures.clicks}</dd>
-                  </div>
-                  <div>
-                    <dt>Prospects déclarés</dt>
-                    <dd>{figures.prospects}</dd>
-                  </div>
-                  <div>
-                    <dt>Demandes attribuées</dt>
-                    <dd>{figures.requests}</dd>
-                  </div>
-                  <div>
-                    <dt>Commandes attribuées</dt>
-                    <dd>{figures.conversions}</dd>
-                  </div>
-                  <div>
-                    <dt>Chiffre d’affaires attribué</dt>
-                    <dd>{formatKmf(toCents(figures.attributed_amount))}</dd>
-                  </div>
-                </dl>
-              </div>
-            ) : null}
-
-            <div className="auth-card">
-              <div className="auth-card__head">
-                <h2>Mes conditions de commission</h2>
-              </div>
-              {currentRules.length === 0 ? (
-                <p>Aucune règle n’est en vigueur pour le moment.</p>
-              ) : (
-                <div className="espace-table-wrap">
-                  <table className="espace-table">
-                    <caption className="sr-only">Règles de commission en vigueur</caption>
-                    <thead>
-                      <tr>
-                        <th scope="col">S’applique à</th>
-                        <th scope="col">Commission</th>
-                        <th scope="col">Depuis</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {currentRules.map((rule) => (
-                        <tr key={rule.id}>
-                          <th scope="row">
-                            {rule.target_type === 'ALL' ? 'Toutes les offres' : 'Offre spécifique'}
-                            <small> — {RULE_ORIGIN_LABELS[ruleOriginFor(rule)].toLowerCase()}</small>
-                          </th>
-                          <td>{describeRuleRow(rule)}</td>
-                          <td>{formatMoment(rule.valid_from)}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-              <p className="form__note">
-                Une commission garde toujours la règle en vigueur au moment de l’affaire. Elle n’est calculée que sur
-                les offres éligibles au programme.
-              </p>
-            </div>
-
-            <div className="auth-card">
-              <div className="auth-card__head">
-                <h2>Mes liens</h2>
-              </div>
-              <h3>Lien principal</h3>
-              <LinkCopyShare url={affiliateLink(site, affiliate.slug)} title="MORA Shawiri" />
-              {campaignRows.length > 0 ? (
-                <>
-                  <h3>Liens de campagne</h3>
-                  {campaignRows.map((campaign) => (
-                    <div key={campaign.id}>
-                      <p>
-                        <strong>{campaign.label}</strong>
-                        {campaign.is_active ? '' : ' — désactivée'}
-                      </p>
-                      {campaign.is_active ? (
-                        <LinkCopyShare url={affiliateLink(site, affiliate.slug, campaign.code)} title="MORA Shawiri" />
-                      ) : null}
-                    </div>
-                  ))}
-                </>
-              ) : null}
-              {affiliate.status !== 'TERMINE' ? <CampaignForm action={createOwnCampaign} /> : null}
-            </div>
-
-            <div className="auth-card">
-              <div className="auth-card__head">
-                <h2>Mes prospects</h2>
-              </div>
-              {live ? <ProspectForm action={declareProspect} /> : null}
-              {prospectRows.length === 0 ? (
-                <p>Aucun prospect déclaré pour le moment.</p>
-              ) : (
-                <div className="espace-table-wrap">
-                  <table className="espace-table">
-                    <caption className="sr-only">Prospects déclarés</caption>
-                    <thead>
-                      <tr>
-                        <th scope="col">Prospect</th>
-                        <th scope="col">Déclaré le</th>
-                        <th scope="col">Statut</th>
-                        <th scope="col">
-                          <span className="sr-only">Action</span>
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {prospectRows.map((prospect) => (
-                        <tr key={prospect.id}>
-                          <th scope="row">
-                            {prospect.full_name}
-                            {prospect.company ? <small> — {prospect.company}</small> : null}
-                          </th>
-                          <td>{formatMoment(prospect.created_at)}</td>
-                          <td>
-                            {PROSPECT_STATUS_LABELS[prospect.status]}
-                            {prospect.status === 'RECONNU' && prospect.protected_until ? (
-                              <small> — protégé jusqu’au {formatMoment(prospect.protected_until)}</small>
-                            ) : null}
-                          </td>
-                          <td>
-                            {prospect.status === 'DECLARE' || prospect.status === 'A_VERIFIER' ? (
-                              <CancelProspectButton action={cancelProspect} prospectId={prospect.id} />
-                            ) : null}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </div>
-
-            <div className="auth-card">
-              <div className="auth-card__head">
-                <h2>Mes conversions</h2>
-              </div>
-              {conversionRows.length === 0 ? (
-                <p>Aucune commande ne vous est encore attribuée.</p>
-              ) : (
-                <div className="espace-table-wrap">
-                  <table className="espace-table">
-                    <caption className="sr-only">Commandes attribuées</caption>
-                    <thead>
-                      <tr>
-                        <th scope="col">Commande</th>
-                        <th scope="col">Offre</th>
-                        <th scope="col">Montant</th>
-                        <th scope="col">Date</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {conversionRows.map((row) => (
-                        <tr key={row.order_reference}>
-                          <th scope="row">{row.order_reference}</th>
-                          <td>{row.offer ?? '—'}</td>
-                          <td>{formatKmf(toCents(row.amount))}</td>
-                          <td>{formatMoment(row.ordered_at)}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-              <p className="form__note">
-                Par confidentialité, les coordonnées des clients ne sont jamais affichées ici.
-              </p>
-            </div>
-
-            <div className="auth-card">
-              <div className="auth-card__head">
-                <h2>Mes commissions</h2>
-              </div>
-              {commissionTotals ? (
-                <dl className="aff-figures">
-                  <div>
-                    <dt>Prévisionnelles</dt>
-                    <dd>{kmf(commissionTotals.forecast)}</dd>
-                  </div>
-                  <div>
-                    <dt>Acquises</dt>
-                    <dd>{kmf(commissionTotals.acquired)}</dd>
-                  </div>
-                  <div>
-                    <dt>À verser</dt>
-                    <dd>{kmf(commissionTotals.to_pay)}</dd>
-                  </div>
-                  <div>
-                    <dt>Versées</dt>
-                    <dd>{kmf(commissionTotals.paid)}</dd>
-                  </div>
-                </dl>
-              ) : null}
-              {commissionRows.length === 0 ? (
-                <p>Aucune commission pour le moment. Elle apparaîtra dès qu’une commande éligible vous sera attribuée.</p>
-              ) : (
-                <div className="espace-table-wrap">
-                  <table className="espace-table">
-                    <caption className="sr-only">Mes commissions</caption>
-                    <thead>
-                      <tr>
-                        <th scope="col">Commission</th>
-                        <th scope="col">Montant</th>
-                        <th scope="col">Statut</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {commissionRows.map((row) => (
-                        <tr key={row.id}>
-                          <th scope="row">
-                            {row.reference}
-                            <span className="aff-sub">Commande {row.order_reference}</span>
-                          </th>
-                          <td>{kmf(row.amount)}</td>
-                          <td title={COMMISSION_STATUS_HINTS[row.status]}>
-                            {COMMISSION_STATUS_LABELS[row.status]}
-                            {row.status === 'ANNULEE' && row.cancel_reason ? ` — ${row.cancel_reason}` : ''}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-              {adjustmentRows.length > 0 ? (
-                <>
-                  <h3 className="aff-subhead">Ajustements</h3>
-                  <dl className="auth-meta">
-                    {adjustmentRows.map((row) => (
-                      <div key={row.id}>
-                        <dt>
-                          {ADJUSTMENT_KIND_LABELS[row.kind]}
-                          {row.commission_id && commissionRef.get(row.commission_id) ? ` — ${commissionRef.get(row.commission_id)}` : ''}
-                        </dt>
-                        <dd>
-                          {kmf(row.amount)} — {row.reason} — {formatMoment(row.created_at)}
-                        </dd>
-                      </div>
-                    ))}
-                  </dl>
-                </>
-              ) : null}
-              <p className="form__note">
-                Une commission prévisionnelle peut évoluer avec la commande. Acquise, elle ne change plus : une correction
-                éventuelle apparaît comme un ajustement, imputé sur un versement suivant.
-              </p>
-            </div>
-
-            <div className="auth-card">
-              <div className="auth-card__head">
-                <h2>Mes versements</h2>
-              </div>
-              {payoutRows.length === 0 ? (
-                <p>
-                  Aucun versement pour le moment. Vos commissions acquises sont versées{' '}
-                  {effective?.payout_frequency ? PAYOUT_FREQUENCY_LABELS[effective.payout_frequency as PayoutFrequency].toLowerCase() : 'selon vos conditions'}.
-                </p>
-              ) : (
-                <div className="aff-payouts">
-                  {payoutRows.map((payout) => {
-                    const method = readMethodSnapshot(payout.method_snapshot);
-                    const lines = payoutItems.filter((item) => item.payout_id === payout.id);
-                    return (
-                      <details key={payout.id} className="aff-payout">
-                        <summary>
-                          <span className="aff-payout__ref">{payout.reference}</span>
-                          <span className="aff-payout__amount">{kmf(payout.total_amount)}</span>
-                          <span className="aff-sub">
-                            {formatPayoutDay(payout.confirmed_at)} · {method?.label ?? '—'}
-                          </span>
-                        </summary>
-                        {payout.reference ? (
-                          <div className="aff-payout__actions">
-                            <OfficialDocumentActions reference={payout.reference} title={`Relevé de versement ${payout.reference}`} space="espace" />
-                          </div>
-                        ) : null}
-                        <dl className="auth-meta">
-                          {payout.transaction_reference ? (
-                            <div>
-                              <dt>Référence de transaction</dt>
-                              <dd>{payout.transaction_reference}</dd>
-                            </div>
-                          ) : null}
-                          {lines.map((item) => {
-                            const line = readPayoutLine(item.snapshot);
-                            return (
-                              <div key={item.id}>
-                                <dt>{line?.label ?? 'Élément'}</dt>
-                                <dd>
-                                  {kmf(item.amount)}
-                                  {line?.detail ? ` — ${line.detail}` : ''}
-                                </dd>
-                              </div>
-                            );
-                          })}
-                        </dl>
-                      </details>
-                    );
-                  })}
-                </div>
-              )}
-              <p className="form__note">
-                Un versement confirmé ne change plus. Une correction éventuelle apparaît comme un ajustement sur un versement
-                suivant. Chaque versement a son relevé officiel, à voir, télécharger ou partager.
-              </p>
-            </div>
-
-            <div className="auth-card">
-              <div className="auth-card__head">
-                <h2>Mes documents</h2>
-              </div>
-              <h3 className="aff-subhead">Ma fiche affilié</h3>
-              {currentSheet ? (
-                <>
-                  <p>
-                    Fiche officielle <strong>{currentSheet.reference}</strong>, émise le {formatMoment(currentSheet.issued_at)}
-                    {currentSheet.version > 1 ? ` (version ${currentSheet.version})` : ''}.
-                  </p>
-                  <OfficialDocumentActions reference={currentSheet.reference} title={`Fiche affilié ${currentSheet.reference}`} space="espace" />
-                </>
-              ) : (
-                <p>Aucune fiche officielle n’a encore été émise par MORA Shawiri.</p>
-              )}
-              <p className="form__note">
-                Vous pouvez aussi consulter un{' '}
-                <a href={`/api/affiliation/fiche/${affiliate.id}/apercu/?affichage=1`} target="_blank" rel="noreferrer">
-                  aperçu de votre fiche avec vos conditions actuelles
-                </a>{' '}
-                — sans numéro ni valeur officielle.
-              </p>
-              {previousSheets.length > 0 ? (
-                <>
-                  <h3 className="aff-subhead">Versions précédentes</h3>
-                  <dl className="auth-meta">
-                    {previousSheets.map((doc) => (
-                      <div key={doc.id}>
-                        <dt>
-                          {doc.reference} — {doc.status === 'REMPLACE' ? 'remplacée' : 'annulée'}
-                        </dt>
-                        <dd>
-                          <a href={`/api/documents/${doc.reference}/?affichage=1`} target="_blank" rel="noreferrer">
-                            Voir
-                          </a>
-                        </dd>
-                      </div>
-                    ))}
-                  </dl>
-                </>
-              ) : null}
-            </div>
-
-            <div className="auth-card">
-              <div className="auth-card__head">
-                <h2>Mes codes de réduction</h2>
-              </div>
-              {codeRows.length === 0 ? (
-                <p>Aucun code actif pour le moment.</p>
-              ) : (
-                <div className="espace-table-wrap">
-                  <table className="espace-table">
-                    <caption className="sr-only">Codes de réduction actifs</caption>
-                    <thead>
-                      <tr>
-                        <th scope="col">Code</th>
-                        <th scope="col">Avantage client</th>
-                        <th scope="col">Valable jusqu’au</th>
-                        <th scope="col">Conditions</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {codeRows.map((code) => (
-                        <tr key={code.id}>
-                          <th scope="row">
-                            <code>{code.code}</code>
-                          </th>
-                          <td>{describeDiscount(code.discount_kind, code.discount_value)}</td>
-                          <td>{code.valid_to ? formatMoment(code.valid_to) : 'Sans date de fin'}</td>
-                          <td>
-                            {[
-                              code.min_order_amount ? `affaire d’au moins ${code.min_order_amount} KMF` : null,
-                              code.max_discount_amount ? `réduction plafonnée à ${code.max_discount_amount} KMF` : null,
-                              code.service_ids.length + code.product_ids.length > 0 ? 'certaines offres seulement' : null,
-                            ]
-                              .filter(Boolean)
-                              .join(', ') || 'Aucune'}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-              <p className="form__note">
-                Votre client communique le code à MORA Shawiri, qui l’applique à son affaire. La réduction accordée au
-                client est distincte de votre commission.
-              </p>
-            </div>
-
-            <div className="auth-card">
-              <div className="auth-card__head">
-                <h2>Mes coordonnées de versement</h2>
-              </div>
-              {active ? (
-                <dl className="auth-meta">
-                  <div>
-                    <dt>Moyen validé</dt>
-                    <dd>{methodLabel(active.method_code)}</dd>
-                  </div>
-                  {Object.entries(activeDetails).map(([key, value]) => (
-                    <div key={key}>
-                      <dt>{key === 'titulaire' ? 'Titulaire' : key === 'banque' ? 'Banque' : key === 'ordre' ? 'À l’ordre de' : 'Coordonnée'}</dt>
-                      <dd>{['titulaire', 'banque', 'ordre'].includes(key) ? value : maskPayoutValue(value)}</dd>
-                    </div>
-                  ))}
-                </dl>
-              ) : (
-                <p>Aucun moyen de versement n’est encore validé.</p>
-              )}
-              {pending ? (
-                <p className="form__note">
-                  Demande en attente : {methodLabel(pending.method_code)}, déposée le {formatMoment(pending.requested_at)}.{' '}
-                  {PAYOUT_ACCOUNT_STATUS_LABELS.DEMANDE}.
-                </p>
-              ) : null}
-              {affiliate.status !== 'TERMINE' && methodRows.length > 0 ? (
-                <PayoutRequestForm action={requestPayoutChange} methods={methodRows} />
-              ) : null}
-            </div>
-          </div>
+      <SpaceCard title="Accès rapides">
+        <div className="aff-quick">
+          <Link className="btn btn--primary" href="/espace-affilie/liens/">Copier mon lien</Link>
+          {live ? (
+            <Link className="btn btn--ghost" href="/espace-affilie/prospects/#declarer">Déclarer un prospect</Link>
+          ) : null}
+          <Link className="btn btn--ghost" href="/espace-affilie/commissions/">Mes commissions</Link>
+          <Link className="btn btn--ghost" href="/espace-affilie/documents/">Mes documents</Link>
         </div>
-      </section>
+      </SpaceCard>
+
+      <SpaceCard title="Dernières conversions">
+        {conversions.length === 0 ? (
+          <SpaceEmpty title="Aucune commande attribuée pour le moment">
+            Partagez votre lien : une commande passée par un client que vous avez recommandé apparaîtra ici.
+          </SpaceEmpty>
+        ) : (
+          <>
+            <SpaceList label="Dernières conversions">
+              {conversions.slice(0, 3).map((row) => (
+                <SpaceItem key={row.order_reference} title={row.order_reference} amount={kmf(row.amount)} meta={`${row.offer ?? 'Commande'} · ${formatMoment(row.ordered_at)}`} />
+              ))}
+            </SpaceList>
+            <SpaceMore href="/espace-affilie/conversions/">Toutes mes conversions</SpaceMore>
+          </>
+        )}
+      </SpaceCard>
+
+      <SpaceCard title="Dernières commissions">
+        {commissions.length === 0 ? (
+          <SpaceEmpty title="Aucune commission pour le moment">Elle apparaîtra dès qu’une commande éligible vous sera attribuée.</SpaceEmpty>
+        ) : (
+          <>
+            <SpaceList label="Dernières commissions">
+              {commissions.slice(0, 3).map((c) => (
+                <SpaceItem key={c.id} title={c.reference} amount={kmf(c.amount)} status={COMMISSION_STATUS_LABELS[c.status]} tone={commissionTone(c.status)} meta={`Commande ${c.order_reference}`} />
+              ))}
+            </SpaceList>
+            <SpaceMore href="/espace-affilie/commissions/">Toutes mes commissions</SpaceMore>
+          </>
+        )}
+      </SpaceCard>
+
+      <SpaceCard title="Derniers versements">
+        {payouts.length === 0 ? (
+          <SpaceEmpty title="Aucun versement pour le moment">Vos commissions acquises vous sont versées selon vos conditions.</SpaceEmpty>
+        ) : (
+          <>
+            <SpaceList label="Derniers versements">
+              {payouts.slice(0, 3).map((p) => (
+                <SpaceItem key={p.id} title={p.reference} amount={kmf(p.total_amount)} status="Versé" tone="ok" meta={formatPayoutDay(p.confirmed_at)} />
+              ))}
+            </SpaceList>
+            <SpaceMore href="/espace-affilie/versements/">Tous mes versements</SpaceMore>
+          </>
+        )}
+      </SpaceCard>
+
+      <SpaceCard title="Activité récente">
+        {events.length === 0 ? (
+          <SpaceEmpty title="Rien à signaler pour le moment">Vos prospects, commissions et versements s’afficheront ici au fil de l’eau.</SpaceEmpty>
+        ) : (
+          <ol className="espace-timeline">
+            {events.map((event, index) => (
+              <li key={`${event.at}-${index}`}>
+                <p className="espace-timeline__when">{event.dayOnly ? formatPayoutDay(event.at) : formatMoment(event.at)}</p>
+                <p className="espace-timeline__what">{event.label}</p>
+                <p>{event.detail}</p>
+              </li>
+            ))}
+          </ol>
+        )}
+      </SpaceCard>
     </>
   );
 }

@@ -43,7 +43,7 @@ export async function requestPayoutChange(_previous: AdminActionState, formData:
     if (error.code === '42501') return ko('Aucune affiliation active pour ce compte.');
     return ko('Votre demande n’a pas pu être enregistrée. Réessayez dans un instant.');
   }
-  revalidatePath('/espace-affilie/');
+  revalidatePath('/espace-affilie/', 'layout');
   return ok('Votre demande est enregistrée. Vos coordonnées actuelles restent valables jusqu’à sa validation par MORA Shawiri.');
 }
 
@@ -71,7 +71,7 @@ export async function createOwnCampaign(_previous: AdminActionState, formData: F
     if (error.code === '23505') return ko('Vous avez déjà une campagne avec ce code.');
     return ko('La campagne n’a pas pu être créée.');
   }
-  revalidatePath('/espace-affilie/');
+  revalidatePath('/espace-affilie/', 'layout');
   return ok('Votre nouveau lien de campagne est prêt.');
 }
 
@@ -105,7 +105,7 @@ export async function declareProspect(_previous: AdminActionState, formData: For
     if (error.code === '42501') return ko('Seul un affilié actif peut déclarer un prospect.');
     return ko('La déclaration n’a pas pu être enregistrée.');
   }
-  revalidatePath('/espace-affilie/');
+  revalidatePath('/espace-affilie/', 'layout');
   return ok('Votre prospect est déclaré. MORA Shawiri vérifie son origine : vous suivez la décision ici.');
 }
 
@@ -115,6 +115,28 @@ export async function cancelProspect(_previous: AdminActionState, formData: Form
   const id = field(formData, 'prospect', 40);
   const { error } = await supabase.rpc('cancel_affiliate_prospect', { p_prospect_id: id });
   if (error) return ko('Cette déclaration ne peut plus être annulée.');
-  revalidatePath('/espace-affilie/');
+  revalidatePath('/espace-affilie/', 'layout');
   return ok('La déclaration est annulée.');
+}
+
+/**
+ * Coordonnées de contact (phase 4H-8) : téléphone, ville, pays — et rien
+ * d'autre. La base identifie l'affilié par sa session, refuse une affiliation
+ * terminée et journalise l'avant et l'après.
+ */
+export async function updateMyContact(_previous: AdminActionState, formData: FormData): Promise<AdminActionState> {
+  const supabase = await getServerSupabaseClient();
+  if (!supabase) return ko('Le service est momentanément indisponible.');
+  const phone = field(formData, 'telephone', 40);
+  const city = field(formData, 'ville', 80);
+  const country = field(formData, 'pays', 80);
+  if (phone && !/^[+0-9 ().-]{6,40}$/.test(phone)) return ko('Numéro de téléphone invalide.');
+  const { error } = await supabase.rpc('update_my_affiliate_contact', { p_phone: phone, p_city: city, p_country: country });
+  if (error) {
+    if (error.code === '23514' && error.message.length < 200) return ko(error.message);
+    if (error.code === '42501') return ko('Aucune affiliation n’est rattachée à ce compte.');
+    return ko('Vos coordonnées n’ont pas pu être enregistrées. Réessayez dans un instant.');
+  }
+  revalidatePath('/espace-affilie/', 'layout');
+  return ok('Vos coordonnées sont enregistrées.');
 }

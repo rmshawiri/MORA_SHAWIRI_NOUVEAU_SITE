@@ -12,7 +12,7 @@ import { PAYOUT_STATUS_LABELS, isIsoDate, proofPath, readMethodSnapshot, readPay
 
 const SQL = readFileSync(resolve(process.cwd(), 'supabase/migrations/20261001190000_affiliation_versements.sql'), 'utf8');
 const BASE = readFileSync(resolve(process.cwd(), 'supabase/migrations/20261001180000_affiliation_commissions.sql'), 'utf8');
-const SPACE = readFileSync(resolve(process.cwd(), 'src/app/(site)/(compte)/espace-affilie/page.tsx'), 'utf8');
+const SPACE = readFileSync(resolve(process.cwd(), 'src/lib/affiliation/space.ts'), 'utf8'); // lecture commune de l’espace (4H-8)
 const CONFIG = readFileSync(resolve(process.cwd(), 'next.config.ts'), 'utf8');
 
 const body = (name: string) => {

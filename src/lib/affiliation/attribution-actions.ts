@@ -43,7 +43,7 @@ function returnPath(formData: FormData): string {
 function done(path: string, result: string): string {
   revalidatePath(path);
   revalidatePath('/administration/affiliation/', 'layout');
-  revalidatePath('/espace-affilie/');
+  revalidatePath('/espace-affilie/', 'layout');
   return `${path}${path.endsWith('/') ? '' : '/'}?affiliation=${result}`;
 }
 

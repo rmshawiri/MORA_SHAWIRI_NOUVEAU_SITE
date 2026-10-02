@@ -52,7 +52,7 @@ function describe(error: { code?: string; message?: string }): string {
 
 function refresh(): void {
   revalidatePath('/administration/affiliation/', 'layout');
-  revalidatePath('/espace-affilie/');
+  revalidatePath('/espace-affilie/', 'layout');
 }
 
 const payoutPath = (id: string) => `/administration/affiliation/versements/${id}/`;
