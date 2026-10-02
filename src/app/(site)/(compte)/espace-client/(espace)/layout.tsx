@@ -39,12 +39,22 @@ export default async function EspaceClientLayout({ children }: { children: React
           lead={
             space.state === 'unavailable'
               ? 'Nous n’avons pas pu charger ces informations. Veuillez réessayer.'
-              : 'Votre compte ne comporte pas d’espace client.'
+              : space.state === 'blocked'
+                ? 'Votre espace client est suspendu.'
+                : 'Votre compte ne comporte pas d’espace client.'
           }
         />
         <section className="section auth-shell auth-shell--wide">
           <div className="container">
             <div className="auth-shell__inner">
+              {space.state === 'blocked' ? (
+                <div className="auth-notice auth-notice--warn" role="status">
+                  <p>
+                    L’accès à votre espace client a été suspendu par MORA Shawiri. Vos commandes, demandes et documents
+                    sont conservés. Pour en savoir plus, contactez-nous.
+                  </p>
+                </div>
+              ) : null}
               {space.state === 'unavailable' ? (
                 <div className="auth-notice auth-notice--warn" role="alert">
                   <p>
@@ -52,7 +62,7 @@ export default async function EspaceClientLayout({ children }: { children: React
                     contactez MORA Shawiri.
                   </p>
                 </div>
-              ) : (
+              ) : space.state === 'blocked' && !space.isAffiliate && !context.isAdmin ? null : (
                 <div className="auth-card">
                   <div className="auth-card__head">
                     <h2>Vos accès</h2>

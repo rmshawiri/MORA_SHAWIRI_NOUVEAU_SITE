@@ -27,6 +27,12 @@
  * (adresse confirmée seulement, idempotent, antérieures par acte
  * administratif). Suites DMCL / DVCL / RVCL rendues ; aucune donnée réelle
  * touchée (MORA-DMCL-A0001 comparée avant / après).
+ *
+ * Lot 4I-4 (avec `--base`) : administration Clients (permissions des six
+ * profils, liste paginée et recherches, notes en ajout seul, blocage et
+ * déblocage), accès propriétaire refusés en base à une session ouverte avant
+ * la suspension, compte CLIENT + ADMIN, rattachement historique par type de
+ * permission, détection en lecture seule sur la fiche réelle MORA-CLI-A0001.
  */
 
 import { randomUUID } from 'node:crypto';
@@ -116,7 +122,10 @@ function sessionCookieHeader(storageKey, session) {
 
 async function visit(base, path, cookie) {
   const response = await fetch(`${base}${path}`, { redirect: 'manual', headers: cookie ? { cookie } : {} });
-  return { status: response.status, location: response.headers.get('location'), body: response.status === 200 ? await response.text() : '' };
+  // React sépare texte et valeurs interpolées par des commentaires vides dans
+  // le HTML servi : on les retire pour comparer le texte tel qu'il s'affiche.
+  const body = response.status === 200 ? (await response.text()).replace(/<!-- -->/g, '') : '';
+  return { status: response.status, location: response.headers.get('location'), body };
 }
 
 /* -------------------------------------------------------------------------- */
@@ -1022,6 +1031,232 @@ async function cleanupRelation(ctx) {
   check('aucune demande, devis, rendez-vous ni prospect de contrôle ne subsiste', residue && Object.values(residue).every((value) => value === 0), JSON.stringify(residue));
 }
 
+
+/* -------------------------------------------------------------------------- */
+/* Lot 4I-4 — administration Clients ; durcissement des accès propriétaire     */
+/* -------------------------------------------------------------------------- */
+
+/** Lectures directes en base qu'un propriétaire fait de ses données privées. */
+async function ownerReads(client, state, who) {
+  const counts = {};
+  const tables = who === 'A'
+    ? { quote_requests: ['id', state.reqA.id], quotes: ['quote_request_id', state.reqA.id], appointments: ['id', state.ap.future], orders: ['id', state.orderA.id], payments: ['order_id', state.orderA.id], order_items: ['order_id', state.orderA.id], order_events: ['order_id', state.orderA.id], clients: ['user_id', state.a.userId] }
+    : { orders: ['id', state.orderB.id], payments: ['order_id', state.orderB.id], payment_proofs: ['id', state.proofB.id], refunds: ['order_id', state.orderB.id], documents: ['reference', state.invoiceB], clients: ['user_id', state.b.userId] };
+  for (const [table, [column, value]] of Object.entries(tables)) {
+    const { data } = await client.from(table).select(column === 'id' || column === 'reference' || column === 'user_id' ? column : 'id').eq(column, value);
+    counts[table] = (data ?? []).length;
+  }
+  return counts;
+}
+
+async function adminClients(ctx, base) {
+  log.step('Administration Clients : permissions, liste, notes, blocage, sessions ouvertes');
+  const { admin, target, accessToken, state } = ctx;
+  const storageKey = `sb-${new URL(target.url).hostname.split('.')[0]}-auth-token`;
+
+  // Profils d'administration.
+  await grant(admin, state.ca.userId, ['users.view', 'users.update', 'users.disable', 'affiliates.view']);
+  state.gest = await createAccount(admin, { roles: ['ADMIN'], label: 'gestion-clients', grants: ['users.view', 'users.update', 'users.disable', 'orders.view', 'quotes.view', 'appointments.view'] });
+  state.reader = await createAccount(admin, { roles: ['ADMIN'], label: 'lecteur-clients', grants: ['users.view'] });
+  state.bare = await createAccount(admin, { roles: ['ADMIN'], label: 'admin-nu' });
+  state.root = await createAccount(admin, { roles: ['SUPER_ADMIN'], label: 'super' });
+  const { client: gest } = await signIn(target, state.gest.email);
+  const { client: reader } = await signIn(target, state.reader.email);
+  const { client: bare } = await signIn(target, state.bare.email);
+  const { client: root } = await signIn(target, state.root.email);
+  const { client: aff } = await signIn(target, state.aff.email);
+  const anon = sessionClient(target);
+
+  // --- Liste : permissions, recherche, filtres, pagination.
+  const list = (client, extra = {}) => client.rpc('admin_list_clients', { p_search: null, p_state: null, p_preference: null, p_sort: 'recent', p_limit: 25, p_offset: 0, ...extra });
+  check('liste : SUPER_ADMIN autorisé', !(await list(root)).error);
+  check('liste : ADMIN avec users.view autorisé', !(await list(reader)).error);
+  for (const [label, client] of [['ADMIN sans permission', bare], ['CLIENT', state.relA], ['AFFILIE', aff], ['anonyme', anon]]) {
+    check(`liste : ${label} refusé`, Boolean((await list(client)).error));
+  }
+  const byRef = await list(reader, { p_search: state.a.reference });
+  check('recherche par MORA-CLI', (byRef.data ?? []).length === 1 && byRef.data[0].user_id === state.a.userId);
+  const byMail = await list(reader, { p_search: state.b.email.toUpperCase() });
+  check('recherche par e-mail (casse ignorée)', (byMail.data ?? []).some((row) => row.user_id === state.b.userId));
+  const byName = await list(reader, { p_search: 'Contrôle Client B' });
+  check('recherche par nom', (byName.data ?? []).some((row) => row.user_id === state.b.userId));
+  const byPhone = await list(reader, { p_search: '321 00 01' });
+  check('recherche par téléphone (chiffres)', (byPhone.data ?? []).some((row) => row.user_id === state.a.userId));
+  const byOrder = await list(reader, { p_search: state.orderB.reference });
+  check('recherche par référence de commande', (byOrder.data ?? []).length === 1 && byOrder.data[0].user_id === state.b.userId);
+  const pageOne = await list(reader, { p_search: PREFIX, p_limit: 2, p_offset: 0 });
+  const pageTwo = await list(reader, { p_search: PREFIX, p_limit: 2, p_offset: 2 });
+  check('pagination côté serveur : pages distinctes, total commun',
+    (pageOne.data ?? []).length === 2 && (pageTwo.data ?? []).length >= 1 && Number(pageOne.data[0].total_count) === Number(pageTwo.data[0].total_count) &&
+      !pageTwo.data.some((row) => pageOne.data.some((first) => first.user_id === row.user_id)));
+  check('aucun lead sans compte dans la liste', !((await list(reader, { p_search: 'homonyme' })).data ?? []).length);
+
+  // --- Notes internes.
+  check('note : refusée sans users.update', Boolean((await reader.rpc('add_client_note', { p_user_id: state.a.userId, p_body: 'Essai', p_corrects: null })).error));
+  check('note : refusée à un client', Boolean((await state.relA.rpc('add_client_note', { p_user_id: state.a.userId, p_body: 'Essai', p_corrects: null })).error));
+  const note = await gest.rpc('add_client_note', { p_user_id: state.a.userId, p_body: 'Préfère être rappelée le matin.', p_corrects: null });
+  check('note ajoutée par un ADMIN autorisé, auteur imposé', !note.error && note.data?.author_id === state.gest.userId, note.error?.message);
+  const fix = await gest.rpc('add_client_note', { p_user_id: state.a.userId, p_body: 'Correction : plutôt l’après-midi.', p_corrects: note.data?.id });
+  check('correction traçable, liée à la note d’origine', !fix.error && fix.data?.corrects_note_id === note.data?.id);
+  check('note : aucune modification, même par la clé de service', refused2(await admin.from('client_notes').update({ body: 'réécrit' }).eq('id', note.data?.id).select()));
+  check('note : aucune suppression, même par la clé de service', refused2(await admin.from('client_notes').delete().eq('id', note.data?.id).select()));
+  check('note : jamais visible du client', ((await state.relA.from('client_notes').select('id')).data ?? []).length === 0);
+  const noteAudit = await runSql(target, accessToken, `select count(*)::int as n from public.audit_logs where action = 'clients.note' and actor_id = '${state.gest.userId}';`);
+  check('note journalisée (qui, quand, quoi)', noteAudit?.[0]?.n === 2);
+
+  // --- Blocage : permissions et règles.
+  check('blocage : refusé sans users.disable', Boolean((await reader.rpc('block_client', { p_user_id: state.a.userId, p_reason: 'Essai de blocage' })).error));
+  check('blocage : refusé à un client et à un anonyme',
+    Boolean((await state.relB.rpc('block_client', { p_user_id: state.a.userId, p_reason: 'Essai de blocage' })).error) &&
+      Boolean((await anon.rpc('block_client', { p_user_id: state.a.userId, p_reason: 'Essai de blocage' })).error));
+  check('blocage : motif obligatoire', (await gest.rpc('block_client', { p_user_id: state.a.userId, p_reason: ' ' })).error?.code === '23514');
+  check('blocage : on ne se bloque pas soi-même', (await state.sessionCA.rpc('block_client', { p_user_id: state.ca.userId, p_reason: 'Essai sur soi' })).error?.code === '23514');
+
+  // --- Sessions ouvertes AVANT la suspension.
+  const cookieA = sessionCookieHeader(storageKey, (await signIn(target, state.a.email)).session);
+  const cookieB = sessionCookieHeader(storageKey, (await signIn(target, state.b.email)).session);
+  const beforeA = await ownerReads(state.relA, state, 'A');
+  const beforeB = await ownerReads(state.relB, state, 'B');
+  check('avant blocage : A lit ses données privées', Object.values(beforeA).every((n) => n >= 1), JSON.stringify(beforeA));
+  check('avant blocage : B lit ses données privées', Object.values(beforeB).every((n) => n >= 1), JSON.stringify(beforeB));
+
+  const blockA = await gest.rpc('block_client', { p_user_id: state.a.userId, p_reason: 'Contrôle 4I-4 : impayés' });
+  const blockB = await gest.rpc('block_client', { p_user_id: state.b.userId, p_reason: 'Contrôle 4I-4 : abus' });
+  const profA = (await admin.from('profiles').select('status').eq('id', state.a.userId).single()).data;
+  check('blocage d’un client seul : fiche bloquée et compte suspendu', !blockA.error && blockA.data?.profile_suspended_by_block === true && profA.status === 'SUSPENDU', blockA.error?.message);
+  check('blocage de B (client seul) effectué', !blockB.error && blockB.data?.profile_suspended_by_block === true, blockB.error?.message);
+  check('déjà bloqué : second blocage refusé', (await gest.rpc('block_client', { p_user_id: state.a.userId, p_reason: 'Encore' })).error?.code === '23514');
+
+  const afterA = await ownerReads(state.relA, state, 'A');
+  const afterB = await ownerReads(state.relB, state, 'B');
+  check('RLS : A suspendu, session ouverte — aucune donnée privée lue en base', Object.values(afterA).every((n) => n === 0), JSON.stringify(afterA));
+  check('RLS : B suspendu, session ouverte — ni commande, ni paiement, ni justificatif, ni remboursement, ni facture', Object.values(afterB).every((n) => n === 0), JSON.stringify(afterB));
+  const snaps = await state.relB.from('document_snapshots').select('document_id');
+  check('RLS : instantanés de facture refusés', (snaps.data ?? []).length === 0);
+  const proofFile = await state.relB.storage.from('paiements-justificatifs').download(state.proofB.storage_path);
+  check('stockage : justificatif refusé au propriétaire suspendu', Boolean(proofFile.error));
+  const docId = (await admin.from('documents').select('id').eq('reference', state.invoiceB).single()).data?.id;
+  const archive = docId ? await state.relB.storage.from('documents-officiels').download(`FACL/${docId}.pdf`) : { error: true };
+  check('stockage : archive de facture refusée au propriétaire suspendu', Boolean(archive.error));
+  check('fonctions client refusées (décision, chronologie, rattachement, profil, paiement)',
+    Boolean((await state.relA.rpc('respond_to_my_quote', { p_quote_id: state.q.expired.id, p_decision: 'REFUSE', p_reason: null })).error) &&
+      ((await state.relA.rpc('my_request_timeline', { p_request_id: state.reqA.id })).data ?? []).length === 0 &&
+      Boolean((await state.relA.rpc('update_my_client_profile', { p_full_name: 'Tentative', p_phone: null, p_whatsapp: null, p_contact_preference: null })).error) &&
+      Boolean((await state.relA.rpc('declare_payment', { p_order_id: state.orderA.id, p_method_code: 'ESPECES', p_amount: 100, p_transaction_reference: null, p_client_note: null })).error));
+  if (base) {
+    for (const path of ['/espace-client/', '/espace-client/demandes/', '/espace-client/devis/', '/espace-client/rendez-vous/', '/espace-client/commandes/', '/espace-client/paiements/', '/espace-client/documents/']) {
+      const page = await visit(base, path, cookieA);
+      check(`écran ${path} : ancienne session refusée`, page.status >= 300 && page.status < 400 && (page.location ?? '').includes('/connexion/'), `HTTP ${page.status}`);
+    }
+    check('API facture : ancienne session de B refusée', (await visit(base, `/api/documents/${state.invoiceB}/?espace=client`, cookieB)).status === 404);
+    check('API justificatif : ancienne session de B refusée', (await visit(base, `/api/justificatifs/${state.proofB.id}/?espace=client`, cookieB)).status === 404);
+  }
+
+  // --- Déblocage : reprise normale, même session.
+  const unblockA = await gest.rpc('unblock_client', { p_user_id: state.a.userId, p_reason: 'Situation régularisée' });
+  await gest.rpc('unblock_client', { p_user_id: state.b.userId, p_reason: null });
+  const profA2 = (await admin.from('profiles').select('status').eq('id', state.a.userId).single()).data;
+  check('déblocage : fiche débloquée, compte réactivé', !unblockA.error && profA2.status === 'ACTIF', unblockA.error?.message);
+  const backA = await ownerReads(state.relA, state, 'A');
+  check('après déblocage : A relit ses données avec la même session', Object.values(backA).every((n) => n >= 1), JSON.stringify(backA));
+  if (base) check('après déblocage : l’espace rouvre', (await visit(base, '/espace-client/', cookieA)).status === 200);
+  check('déblocage d’un client non bloqué : refusé', (await gest.rpc('unblock_client', { p_user_id: state.a.userId, p_reason: null })).error?.code === '23514');
+  const events = (await admin.from('client_status_events').select('kind, reason, actor_id').eq('client_user_id', state.a.userId).order('created_at')).data ?? [];
+  check('historique : blocage puis déblocage, avec auteur et motif',
+    events.length === 2 && events[0].kind === 'BLOCAGE' && events[0].reason === 'Contrôle 4I-4 : impayés' && events[1].kind === 'DEBLOCAGE' && events[0].actor_id === state.gest.userId);
+  check('historique en ajout seul', refused2(await admin.from('client_status_events').delete().eq('client_user_id', state.a.userId).select()));
+  const blockAudit = await runSql(target, accessToken, `select action, metadata->>'motif' as motif from public.audit_logs where resource_id = '${state.a.reference}' and actor_id = '${state.gest.userId}' and action in ('clients.blocage','clients.deblocage') order by created_at;`);
+  check('audit : blocage et déblocage journalisés avec leur motif', blockAudit?.length === 2 && blockAudit[0].motif === 'Contrôle 4I-4 : impayés');
+
+  // --- Compte CLIENT + ADMIN : bloquer le client ne retire pas l'administration.
+  const blockCA = await gest.rpc('block_client', { p_user_id: state.ca.userId, p_reason: 'Contrôle multi-rôles' });
+  const profCA = (await admin.from('profiles').select('status').eq('id', state.ca.userId).single()).data;
+  check('CLIENT + ADMIN bloqué : compte NON suspendu (autres rôles conservés)', !blockCA.error && blockCA.data?.profile_suspended_by_block === false && profCA.status === 'ACTIF', blockCA.error?.message);
+  const caOwn = await state.sessionCA.rpc('my_request_timeline', { p_request_id: state.reqCA.id });
+  check('… ses accès propriétaire sont refusés (fonctions client)', (caOwn.data ?? []).length === 0 && Boolean((await state.sessionCA.rpc('claim_my_requests')).error));
+  const caOwnRow = await state.sessionCA.from('clients').select('user_id').eq('user_id', state.ca.userId);
+  check('… sa propre fiche reste lisible au titre de users.view seulement', (caOwnRow.data ?? []).length === 1);
+  check('… son administration reste ouverte (liste des clients)', !(await state.sessionCA.rpc('admin_list_clients', { p_search: null, p_state: null, p_preference: null, p_sort: 'recent', p_limit: 5, p_offset: 0 })).error);
+  if (base) {
+    const cookieCA = sessionCookieHeader(storageKey, (await signIn(target, state.ca.email)).session);
+    const space = await visit(base, '/espace-client/', cookieCA);
+    check('… son espace client affiche « suspendu », sans aucune donnée', space.status === 200 && space.body.includes('Votre espace client est suspendu') && !space.body.includes(state.orderCA.reference) && !space.body.includes(state.reqCA.reference));
+    const fiche = await visit(base, `/espace-client/demandes/${state.reqCA.reference}/`, cookieCA);
+    check('… même par URL directe', !fiche.body.includes('message de contrôle'));
+    check('… et l’administration répond toujours', (await visit(base, '/administration/clients/', cookieCA)).status === 200);
+  }
+  await gest.rpc('unblock_client', { p_user_id: state.ca.userId, p_reason: null });
+
+  // --- Compte déjà suspendu par ailleurs : le déblocage client ne le réactive pas.
+  await admin.from('profiles').update({ status: 'SUSPENDU' }).eq('id', state.other.userId);
+  const blockOther = await gest.rpc('block_client', { p_user_id: state.other.userId, p_reason: 'Contrôle double suspension' });
+  await gest.rpc('unblock_client', { p_user_id: state.other.userId, p_reason: null });
+  const profOther = (await admin.from('profiles').select('status').eq('id', state.other.userId).single()).data;
+  check('un compte suspendu par ailleurs n’est pas réactivé par le déblocage client', !blockOther.error && blockOther.data?.profile_suspended_by_block === false && profOther.status === 'SUSPENDU');
+  await admin.from('profiles').update({ status: 'ACTIF' }).eq('id', state.other.userId);
+
+  // --- Rattachement historique : chaque type sous sa permission 4F.
+  const oldAppt = await submitAppointment(anon, state.claimer.email);
+  if (oldAppt.error) throw new Error(`rendez-vous historique : ${oldAppt.error.message}`);
+  const { data: apRows } = await admin.from('appointments').select('id').is('user_id', null).order('created_at', { ascending: false }).limit(1);
+  const oldApptId = apRows[0].id;
+  await runSql(target, accessToken, `update public.appointments set created_at = '2026-09-29T11:00:00Z' where id = '${oldApptId}';`);
+  state.rdvOnly = await createAccount(admin, { roles: ['ADMIN'], label: 'rdv-seul', grants: ['users.view', 'users.update', 'appointments.view'] });
+  state.quotesOnly = await createAccount(admin, { roles: ['ADMIN'], label: 'devis-seul', grants: ['users.view', 'users.update', 'quotes.view', 'quotes.manage'] });
+  const { client: rdvOnly } = await signIn(target, state.rdvOnly.email);
+  const { client: quotesOnly } = await signIn(target, state.quotesOnly.email);
+  const seenRdv = (await rdvOnly.rpc('historical_claimable_requests')).data ?? [];
+  check('détection : appointments.view voit le rendez-vous historique, pas les demandes', seenRdv.some((row) => row.item_id === oldApptId) && seenRdv.every((row) => row.item_kind === 'RENDEZ_VOUS'));
+  const seenQuotes = (await quotesOnly.rpc('historical_claimable_requests')).data ?? [];
+  check('détection : quotes.view ne voit pas les rendez-vous', !seenQuotes.some((row) => row.item_kind === 'RENDEZ_VOUS'));
+  check('détection en lecture seule : rien n’est rattaché', (await admin.from('appointments').select('user_id').eq('id', oldApptId).single()).data.user_id === null);
+  check('rattachement d’un rendez-vous refusé sans appointments.update (quotes.manage ne suffit pas)',
+    Boolean((await quotesOnly.rpc('attach_historical_request', { p_kind: 'RENDEZ_VOUS', p_item_id: oldApptId, p_reason: 'Essai' })).error));
+  check('rattachement d’un rendez-vous refusé sans appointments.update (lecture seule)',
+    Boolean((await rdvOnly.rpc('attach_historical_request', { p_kind: 'RENDEZ_VOUS', p_item_id: oldApptId, p_reason: 'Essai' })).error));
+  await grant(admin, state.rdvOnly.userId, ['appointments.update']);
+  const attachedRdv = await rdvOnly.rpc('attach_historical_request', { p_kind: 'RENDEZ_VOUS', p_item_id: oldApptId, p_reason: 'Contrôle 4I-4' });
+  check('rattachement d’un rendez-vous avec users.update + appointments.update', !attachedRdv.error && (await admin.from('appointments').select('user_id').eq('id', oldApptId).single()).data.user_id === state.claimer.userId, attachedRdv.error?.message);
+
+  if (base) {
+    const cookieGest = sessionCookieHeader(storageKey, (await signIn(target, state.gest.email)).session);
+    const listPage = await visit(base, `/administration/clients/?q=${encodeURIComponent(state.a.reference)}`, cookieGest);
+    check('écran liste : recherche servie côté serveur', listPage.status === 200 && listPage.body.includes(state.a.reference) && !listPage.body.includes(state.b.reference));
+    const fiche = await visit(base, `/administration/clients/${state.a.reference}/`, cookieGest);
+    check('écran fiche : profil, activité, commandes, demandes, rendez-vous, notes, blocage',
+      fiche.status === 200 && ['Profil', 'Activité', 'Commandes', 'Demandes et devis', 'Rendez-vous', 'Notes internes', 'Blocage', 'Payé et vérifié', 'Remboursé'].every((t) => fiche.body.includes(t)));
+    check('écran fiche : notes et correction affichées', fiche.body.includes('Préfère être rappelée le matin.') && fiche.body.includes('corrige la note'));
+    // Le remboursement de B n'était qu'enregistré : 4G ne le compte qu'une
+    // fois effectué. On le finalise, comme l'administration le ferait.
+    const completed = await state.sessionCA.rpc('complete_refund', { p_refund_id: state.refundB.id, p_external_reference: null });
+    check('remboursement de B finalisé par l’administration', !completed.error, completed.error?.message);
+    const ficheB = await visit(base, `/administration/clients/${state.b.reference}/`, cookieGest);
+    // 15 000 payés et vérifiés, 3 000 remboursés : deux vérités 4G distinctes.
+    const stat = (label, digits) => new RegExp(`${label}</p><p class="admin-stat__value">${digits}[\\s\\u00a0\\u202f]000`);
+    check('écran fiche : payé vérifié et remboursé distincts (15 000 payés, 3 000 remboursés)',
+      stat('Payé et vérifié', '15').test(ficheB.body) && stat('Remboursé', '3').test(ficheB.body));
+    const cookieReader = sessionCookieHeader(storageKey, (await signIn(target, state.reader.email)).session);
+    const ficheReader = await visit(base, `/administration/clients/${state.a.reference}/`, cookieReader);
+    check('écran fiche : sans orders.view, le bloc commandes est réservé', ficheReader.status === 200 && ficheReader.body.includes('La permission orders.view est nécessaire') && !ficheReader.body.includes(state.orderA.reference));
+    check('écran fiche : sans users.disable ni users.update, aucun bouton d’acte', !ficheReader.body.includes('Bloquer le client') && !ficheReader.body.includes('Ajouter la note'));
+    const cookieBare = sessionCookieHeader(storageKey, (await signIn(target, state.bare.email)).session);
+    check('écran : ADMIN sans users.view — module introuvable', (await visit(base, '/administration/clients/', cookieBare)).status === 404);
+    check('écran : un client — administration fermée', (await visit(base, `/administration/clients/${state.a.reference}/`, cookieA)).status !== 200);
+    const cookieRoot = sessionCookieHeader(storageKey, (await signIn(target, state.root.email)).session);
+    check('écran : SUPER_ADMIN ouvre la fiche', (await visit(base, `/administration/clients/${state.b.reference}/`, cookieRoot)).status === 200);
+
+    // Cas réel MORA-CLI-A0001 : lecture seule, aucun clic.
+    const real = await visit(base, '/administration/clients/MORA-CLI-A0001/', cookieGest);
+    state.realDetection = {
+      page: real.status,
+      demande: real.body.includes('MORA-DMCL-A0001') && real.body.includes('Éléments historiques rattachables'),
+      rendezVous: /<strong>Rendez-vous<\/strong>/.test(real.body),
+    };
+    check('cas réel (lecture seule) : la fiche MORA-CLI-A0001 détecte MORA-DMCL-A0001', real.status === 200 && state.realDetection.demande, `HTTP ${real.status}`);
+    check('cas réel (lecture seule) : la fiche MORA-CLI-A0001 détecte le rendez-vous historique', state.realDetection.rendezVous);
+  }
+}
+
 async function cleanup(ctx) {
   log.step('Démontage');
   const { admin, target, accessToken, before } = ctx;
@@ -1079,6 +1314,7 @@ async function main() {
       await timelines(ctx);
       await claims(ctx);
       await relationHttp(ctx, base);
+      await adminClients(ctx, base);
     } else log.skip('Écrans non contrôlés (aucun --base)');
   } catch (error) {
     results.failed += 1;

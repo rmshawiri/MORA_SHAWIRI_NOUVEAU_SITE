@@ -135,12 +135,12 @@ export const ADMIN_MODULES = [
     label: 'Clients',
     summary: 'Fiches clients, historique et données personnelles.',
     permission: 'users.view',
-    status: 'A_VENIR',
+    status: 'DISPONIBLE',
     group: 'ACTIVITE',
     // Corrigé en 4F : le plan de développement range `03_GESTION_CLIENTS` dans
     // la phase 4I, avec les espaces client et affilié, et non en 4F. L'étiquette
     // n'ouvrait aucun droit — le module reste `A_VENIR` — mais elle annonçait
-    // une livraison qui n'était pas prévue là.
+    // une livraison qui n'était pas prévue là. Livré en 4I-4.
     phase: '4I',
   },
   {

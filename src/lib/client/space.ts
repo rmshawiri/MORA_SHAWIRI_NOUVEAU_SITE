@@ -32,7 +32,13 @@ export type MyClientSpace =
   /** Compte connecté sans espace client : administrateur ou affilié seul. */
   | { state: 'none'; context: AuthContext; isAffiliate: boolean }
   /** La base n'a pas pu répondre : l'écran le dit, sans rien inventer. */
-  | { state: 'unavailable'; context: AuthContext; isAffiliate: boolean };
+  | { state: 'unavailable'; context: AuthContext; isAffiliate: boolean }
+  /**
+   * Client bloqué par l'administration (4I-4) alors que le compte reste
+   * ouvert — compte CLIENT + ADMIN ou CLIENT + AFFILIE : l'espace est fermé,
+   * aucune donnée n'est lue (la base les refuse de toute façon).
+   */
+  | { state: 'blocked'; context: AuthContext; isAffiliate: boolean };
 
 /** La fiche client du compte connecté, une fois par requête. */
 export const getMyClientSpace = cache(async (): Promise<MyClientSpace> => {
@@ -46,6 +52,9 @@ export const getMyClientSpace = cache(async (): Promise<MyClientSpace> => {
 
   const supabase = await getServerSupabaseClient();
   if (!supabase) return { state: 'unavailable', context, isAffiliate };
+
+  const { data: spaceState } = await supabase.rpc('my_client_space_state');
+  if (spaceState === 'BLOQUE') return { state: 'blocked', context, isAffiliate };
 
   const read = () => supabase.from('clients').select('*').eq('user_id', context.userId).maybeSingle();
 
