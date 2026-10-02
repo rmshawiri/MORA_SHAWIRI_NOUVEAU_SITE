@@ -48,6 +48,7 @@ import {
   resolveTarget,
   runSql,
 } from './lib/config.mjs';
+import { readClientSequence, restoreClientSequence } from './lib/client-sequence.mjs';
 
 const results = { passed: 0, failed: 0 };
 
@@ -68,6 +69,9 @@ const TEST_TYPES = [TEST_TYPE, CONCURRENT_TYPE];
 
 /** Instantané des suites réelles au démarrage. Voir le bilan final. */
 let sequencesBefore = '[]';
+// Suite MORA-CLI (phase 4I) : les comptes CLIENT de ce contrôle y prennent un
+// numéro ; il est rendu dès leur suppression, avant le bilan des suites.
+let clientSequenceBefore = null;
 
 const TEST_DOMAIN = 'mora-shawiri.test';
 const PASSWORD = `Verif-4D-${randomUUID()}`;
@@ -234,14 +238,15 @@ async function checkSchema(target, accessToken) {
 
   // Codes qui **numérotent** une entité métier sans émettre de document :
   // une demande et un rendez-vous (phase 4F, décision B2), un affilié et une
-  // commission (phase 4H, décision N2). Ils partagent l'allocateur, jamais la
+  // commission (phase 4H, décision N2), un client (phase 4I, décision 6 :
+  // MORA-CLI). Ils partagent l'allocateur, jamais la
   // table `documents`. Ce contrôle vérifie qu'aucun autre code ne se glisse
   // dans cette catégorie sans décision.
   const referenceOnly = real.filter((row) => row.is_reference_only === true).map((row) => row.code);
 
   check(
-    'les codes de numérotation métier sont ceux des phases 4F et 4H',
-    referenceOnly.sort().join(',') === 'AFIL,COMAF,DMCL,RVCL',
+    'les codes de numérotation métier sont ceux des phases 4F, 4H et 4I',
+    referenceOnly.sort().join(',') === 'AFIL,CLI,COMAF,DMCL,RVCL',
     referenceOnly.join(','),
   );
 
@@ -790,6 +795,7 @@ async function main() {
   // L'état des suites réelles avant toute chose : c'est à lui que le bilan
   // final se compare, pour prouver que ce contrôle n'a percé aucun trou dans
   // une numérotation de production.
+  clientSequenceBefore = await readClientSequence(runSql, target, accessToken).catch(() => null);
   sequencesBefore = JSON.stringify(
     (await runSql(
       target,
@@ -854,6 +860,11 @@ async function main() {
     for (const userId of created) {
       await admin.auth.admin.deleteUser(userId).catch(() => undefined);
     }
+
+    const clientSequence = await restoreClientSequence(runSql, target, accessToken, clientSequenceBefore).catch(
+      (error) => ({ identical: false, note: error.message }),
+    );
+    check('la suite MORA-CLI est rendue telle qu’elle a été trouvée', clientSequence.identical, clientSequence.note ?? '');
 
     const residue = await runSql(
       target,

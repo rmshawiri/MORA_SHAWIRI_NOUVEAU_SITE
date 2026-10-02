@@ -14,6 +14,7 @@
  */
 
 import type { AffiliationFunctions, AffiliationTables } from './types-affiliation';
+import type { ClientFunctions, ClientTables } from './types-client';
 
 export type Json = string | number | boolean | null | { [key: string]: Json } | Json[];
 
@@ -1567,9 +1568,11 @@ export type Database = {
         OrderStatusHistoryRelationships
       >;
       order_events: Table<OrderEventRow, never, never, OrderEventRelationships>;
-    } & AffiliationTables;
+    } & AffiliationTables &
+      ClientTables;
     Views: Record<never, never>;
-    Functions: AffiliationFunctions & {
+    Functions: AffiliationFunctions &
+      ClientFunctions & {
       current_permissions: {
         Args: Record<string, never>;
         Returns: string[];
