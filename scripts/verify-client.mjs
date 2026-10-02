@@ -20,6 +20,13 @@
  * remboursements et factures — IDOR A / B et compte CLIENT + ADMIN, dont les
  * droits d'administration ne doivent jamais élargir son espace client ;
  * passerelle espace affilié ↔ espace client. Suites CMCL / FACL rendues.
+ *
+ * Lot 4I-3 (avec `--base`) : demandes, devis (acceptation, refus,
+ * transitions, concurrence avec l'administration), rendez-vous (annulation),
+ * chronologies client filtrées, rattachement des demandes hors connexion
+ * (adresse confirmée seulement, idempotent, antérieures par acte
+ * administratif). Suites DMCL / DVCL / RVCL rendues ; aucune donnée réelle
+ * touchée (MORA-DMCL-A0001 comparée avant / après).
  */
 
 import { randomUUID } from 'node:crypto';
@@ -589,6 +596,432 @@ async function cleanupCommerce(ctx) {
   check('aucune archive de facture de contrôle ne subsiste', !docs.some((row) => archives.some((file) => file.name === `${row.id}.pdf`)));
 }
 
+
+/* -------------------------------------------------------------------------- */
+/* Lot 4I-3 — demandes, devis, rendez-vous ; rattachement                      */
+/* -------------------------------------------------------------------------- */
+
+const HASHES = [];
+const hashOf = () => {
+  const value = randomUUID().replace(/-/g, '');
+  HASHES.push(value);
+  return value;
+};
+
+async function grant(admin, userId, codes) {
+  const { data: permissions } = await admin.from('permissions').select('id, code').in('code', codes);
+  await admin.from('user_permissions').upsert(
+    permissions.map((row) => ({ user_id: userId, permission_id: row.id, effect: 'OCTROI' })),
+    { onConflict: 'user_id,permission_id' },
+  );
+}
+
+function submitRequest(client, email, overrides = {}) {
+  const hash = hashOf();
+  return client.rpc('submit_quote_request', {
+    p_full_name: 'Contrôle Relation 4I', p_email: email, p_phone: '+269 000 11 22', p_organisation: null,
+    p_subject: `${PREFIX} demande ${hash.slice(0, 6)}`, p_budget: null,
+    p_message: `${PREFIX} message de contrôle ${hash.slice(0, 10)}\nseconde ligne`, p_service_slug: null,
+    p_offer_title: null, p_details: [], p_source: 'contact', p_client_hash: hash, ...overrides,
+  });
+}
+
+function submitAppointment(client, email, overrides = {}) {
+  const hash = hashOf();
+  return client.rpc('submit_appointment_request', {
+    p_full_name: 'Contrôle Relation 4I', p_email: email, p_phone: '+269 000 11 22', p_organisation: null,
+    p_subject: `${PREFIX} rendez-vous ${hash.slice(0, 6)}`, p_channel_label: 'Appel téléphonique',
+    p_requested_date: '2027-04-12', p_requested_slot: 'Matin (08H – 12H)', p_budget: null,
+    p_message: `${PREFIX} contexte ${hash.slice(0, 10)}`, p_service_slug: null, p_details: [], p_source: 'rendez-vous',
+    p_client_hash: hash, ...overrides,
+  });
+}
+
+async function requestByRef(admin, reference) {
+  const { data } = await admin.from('quote_requests').select('*').eq('reference', reference).single();
+  return data;
+}
+
+async function seedRelation(ctx) {
+  log.step('Données relation de contrôle (demandes, devis, rendez-vous)');
+  const { admin, target, state } = ctx;
+  state.relationStartedAt = new Date().toISOString();
+  await grant(admin, state.ca.userId, ['quotes.view', 'quotes.create', 'quotes.manage', 'appointments.view', 'appointments.update', 'appointments.cancel', 'users.view', 'users.update']);
+  const { client: a } = await signIn(target, state.a.email);
+  const { client: b } = await signIn(target, state.b.email);
+  const { client: ca } = await signIn(target, state.ca.email);
+  Object.assign(state, { relA: a, relB: b, relCA: ca });
+
+  const subA = await submitRequest(a, state.a.email);
+  if (subA.error) throw new Error(`demande A : ${subA.error.message}`);
+  state.reqA = await requestByRef(admin, subA.data[0].reference);
+  const subB = await submitRequest(b, state.b.email);
+  if (subB.error) throw new Error(`demande B : ${subB.error.message}`);
+  state.reqB = await requestByRef(admin, subB.data[0].reference);
+  const subCA = await submitRequest(ca, state.ca.email);
+  if (subCA.error) throw new Error(`demande CLIENT + ADMIN : ${subCA.error.message}`);
+  state.reqCA = await requestByRef(admin, subCA.data[0].reference);
+  check('demandes déposées connecté : rattachées directement à leur auteur',
+    state.reqA.user_id === state.a.userId && state.reqB.user_id === state.b.userId && state.reqCA.user_id === state.ca.userId);
+
+  // Affectation interne (événement que le client ne doit jamais voir).
+  await ca.from('quote_requests').update({ assigned_to: state.ca.userId }).eq('id', state.reqA.id);
+  await ca.from('quote_requests').update({ status: 'EN_ETUDE' }).eq('id', state.reqA.id);
+
+  const draft = async (requestId, extra = {}) => {
+    const { data, error } = await ca.from('quotes').insert({
+      quote_request_id: requestId, amount: 150000, currency: 'KMF', summary: `${PREFIX} — site vitrine\nCinq pages, hébergement un an.`, status: 'BROUILLON', ...extra,
+    }).select('id').single();
+    if (error) throw new Error(`brouillon : ${error.message}`);
+    return data.id;
+  };
+  const sent = async (requestId, extra = {}) => {
+    const id = await draft(requestId, extra);
+    const { data, error } = await ca.rpc('send_quote', { p_quote_id: id });
+    if (error) throw new Error(`émission : ${error.message}`);
+    return { id, reference: data.reference };
+  };
+  state.q = {
+    accept: await sent(state.reqA.id),
+    refuse: await sent(state.reqA.id),
+    expired: await sent(state.reqA.id, { valid_until: '2026-01-31' }),
+    cancelled: await sent(state.reqA.id),
+    double: await sent(state.reqA.id),
+    race1: await sent(state.reqA.id),
+    race2: await sent(state.reqA.id),
+    draft: { id: await draft(state.reqA.id), reference: null },
+    abandoned: { id: await draft(state.reqA.id), reference: null },
+    b: await sent(state.reqB.id),
+  };
+  await ca.from('quotes').update({ status: 'ANNULE' }).eq('id', state.q.cancelled.id);
+  await ca.from('quotes').update({ status: 'ANNULE' }).eq('id', state.q.abandoned.id);
+
+  // Rendez-vous de A (connecté) : en attente, à venir, commencé, terminé, concurrence.
+  const appt = async (client, email) => {
+    const before = await admin.from('appointments').select('id').eq('user_id', (await client.auth.getUser()).data.user.id);
+    const res = await submitAppointment(client, email);
+    if (res.error) throw new Error(`rendez-vous : ${res.error.message}`);
+    const after = await admin.from('appointments').select('id').eq('user_id', (await client.auth.getUser()).data.user.id).order('created_at', { ascending: false });
+    return after.data.find((row) => !(before.data ?? []).some((old) => old.id === row.id)).id;
+  };
+  const confirm = async (id, startIso, endIso) => {
+    const { error } = await ca.rpc('confirm_appointment', { p_appointment_id: id, p_scheduled_at: startIso, p_scheduled_end: endIso });
+    if (error) throw new Error(`confirmation : ${error.message}`);
+  };
+  const base = Date.UTC(2027, 3, 12, 5, 0) + Math.floor(Math.random() * 200) * 86400000;
+  const slot = (n) => [new Date(base + n * 7200000).toISOString(), new Date(base + n * 7200000 + 3600000).toISOString()];
+  state.ap = {
+    pending: await appt(a, state.a.email),
+    future: await appt(a, state.a.email),
+    started: await appt(a, state.a.email),
+    done: await appt(a, state.a.email),
+    race1: await appt(a, state.a.email),
+    race2: await appt(a, state.a.email),
+    b: await appt(b, state.b.email),
+  };
+  await confirm(state.ap.future, ...slot(0));
+  const startedAt = new Date(Date.now() - 30 * 60000);
+  await confirm(state.ap.started, startedAt.toISOString(), new Date(startedAt.getTime() + 3600000).toISOString());
+  await confirm(state.ap.done, ...slot(1));
+  await ca.from('appointments').update({ status: 'TERMINE' }).eq('id', state.ap.done);
+  await confirm(state.ap.race1, ...slot(2));
+  await confirm(state.ap.race2, ...slot(3));
+  await confirm(state.ap.b, ...slot(4));
+  await ca.from('appointments').update({ assigned_to: state.ca.userId }).eq('id', state.ap.future);
+  check('données relation prêtes', Object.values(state.q).length === 10 && Object.values(state.ap).every(Boolean));
+}
+
+async function quoteDecisions(ctx) {
+  log.step('Devis : acceptation, refus, transitions');
+  const { admin, target, accessToken, state } = ctx;
+  const a = state.relA;
+  const respond = (client, quote, decision, reason = null) => client.rpc('respond_to_my_quote', { p_quote_id: quote.id, p_decision: decision, p_reason: reason });
+  const statusOf = async (quote) => (await admin.from('quotes').select('status, responded_by, responded_at, client_response_reason').eq('id', quote.id).single()).data;
+  const transitions = async (quote, to) => (await runSql(target, accessToken,
+    `select count(*)::int as n from public.quote_request_events where quote_reference = '${quote.reference}' and kind = 'DEVIS_STATUT' and from_status = 'ENVOYE'${to ? ` and to_status = '${to}'` : ''};`))?.[0]?.n;
+  const { count: ordersBefore } = await admin.from('orders').select('id', { count: 'exact', head: true }).eq('user_id', state.a.userId);
+
+  const accepted = await respond(a, state.q.accept, 'ACCEPTE');
+  const sAcc = await statusOf(state.q.accept);
+  check('A accepte son devis : ACCEPTÉ, horodaté, attribué à A', !accepted.error && sAcc.status === 'ACCEPTE' && sAcc.responded_by === state.a.userId && Boolean(sAcc.responded_at), accepted.error?.message);
+  const { count: ordersAfter } = await admin.from('orders').select('id', { count: 'exact', head: true }).eq('user_id', state.a.userId);
+  check('accepter ne crée aucune commande', ordersAfter === ordersBefore, `${ordersBefore} → ${ordersAfter}`);
+  const again = await respond(a, state.q.accept, 'ACCEPTE');
+  check('double clic : la même décision est acceptée sans second événement', !again.error && (await transitions(state.q.accept)) === 1);
+  check('un devis accepté ne peut plus être refusé', (await respond(a, state.q.accept, 'REFUSE', 'trop tard')).error?.code === '23514');
+
+  const refused = await respond(a, state.q.refuse, 'REFUSE', 'Budget insuffisant pour cette année');
+  const sRef = await statusOf(state.q.refuse);
+  check('A refuse avec un motif : REFUSÉ, motif conservé', !refused.error && sRef.status === 'REFUSE' && sRef.client_response_reason === 'Budget insuffisant pour cette année');
+  const { data: adminEvents } = await state.relCA.from('quote_request_events').select('note, actor_id').eq('quote_reference', state.q.refuse.reference).eq('to_status', 'REFUSE');
+  check('l’administration lit le motif du client dans l’historique', adminEvents?.[0]?.note === 'Budget insuffisant pour cette année' && adminEvents?.[0]?.actor_id === state.a.userId);
+  check('un devis refusé ne peut plus être accepté', (await respond(a, state.q.refuse, 'ACCEPTE')).error?.code === '23514');
+  check('motif de plus de 1 000 caractères refusé', (await respond(a, state.q.double, 'REFUSE', 'x'.repeat(1001))).error?.code === '23514');
+
+  check('brouillon : introuvable pour le client', (await respond(a, state.q.draft, 'ACCEPTE')).error?.code === 'P0002');
+  check('brouillon abandonné (annulé sans référence) : introuvable', (await respond(a, state.q.abandoned, 'ACCEPTE')).error?.code === 'P0002');
+  check('devis expiré (validité dépassée) : refusé', (await respond(a, state.q.expired, 'ACCEPTE')).error?.code === '23514');
+  check('devis annulé : refusé', (await respond(a, state.q.cancelled, 'ACCEPTE')).error?.code === '23514');
+  check('décision inconnue : refusée', (await a.rpc('respond_to_my_quote', { p_quote_id: state.q.double.id, p_decision: 'EXPIRE', p_reason: null })).error?.code === '23514');
+  check('B ne répond pas au devis de A', (await respond(state.relB, state.q.double, 'ACCEPTE')).error?.code === 'P0002');
+  check('CLIENT + ADMIN ne répond pas au devis de A par la fonction client', (await respond(state.relCA, state.q.double, 'ACCEPTE')).error?.code === 'P0002');
+  check('un visiteur ne répond à rien', Boolean((await respond(sessionClient(target), state.q.double, 'ACCEPTE')).error));
+  check('A ne change pas le statut par écriture directe', refused2(await a.from('quotes').update({ status: 'ACCEPTE' }).eq('id', state.q.double.id).select()));
+  check('l’administration ne peut pas faire passer une décision pour celle du client',
+    refused2(await state.relCA.from('quotes').update({ responded_by: state.a.userId }).eq('id', state.q.double.id).select()));
+
+  // Concurrence : cinq acceptations simultanées.
+  const burst = await Promise.all(Array.from({ length: 5 }, () => respond(a, state.q.double, 'ACCEPTE')));
+  check('cinq acceptations simultanées : une seule transition', burst.every((r) => !r.error) && (await transitions(state.q.double)) === 1, burst.map((r) => r.error?.message ?? 'ok').join(' | '));
+
+  // Client contre administration.
+  const [c1, a1] = await Promise.all([
+    respond(a, state.q.race1, 'ACCEPTE'),
+    state.relCA.from('quotes').update({ status: 'ANNULE' }).eq('id', state.q.race1.id).select('id'),
+  ]);
+  const s1 = await statusOf(state.q.race1);
+  check('client accepte pendant que l’administration annule : un seul gagnant, état cohérent',
+    ['ACCEPTE', 'ANNULE'].includes(s1.status) && (await transitions(state.q.race1)) === 1 &&
+      (s1.status === 'ACCEPTE' ? s1.responded_by === state.a.userId : s1.responded_by === null),
+    `${s1.status} — client ${c1.error?.message ?? 'ok'}, admin ${a1.error?.message ?? 'ok'}`);
+  const [c2, a2] = await Promise.all([
+    respond(a, state.q.race2, 'REFUSE', 'Concurrence'),
+    state.relCA.from('quotes').update({ status: 'EXPIRE' }).eq('id', state.q.race2.id).select('id'),
+  ]);
+  const s2 = await statusOf(state.q.race2);
+  check('client refuse pendant que l’administration expire : un seul gagnant, état cohérent',
+    ['REFUSE', 'EXPIRE'].includes(s2.status) && (await transitions(state.q.race2)) === 1,
+    `${s2.status} — client ${c2.error?.message ?? 'ok'}, admin ${a2.error?.message ?? 'ok'}`);
+
+  // Compte suspendu, session encore ouverte.
+  await admin.from('profiles').update({ status: 'SUSPENDU' }).eq('id', state.a.userId);
+  const susp = await respond(a, state.q.expired, 'REFUSE');
+  const tl = await a.rpc('my_request_timeline', { p_request_id: state.reqA.id });
+  await admin.from('profiles').update({ status: 'ACTIF' }).eq('id', state.a.userId);
+  check('compte suspendu (session ouverte) : aucune décision, aucune chronologie', susp.error?.code === '42501' && (tl.data ?? []).length === 0);
+}
+
+function refused2(result) {
+  return Boolean(result.error) || (Array.isArray(result.data) && result.data.length === 0);
+}
+
+async function appointmentCancels(ctx) {
+  log.step('Rendez-vous : annulation par le client');
+  const { admin, target, accessToken, state } = ctx;
+  const a = state.relA;
+  const cancel = (client, id, reason = 'Empêchement de dernière minute') => client.rpc('cancel_my_appointment', { p_appointment_id: id, p_reason: reason });
+  const row = async (id) => (await admin.from('appointments').select('status, cancelled_by, cancel_reason, cancelled_at').eq('id', id).single()).data;
+  const cancelEvents = async (id) => (await runSql(target, accessToken,
+    `select count(*)::int as n from public.appointment_events where appointment_id = '${id}' and kind = 'STATUT' and to_status = 'ANNULE';`))?.[0]?.n;
+
+  check('motif obligatoire', (await cancel(a, state.ap.future, '  ')).error?.code === '23514');
+  const done = await cancel(a, state.ap.future);
+  const r = await row(state.ap.future);
+  check('A annule son rendez-vous confirmé à venir : ANNULÉ, horodaté, par A, motif conservé',
+    !done.error && r.status === 'ANNULE' && r.cancelled_by === state.a.userId && Boolean(r.cancelled_at) && r.cancel_reason === 'Empêchement de dernière minute', done.error?.message);
+  check('… le créneau confirmé est libéré par l’état ANNULÉ (aucune reprogrammation proposée)', r.status === 'ANNULE');
+  check('double annulation : sans effet ni second événement', !(await cancel(a, state.ap.future)).error && (await cancelEvents(state.ap.future)) === 1);
+  check('une demande de rendez-vous en attente s’annule aussi', !(await cancel(a, state.ap.pending)).error && (await row(state.ap.pending)).status === 'ANNULE');
+  check('rendez-vous déjà commencé : refusé', (await cancel(a, state.ap.started)).error?.code === '23514');
+  check('rendez-vous terminé : refusé', (await cancel(a, state.ap.done)).error?.code === '23514');
+  check('B n’annule pas le rendez-vous de A', (await cancel(state.relB, state.ap.race1)).error?.code === 'P0002');
+  check('CLIENT + ADMIN n’annule pas celui de A par la fonction client', (await cancel(state.relCA, state.ap.race1)).error?.code === 'P0002');
+  check('A n’écrit pas cancelled_by directement', refused2(await a.from('appointments').update({ status: 'ANNULE' }).eq('id', state.ap.race1).select()));
+
+  const [c1, a1] = await Promise.all([
+    cancel(a, state.ap.race1),
+    state.relCA.from('appointments').update({ status: 'ANNULE', cancel_reason: 'Créneau indisponible' }).eq('id', state.ap.race1).select('id'),
+  ]);
+  const r1 = await row(state.ap.race1);
+  check('client et administration annulent en même temps : un seul événement d’annulation',
+    r1.status === 'ANNULE' && (await cancelEvents(state.ap.race1)) === 1, `client ${c1.error?.message ?? 'ok'}, admin ${a1.error?.message ?? 'ok'}`);
+  check('… et le motif enregistré est celui du gagnant, jamais réécrit par le second',
+    r1.cancelled_by === state.a.userId ? r1.cancel_reason === 'Empêchement de dernière minute' : r1.cancel_reason === 'Créneau indisponible',
+    `${r1.cancelled_by === state.a.userId ? 'client' : 'administration'} : ${r1.cancel_reason}`);
+  check('une seconde annulation par l’administration ne réécrit pas l’annulation du client',
+    Boolean((await state.relCA.from('appointments').update({ cancel_reason: 'Réécriture' }).eq('id', state.ap.future).select('id')).error) &&
+      (await row(state.ap.future)).cancel_reason === 'Empêchement de dernière minute');
+  const [c2, a2] = await Promise.all([
+    cancel(a, state.ap.race2),
+    state.relCA.from('appointments').update({ status: 'TERMINE' }).eq('id', state.ap.race2).select('id'),
+  ]);
+  const r2 = await row(state.ap.race2);
+  check('client annule pendant que l’administration clôture : un seul gagnant, état cohérent',
+    ['ANNULE', 'TERMINE'].includes(r2.status) && (r2.status === 'ANNULE' ? r2.cancelled_by === state.a.userId : r2.cancelled_by === null),
+    `${r2.status} — client ${c2.error?.message ?? 'ok'}, admin ${a2.error?.message ?? 'ok'}`);
+}
+
+async function timelines(ctx) {
+  log.step('Chronologies client : événements publics seulement');
+  const { state } = ctx;
+  const tl = await state.relA.rpc('my_request_timeline', { p_request_id: state.reqA.id });
+  const kinds = (tl.data ?? []).map((row) => row.kind);
+  check('chronologie de la demande lue par A', !tl.error && kinds.includes('CREATION') && kinds.includes('DEVIS_STATUT'), tl.error?.message);
+  check('… sans affectation interne ni création de brouillon', !kinds.includes('AFFECTATION') && !kinds.includes('DEVIS_CREE'));
+  check('… sans l’abandon d’un brouillon', !(tl.data ?? []).some((row) => row.from_status === 'BROUILLON' && row.to_status !== 'ENVOYE'));
+  check('… aucune colonne d’acteur', (tl.data ?? []).every((row) => !('actor_id' in row) && !('actor_label' in row)));
+  check('… sa propre décision est signalée, avec son motif', (tl.data ?? []).some((row) => row.by_me && row.to_status === 'REFUSE' && row.note === 'Budget insuffisant pour cette année'));
+  check('… aucune note d’un autre acteur', (tl.data ?? []).every((row) => row.note === null || row.by_me));
+  check('B ne lit pas la chronologie de A', ((await state.relB.rpc('my_request_timeline', { p_request_id: state.reqA.id })).data ?? []).length === 0);
+  check('CLIENT + ADMIN ne lit pas la chronologie de A par la fonction client', ((await state.relCA.rpc('my_request_timeline', { p_request_id: state.reqA.id })).data ?? []).length === 0);
+  check('A ne lit plus l’historique brut de sa demande', ((await state.relA.from('quote_request_events').select('id').eq('quote_request_id', state.reqA.id)).data ?? []).length === 0);
+  check('A ne lit plus l’historique brut de son rendez-vous', ((await state.relA.from('appointment_events').select('id').eq('appointment_id', state.ap.future)).data ?? []).length === 0);
+  check('l’administration lit toujours les historiques complets', ((await state.relCA.from('quote_request_events').select('kind').eq('quote_request_id', state.reqA.id)).data ?? []).some((row) => row.kind === 'AFFECTATION'));
+  const at = await state.relA.rpc('my_appointment_timeline', { p_appointment_id: state.ap.future });
+  check('chronologie du rendez-vous : création, confirmation, annulation par A avec son motif',
+    (at.data ?? []).some((row) => row.kind === 'CREATION') && (at.data ?? []).some((row) => row.to_status === 'CONFIRME') &&
+      (at.data ?? []).some((row) => row.to_status === 'ANNULE' && row.by_me && row.note === 'Empêchement de dernière minute'));
+  check('… sans affectation interne', !(at.data ?? []).some((row) => row.kind === 'AFFECTATION'));
+  check('B ne lit pas la chronologie du rendez-vous de A', ((await state.relB.rpc('my_appointment_timeline', { p_appointment_id: state.ap.future })).data ?? []).length === 0);
+  const r1 = await state.relA.rpc('my_appointment_timeline', { p_appointment_id: state.ap.race1 });
+  check('annulation par l’administration : le motif administratif n’est pas rendu au client',
+    (r1.data ?? []).filter((row) => row.to_status === 'ANNULE').every((row) => row.by_me || row.note === null));
+}
+
+async function claims(ctx) {
+  log.step('Rattachement des demandes faites hors connexion');
+  const { admin, target, accessToken, state } = ctx;
+  const anon = sessionClient(target);
+  state.claimer = await createAccount(admin, { roles: ['CLIENT'], label: 'rattachement', fullName: 'Contrôle Rattachement' });
+  state.other = await createAccount(admin, { roles: ['CLIENT'], label: 'autre', fullName: 'Contrôle Autre' });
+  const { client: d } = await signIn(target, state.claimer.email);
+  const { client: e } = await signIn(target, state.other.email);
+  const submitted = async (email, overrides) => {
+    const res = await submitRequest(anon, email, overrides);
+    if (res.error) throw new Error(`demande hors connexion : ${res.error.message}`);
+    return requestByRef(admin, res.data[0].reference);
+  };
+
+  const off1 = await submitted(state.claimer.email);
+  const off2 = await submitted(state.claimer.email);
+  check('une demande hors connexion n’a pas de titulaire', off1.user_id === null);
+  const visible = await d.rpc('my_claimable_requests');
+  check('le client à adresse confirmée voit ses demandes rattachables', (visible.data ?? []).filter((row) => row.item_kind === 'DEMANDE').length === 2, visible.error?.message);
+  check('un autre client n’en voit aucune', ((await e.rpc('my_claimable_requests')).data ?? []).length === 0);
+  const sameName = await submitted(`${PREFIX}-homonyme-${randomUUID().slice(0, 6)}@${TEST_DOMAIN}`, { p_full_name: 'Contrôle Rattachement', p_phone: '+269 000 11 22' });
+  check('même nom et même téléphone, autre adresse : jamais rattachable', !((visible.data ?? []).some((row) => row.item_id === sameName.id)));
+
+  const burst = await Promise.all(Array.from({ length: 5 }, () => d.rpc('claim_my_requests')));
+  const total = burst.reduce((sum, res) => sum + (res.data?.demandes ?? 0), 0);
+  const after1 = await requestByRef(admin, off1.reference);
+  const after2 = await requestByRef(admin, off2.reference);
+  check('cinq rattachements simultanés : chaque demande rattachée une seule fois', burst.every((res) => !res.error) && total === 2 && after1.user_id === state.claimer.userId && after2.user_id === state.claimer.userId,
+    burst.map((res) => res.error?.message ?? JSON.stringify(res.data)).join(' | '));
+  const lead = (await admin.from('leads').select('user_id').eq('email', state.claimer.email.toLowerCase()).single()).data;
+  check('le prospect est rattaché au même compte', lead.user_id === state.claimer.userId);
+  check('idempotent : un nouvel appel ne rattache rien', (await d.rpc('claim_my_requests')).data?.demandes === 0);
+  check('l’homonyme reste sans titulaire', (await requestByRef(admin, sameName.reference)).user_id === null);
+  const audit = await runSql(target, accessToken, `select count(*)::int as n from public.audit_logs where action = 'relation.rattachement' and actor_id = '${state.claimer.userId}';`);
+  check('le rattachement est journalisé', audit?.[0]?.n >= 1);
+
+  // Adresse non confirmée.
+  const unconfirmedEmail = `${PREFIX}-nonconfirme-${randomUUID().slice(0, 6)}@${TEST_DOMAIN}`;
+  const offU = await submitted(unconfirmedEmail);
+  const { data: u } = await admin.auth.admin.createUser({ email: unconfirmedEmail, password: PASSWORD, email_confirm: false });
+  await admin.from('user_roles').upsert({ user_id: u.user.id, role_id: await roleId(admin, 'CLIENT') }, { onConflict: 'user_id,role_id' });
+  const peek = await admin.rpc('client_confirmed_email', { p_uid: u.user.id });
+  check('adresse non confirmée : aucun rattachement possible', (await requestByRef(admin, offU.reference)).user_id === null && !peek.data);
+
+  // Conflit : prospect déjà rattaché à un autre compte.
+  const off3 = await submitted(state.claimer.email);
+  await admin.from('leads').update({ user_id: state.other.userId }).eq('email', state.claimer.email.toLowerCase());
+  const conflict = await d.rpc('claim_my_requests');
+  check('conflit (prospect rattaché à un autre compte) : rien n’est rattaché, le conflit est compté',
+    conflict.data?.conflits === 1 && (await requestByRef(admin, off3.reference)).user_id === null, JSON.stringify(conflict.data));
+  await admin.from('leads').update({ user_id: state.claimer.userId }).eq('email', state.claimer.email.toLowerCase());
+
+  // Compte suspendu.
+  await admin.from('profiles').update({ status: 'SUSPENDU' }).eq('id', state.claimer.userId);
+  const suspended = await d.rpc('claim_my_requests');
+  await admin.from('profiles').update({ status: 'ACTIF' }).eq('id', state.claimer.userId);
+  check('compte suspendu : rattachement refusé', suspended.error?.code === '42501');
+
+  // Demande antérieure à la mise en service : jamais rattachée par le client.
+  const old = await submitted(state.claimer.email);
+  await runSql(target, accessToken, `update public.quote_requests set created_at = '2026-09-29T10:00:00Z' where id = '${old.id}';`);
+  check('demande antérieure : invisible et non rattachable par le client',
+    !((await d.rpc('my_claimable_requests')).data ?? []).some((row) => row.item_id === old.id) &&
+      (await d.rpc('claim_my_requests')).data?.references?.includes(old.reference) !== true &&
+      (await requestByRef(admin, old.reference)).user_id === null);
+  const detected = await state.relCA.rpc('historical_claimable_requests');
+  check('… détectée par l’administration (users.view + quotes.view)', (detected.data ?? []).some((row) => row.item_id === old.id && row.client_user_id === state.claimer.userId), detected.error?.message);
+  check('… détection refusée à un client', Boolean((await d.rpc('historical_claimable_requests')).error));
+  check('… rattachement historique refusé sans permission', Boolean((await d.rpc('attach_historical_request', { p_kind: 'DEMANDE', p_item_id: old.id, p_reason: 'essai' })).error));
+  check('… motif obligatoire', Boolean((await state.relCA.rpc('attach_historical_request', { p_kind: 'DEMANDE', p_item_id: old.id, p_reason: ' ' })).error));
+  const attached = await state.relCA.rpc('attach_historical_request', { p_kind: 'DEMANDE', p_item_id: old.id, p_reason: 'Contrôle 4I-3' });
+  check('… rattachée par l’acte administratif explicite', !attached.error && (await requestByRef(admin, old.reference)).user_id === state.claimer.userId, attached.error?.message);
+  check('… et pas deux fois', Boolean((await state.relCA.rpc('attach_historical_request', { p_kind: 'DEMANDE', p_item_id: old.id, p_reason: 'Contrôle 4I-3' })).error));
+}
+
+async function relationHttp(ctx, base) {
+  log.step(`Espace client — demandes, devis, rendez-vous (${base})`);
+  const { target, state } = ctx;
+  const storageKey = `sb-${new URL(target.url).hostname.split('.')[0]}-auth-token`;
+  const cookie = async (account) => sessionCookieHeader(storageKey, (await signIn(target, account.email)).session);
+  const cA = await cookie(state.a);
+  const cB = await cookie(state.b);
+  const cCA = await cookie(state.ca);
+
+  const list = await visit(base, '/espace-client/demandes/', cA);
+  check('A : Mes demandes liste sa demande', list.status === 200 && list.body.includes(state.reqA.reference));
+  const fiche = await visit(base, `/espace-client/demandes/${state.reqA.reference}/`, cA);
+  check('A : fiche demande avec message, devis envoyés et suivi', fiche.status === 200 && fiche.body.includes('message de contrôle') && fiche.body.includes(state.q.accept.reference) && fiche.body.includes('Suivi'));
+  check('A : aucun agent, aucune affectation dans la fiche', !fiche.body.includes('Affectation') && !fiche.body.includes(state.ca.email.split('@')[0]));
+  const devis = await visit(base, '/espace-client/devis/', cA);
+  check('A : Mes devis sans brouillon ni brouillon abandonné', devis.status === 200 && devis.body.includes(state.q.double.reference) && !devis.body.includes('Sans numéro'));
+  const quotePage = await visit(base, `/espace-client/devis/${state.q.expired.reference}/`, cA);
+  check('A : un devis à la validité dépassée s’affiche « Expiré », sans boutons de réponse', quotePage.status === 200 && quotePage.body.includes('Expiré') && !quotePage.body.includes('Accepter le devis'));
+  const rdv = await visit(base, '/espace-client/rendez-vous/', cA);
+  check('A : Mes rendez-vous, à venir et passés', rdv.status === 200 && rdv.body.includes('Rendez-vous passés et clos'));
+  const rdvPage = await visit(base, `/espace-client/rendez-vous/${state.ap.future}/`, cA);
+  check('A : fiche rendez-vous annulé par lui, avec son motif', rdvPage.status === 200 && rdvPage.body.includes('Par vous') && rdvPage.body.includes('Empêchement de dernière minute'));
+  const rdvAdmin = await visit(base, `/espace-client/rendez-vous/${state.ap.race1}/`, cA);
+  check('A : annulation par MORA Shawiri sans motif administratif', rdvAdmin.status === 200 && !rdvAdmin.body.includes('Créneau indisponible'));
+  const dash = await visit(base, '/espace-client/', cA);
+  const openA = (list.body.match(/(\d+) en cours sur/) ?? [])[1];
+  check('tableau de bord : « Demandes en cours » = rubrique', openA !== undefined && dash.body.includes(`Demandes en cours</dt><dd>${openA}</dd>`), `rubrique ${openA}`);
+
+  for (const [label, cookieOf] of [['B', cB], ['CLIENT + ADMIN', cCA]]) {
+    check(`${label} : la fiche demande de A est introuvable`, (await visit(base, `/espace-client/demandes/${state.reqA.reference}/`, cookieOf)).status === 404);
+    check(`${label} : le devis de A est introuvable`, (await visit(base, `/espace-client/devis/${state.q.double.reference}/`, cookieOf)).status === 404);
+    check(`${label} : le rendez-vous de A est introuvable`, (await visit(base, `/espace-client/rendez-vous/${state.ap.future}/`, cookieOf)).status === 404);
+    const lists = [];
+    for (const path of ['/espace-client/demandes/', '/espace-client/devis/', '/espace-client/rendez-vous/', '/espace-client/']) lists.push(await visit(base, path, cookieOf));
+    check(`${label} : aucune donnée de A dans ses rubriques`, lists.every((page) => page.status === 200 && !page.body.includes(state.reqA.reference) && !page.body.includes(state.q.double.reference)));
+  }
+  check('CLIENT + ADMIN : sa propre demande est listée', (await visit(base, '/espace-client/demandes/', cCA)).body.includes(state.reqCA.reference));
+  const adminReq = await visit(base, `/administration/demandes/${state.reqA.reference}/`, cCA);
+  check('administration : la décision et le motif du client sont visibles', adminReq.status === 200 && adminReq.body.includes('Décision du client') && adminReq.body.includes('Budget insuffisant pour cette année'));
+  const adminAppt = await visit(base, `/administration/rendez-vous/${state.ap.future}/`, cCA);
+  check('administration : l’annulation par le client est visible', adminAppt.status === 200 && adminAppt.body.includes('Le client, depuis son espace'));
+}
+
+async function cleanupRelation(ctx) {
+  const { target, accessToken, state } = ctx;
+  if (!state.relationStartedAt) return;
+  log.step('Démontage des données relation de contrôle');
+  const since = `'${state.relationStartedAt}'::timestamptz`;
+  const leads = `(select id from public.leads where email like '${PREFIX}-%@${TEST_DOMAIN}')`;
+  await runSql(target, accessToken, `
+    begin;
+    delete from public.quotes where quote_request_id in (select id from public.quote_requests where lead_id in ${leads});
+    delete from public.relation_notes where quote_request_id in (select id from public.quote_requests where lead_id in ${leads})
+       or appointment_id in (select id from public.appointments where lead_id in ${leads});
+    delete from public.quote_requests where lead_id in ${leads};
+    delete from public.appointments where lead_id in ${leads};
+    update public.documents set status = 'ANNULE' where doc_type = 'DVCL' and issued_at >= ${since};
+    delete from public.documents where doc_type = 'DVCL' and issued_at >= ${since};
+    delete from public.leads where email like '${PREFIX}-%@${TEST_DOMAIN}';
+    delete from public.rate_limit_counters where bucket like 'relation.%' and subject_hash in (${HASHES.map((h) => `'${h}'`).join(',') || "''"});
+    commit;`).catch((error) => log.fail(`démontage relation : ${error.message}`));
+  const residue = (await runSql(target, accessToken, `
+    select (select count(*) from public.leads where email like '${PREFIX}-%')::int as leads,
+           (select count(*) from public.quote_requests where created_at >= ${since})::int as demandes,
+           (select count(*) from public.appointments where created_at >= ${since})::int as rendez_vous,
+           (select count(*) from public.documents where doc_type = 'DVCL' and issued_at >= ${since})::int as devis;`).catch(() => null))?.[0];
+  check('aucune demande, devis, rendez-vous ni prospect de contrôle ne subsiste', residue && Object.values(residue).every((value) => value === 0), JSON.stringify(residue));
+}
+
 async function cleanup(ctx) {
   log.step('Démontage');
   const { admin, target, accessToken, before } = ctx;
@@ -605,7 +1038,18 @@ async function cleanup(ctx) {
   check('les fiches de contrôle ont disparu avec leurs comptes', count === before.clients, `${count} contre ${before.clients}`);
   const sequences = await runSql(target, accessToken, `select doc_type, series, last_number, allocated_count from public.document_sequences where doc_type <> 'CLI' order by doc_type;`);
   check('aucune autre suite documentaire n’a bougé', JSON.stringify(sequences) === JSON.stringify(before.sequences), JSON.stringify(sequences));
+  const real = (await runSql(target, accessToken, REAL_DATA_SQL))?.[0]?.etat;
+  check('données réelles intactes (MORA-DMCL-A0001, rendez-vous et prospect réels, MORA-CLI-A0001/A0002)',
+    JSON.stringify(real) === JSON.stringify(before.real), JSON.stringify(real));
 }
+
+const REAL_DATA_SQL = `
+  select json_build_object(
+    'demandes', (select json_agg(json_build_object('ref', reference, 'user', user_id, 'status', status, 'maj', updated_at) order by reference) from public.quote_requests where reference not like 'MORA-DMCL-ZZ%' and created_at < '2026-10-02T00:00:00Z'),
+    'rendez_vous', (select json_agg(json_build_object('user', user_id, 'status', status, 'maj', updated_at) order by created_at) from public.appointments where created_at < '2026-10-02T00:00:00Z'),
+    'prospects', (select json_agg(json_build_object('user', user_id, 'maj', updated_at) order by created_at) from public.leads where created_at < '2026-10-02T00:00:00Z'),
+    'clients', (select json_agg(json_build_object('ref', reference, 'wa', whatsapp, 'pref', contact_preference) order by reference) from public.clients where reference in ('MORA-CLI-A0001', 'MORA-CLI-A0002'))
+  ) as etat;`;
 
 async function main() {
   const target = resolveTarget();
@@ -616,7 +1060,8 @@ async function main() {
   const admin = createClient(target.url, target.secretKey, { auth: { persistSession: false, autoRefreshToken: false } });
   const { count: clients } = await admin.from('clients').select('user_id', { count: 'exact', head: true });
   const sequences = await runSql(target, accessToken, `select doc_type, series, last_number, allocated_count from public.document_sequences where doc_type <> 'CLI' order by doc_type;`);
-  const ctx = { admin, target, accessToken, state: {}, before: { clients, sequences } };
+  const real = (await runSql(target, accessToken, REAL_DATA_SQL))?.[0]?.etat;
+  const ctx = { admin, target, accessToken, state: {}, before: { clients, sequences, real } };
 
   try {
     await attribution(ctx);
@@ -628,11 +1073,18 @@ async function main() {
       await seedCommerce(ctx);
       await commerceHttp(ctx, base);
       await affiliateGateway(ctx, base);
+      await seedRelation(ctx);
+      await quoteDecisions(ctx);
+      await appointmentCancels(ctx);
+      await timelines(ctx);
+      await claims(ctx);
+      await relationHttp(ctx, base);
     } else log.skip('Écrans non contrôlés (aucun --base)');
   } catch (error) {
     results.failed += 1;
     log.fail(`interruption : ${error.message}`);
   } finally {
+    await cleanupRelation(ctx).catch((error) => log.fail(`démontage relation : ${error.message}`));
     await cleanupCommerce(ctx).catch((error) => log.fail(`démontage commerce : ${error.message}`));
     await cleanup(ctx);
   }

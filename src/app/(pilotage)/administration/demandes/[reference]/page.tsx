@@ -266,7 +266,16 @@ export default async function DemandePage({
                       )}
                     </th>
                     <td>{formatAmount(quote.amount, quote.currency)}</td>
-                    <td>{quoteBadge(quote.status)}</td>
+                    <td>
+                      {quoteBadge(quote.status)}
+                      {quote.responded_by ? (
+                        <span className="admin-field__hint">
+                          <br />
+                          Décision du client, le {formatMoment(quote.responded_at)}
+                          {quote.client_response_reason ? ` — motif : ${quote.client_response_reason}` : ''}
+                        </span>
+                      ) : null}
+                    </td>
                     <td>
                       {quote.valid_until ? formatDay(quote.valid_until) : 'Sans date d’expiration'}
                     </td>

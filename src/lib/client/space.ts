@@ -23,6 +23,8 @@ import { getServerSupabaseClient } from '@/lib/supabase/server';
 import type { AppointmentStatus, OrderSettlementStatus, OrderStatus, QuoteRequestStatus } from '@/lib/supabase/types';
 import type { ClientRow } from '@/lib/supabase/types-client';
 
+import { isUpcoming, OPEN_REQUEST_STATUSES } from './relation-rules';
+
 type Client = NonNullable<Awaited<ReturnType<typeof getServerSupabaseClient>>>;
 
 export type MyClientSpace =
@@ -108,7 +110,6 @@ export type Dashboard = {
 };
 
 const OPEN_ORDER: readonly OrderStatus[] = ['NOUVELLE', 'CONFIRMEE', 'EN_TRAITEMENT', 'EN_ATTENTE_INFO', 'PRETE'];
-const OPEN_REQUEST: readonly QuoteRequestStatus[] = ['NOUVELLE', 'EN_ETUDE', 'DEVIS_ENVOYE'];
 
 /**
  * Le tableau de bord : des comptages et des listes courtes, tirés des seules
@@ -144,15 +145,16 @@ export async function myDashboard(space: Ready): Promise<Dashboard> {
   const requestRows = (requests.data ?? []) as DashboardRequest[];
   // Un rendez-vous confirmé déjà passé n'est plus « à venir » ; une demande
   // de rendez-vous en attente, si.
+  // Même règle que la rubrique « Mes rendez-vous » (`isUpcoming`).
   const appointmentRows = ((appointments.data ?? []) as DashboardAppointment[])
-    .filter((row) => row.status === 'EN_ATTENTE' || (row.scheduled_at !== null && row.scheduled_at >= now))
+    .filter((row) => isUpcoming(row, now))
     .sort((a, b) => (a.scheduled_at ?? '9999').localeCompare(b.scheduled_at ?? '9999'));
 
   return {
     orders: orderRows.slice(0, 5),
     ordersOpen: orderRows.filter((row) => OPEN_ORDER.includes(row.status)).length,
-    requests: requestRows.filter((row) => OPEN_REQUEST.includes(row.status)).slice(0, 5),
-    requestsOpen: requestRows.filter((row) => OPEN_REQUEST.includes(row.status)).length,
+    requests: requestRows.filter((row) => OPEN_REQUEST_STATUSES.includes(row.status)).slice(0, 5),
+    requestsOpen: requestRows.filter((row) => OPEN_REQUEST_STATUSES.includes(row.status)).length,
     appointments: appointmentRows.slice(0, 5),
     appointmentsUpcoming: appointmentRows.length,
     failed: Boolean(orders.error || requests.error || appointments.error),

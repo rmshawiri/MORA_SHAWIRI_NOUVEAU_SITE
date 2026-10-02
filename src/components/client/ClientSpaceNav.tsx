@@ -22,6 +22,9 @@ export const CLIENT_SPACE_SECTIONS = [
   { href: '/espace-client/', label: 'Tableau de bord' },
   { href: '/espace-client/commandes/', label: 'Mes commandes' },
   { href: '/espace-client/paiements/', label: 'Mes paiements' },
+  { href: '/espace-client/demandes/', label: 'Mes demandes' },
+  { href: '/espace-client/devis/', label: 'Mes devis' },
+  { href: '/espace-client/rendez-vous/', label: 'Mes rendez-vous' },
   { href: '/espace-client/documents/', label: 'Mes documents' },
   { href: '/espace-client/profil/', label: 'Mon profil' },
 ] as const;

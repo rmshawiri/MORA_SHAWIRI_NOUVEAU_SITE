@@ -193,6 +193,13 @@ export default async function RendezVousFichePage({
           </p>
         </div>
 
+        {appointment.status === 'ANNULE' ? (
+          <dl className="admin-def">
+            <dt>Annulé par</dt>
+            <dd>{appointment.cancelled_by ? 'Le client, depuis son espace' : 'MORA Shawiri'}</dd>
+          </dl>
+        ) : null}
+
         {appointment.cancel_reason ? (
           <dl className="admin-def">
             <dt>Motif d’annulation</dt>

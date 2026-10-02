@@ -242,7 +242,7 @@ export function toLocalInputValue(value: string | null): string {
 
 /** Libellé lisible d'un événement d'historique. */
 export function describeEvent(
-  event: Pick<QuoteRequestEventRow, 'kind' | 'from_status' | 'to_status' | 'quote_reference'>,
+  event: Pick<QuoteRequestEventRow, 'kind' | 'from_status' | 'to_status' | 'quote_reference'> & { note?: string | null },
   statusLabel: (value: string | null) => string,
 ): string {
   switch (event.kind) {
@@ -257,7 +257,7 @@ export function describeEvent(
         (event.from_status ?? 'BROUILLON') as QuoteStatus
       ] ?? event.from_status} → ${QUOTE_STATUS_LABELS[
         (event.to_status ?? 'BROUILLON') as QuoteStatus
-      ] ?? event.to_status}`;
+      ] ?? event.to_status}${event.note ? ` — motif du client : ${event.note}` : ''}`;
     case 'AFFECTATION':
       return 'Affectation modifiée';
     default:

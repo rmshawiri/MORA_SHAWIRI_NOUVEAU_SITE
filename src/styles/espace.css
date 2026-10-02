@@ -465,3 +465,12 @@
 /* Formulaires de l'espace : champs à 16 px, actions à 44 px. */
 .espace .aff-main input, .espace .aff-main select, .espace .aff-main textarea { font-size: 1rem; }
 .espace .aff-main .btn { min-height: 44px; }
+
+/* Texte libre du client (message d'une demande, d'un rendez-vous, résumé d'un
+   devis) : les retours à la ligne saisis sont conservés, et un mot ou une
+   adresse trop longs se coupent au lieu d'élargir la page (phase 4I-3). */
+.espace .espace-longtext {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}

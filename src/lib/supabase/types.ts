@@ -671,6 +671,10 @@ export type QuoteRow = {
   valid_until: string | null;
   sent_at: string | null;
   responded_at: string | null;
+  /** 4I-3 : compte qui a répondu depuis l'espace client (nul si l'administration a saisi). */
+  responded_by?: string | null;
+  /** 4I-3 : motif facultatif d'un refus par le client. */
+  client_response_reason?: string | null;
   created_at: string;
   updated_at: string;
   created_by: string | null;
@@ -714,6 +718,8 @@ export type AppointmentRow = {
   assigned_to: string | null;
   confirmed_at: string | null;
   cancelled_at: string | null;
+  /** 4I-3 : compte qui a annulé depuis l'espace client (nul pour une annulation administrative). */
+  cancelled_by?: string | null;
   completed_at: string | null;
   created_at: string;
   updated_at: string;

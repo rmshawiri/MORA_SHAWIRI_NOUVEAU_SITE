@@ -87,7 +87,7 @@ export default async function EspaceClientPage() {
       <SpaceCard title="Mes demandes en cours">
         {dashboard.requests.length === 0 ? (
           <SpaceEmpty title="Aucune demande en cours.">
-            Les demandes de devis que vous envoyez en étant connecté apparaissent ici.{' '}
+            Les demandes de devis que vous envoyez apparaissent ici.{' '}
             <Link href="/contact/">Faire une demande</Link>
           </SpaceEmpty>
         ) : (
@@ -95,13 +95,14 @@ export default async function EspaceClientPage() {
             {dashboard.requests.map((request) => (
               <SpaceItem
                 key={request.id}
-                title={request.reference}
+                title={<Link href={`/espace-client/demandes/${request.reference}/`}>{request.reference}</Link>}
                 status={QUOTE_REQUEST_STATUS_LABELS[request.status]}
                 meta={`${request.offer_title ?? request.subject} · ${formatClientDate(request.created_at)}`}
               />
             ))}
           </SpaceList>
         )}
+        <SpaceMore href="/espace-client/demandes/">Voir toutes mes demandes</SpaceMore>
       </SpaceCard>
 
       <SpaceCard title="Mes rendez-vous à venir">
@@ -114,7 +115,7 @@ export default async function EspaceClientPage() {
             {dashboard.appointments.map((appointment) => (
               <SpaceItem
                 key={appointment.id}
-                title={appointment.reference ?? appointment.subject}
+                title={<Link href={`/espace-client/rendez-vous/${appointment.id}/`}>{appointment.reference ?? appointment.subject}</Link>}
                 status={APPOINTMENT_STATUS_LABELS[appointment.status]}
                 tone={appointment.status === 'CONFIRME' ? 'ok' : 'todo'}
                 meta={
@@ -128,6 +129,7 @@ export default async function EspaceClientPage() {
             ))}
           </SpaceList>
         )}
+        <SpaceMore href="/espace-client/rendez-vous/">Voir tous mes rendez-vous</SpaceMore>
       </SpaceCard>
 
       {space.isAffiliate ? (
