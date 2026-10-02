@@ -184,6 +184,20 @@ function pdfString(value: string): string {
   return `(${toWinAnsi(value).replace(/([\\()])/g, '\\$1')})`;
 }
 
+/**
+ * Chaîne de **métadonnées** (titre, auteur, créateur…). Le dictionnaire Info
+ * n'est pas lu en WinAnsi mais en PDFDocEncoding, où un tiret cadratin
+ * devient « Š » : tout texte non ASCII y est donc écrit en UTF-16BE, comme la
+ * norme le prévoit. Le texte des pages, lui, reste en WinAnsi pour les
+ * polices standard.
+ */
+export function pdfInfoString(value: string): string {
+  if (/^[\x20-\x7e]*$/.test(value)) return `(${value.replace(/([\\()])/g, '\\$1')})`;
+  let hex = 'FEFF';
+  for (let i = 0; i < value.length; i += 1) hex += value.charCodeAt(i).toString(16).padStart(4, '0').toUpperCase();
+  return `<${hex}>`;
+}
+
 const n = (value: number) => (Math.round(value * 100) / 100).toFixed(2);
 const colour = (c: Colour) => `${c[0].toFixed(4)} ${c[1].toFixed(4)} ${c[2].toFixed(4)}`;
 
@@ -531,9 +545,9 @@ export function assemblePdf(
   objects[pagesId - 1] = `<< /Type /Pages /Kids [${pageIds.map((id) => `${id} 0 R`).join(' ')}] /Count ${pageIds.length} >>`;
 
   const infoId = add(
-    `<< /Title ${pdfString(meta.title)} /Author ${pdfString(meta.author)} ` +
-      `/Subject ${pdfString(meta.subject)} /Creator ${pdfString(meta.creator)} ` +
-      `/Producer ${pdfString('MORA Shawiri — Moteur de Documents')} ` +
+    `<< /Title ${pdfInfoString(meta.title)} /Author ${pdfInfoString(meta.author)} ` +
+      `/Subject ${pdfInfoString(meta.subject)} /Creator ${pdfInfoString(meta.creator)} ` +
+      `/Producer ${pdfInfoString('MORA Shawiri — Moteur de Documents')} ` +
       `/CreationDate (${meta.creationDate}) >>`,
   );
 

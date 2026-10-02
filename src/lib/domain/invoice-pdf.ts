@@ -28,7 +28,20 @@
  */
 
 import {
-  A4,
+  CONTENT,
+  FOOTER_TOP,
+  MARGIN,
+  RIGHT,
+  drawContinuationHeader,
+  drawOfficialFooter,
+  drawOfficialHeader,
+  drawPanel,
+  formatOfficialAmount,
+  formatOfficialDate,
+  formatOfficialQuantity,
+  measurePanel,
+} from './official-pdf';
+import {
   BRAND_COLORS,
   PdfFlow,
   type PdfImage,
@@ -38,12 +51,10 @@ import {
   assemblePdf,
   drawTable,
   pdfDate,
-  textWidth,
-  wrapLines,
 } from './pdf-engine';
 
 /** Version du gabarit, enregistrée avec chaque archive. */
-export const INVOICE_RENDERER_VERSION = 'facl-1.1';
+export const INVOICE_RENDERER_VERSION = 'facl-1.2';
 
 /* -------------------------------------------------------------------------- */
 /* L'instantané                                                                */
@@ -158,43 +169,12 @@ export function parseInvoiceSnapshot(value: unknown): InvoiceSnapshot | null {
 }
 
 /* -------------------------------------------------------------------------- */
-/* Mise en forme déterministe                                                  */
+/* Mise en forme déterministe — commune aux pièces officielles                 */
 /* -------------------------------------------------------------------------- */
 
-const NBSP = ' ';
-
-/** `15 000 KMF`, `1 250,50 KMF` — espaces insécables, décimales si utiles. */
-export function formatInvoiceAmount(value: number, currency: string): string {
-  const negative = value < 0;
-  const cents = Math.round(Math.abs(value) * 100);
-  const units = Math.floor(cents / 100);
-  const rest = cents % 100;
-  const grouped = String(units).replace(/\B(?=(\d{3})+(?!\d))/g, NBSP);
-  const decimals = rest > 0 ? `,${String(rest).padStart(2, '0')}` : '';
-  return `${negative ? '–' : ''}${grouped}${decimals}${NBSP}${currency}`;
-}
-
-/** Quantité sans zéros décoratifs : `1`, `2,5`, `0,125`. */
-export function formatInvoiceQuantity(value: number): string {
-  const rounded = Math.round(value * 1000) / 1000;
-  const [whole, fraction] = String(rounded).split('.');
-  const grouped = whole!.replace(/\B(?=(\d{3})+(?!\d))/g, NBSP);
-  return fraction ? `${grouped},${fraction}` : grouped;
-}
-
-const MONTHS = [
-  'janvier', 'février', 'mars', 'avril', 'mai', 'juin',
-  'juillet', 'août', 'septembre', 'octobre', 'novembre', 'décembre',
-];
-
-/** `1er octobre 2026`, à l'heure de Moroni (UTC+3, fixe). */
-export function formatInvoiceDate(iso: string): string {
-  const time = Date.parse(iso);
-  if (!Number.isFinite(time)) return '—';
-  const local = new Date(time + 3 * 3600 * 1000);
-  const day = local.getUTCDate();
-  return `${day === 1 ? '1er' : day} ${MONTHS[local.getUTCMonth()]} ${local.getUTCFullYear()}`;
-}
+export const formatInvoiceAmount = formatOfficialAmount;
+export const formatInvoiceQuantity = formatOfficialQuantity;
+export const formatInvoiceDate = formatOfficialDate;
 
 /** Nom du fichier : la référence officielle, et elle seule. */
 export function invoiceFileName(reference: string): string {
@@ -205,12 +185,6 @@ export function invoiceFileName(reference: string): string {
 /* Composition                                                                 */
 /* -------------------------------------------------------------------------- */
 
-const MARGIN = 40;
-const CONTENT = A4.width - MARGIN * 2;
-const RIGHT = A4.width - MARGIN;
-const FOOTER_TOP = 70;
-/** Hauteur du logo dans l'en-tête, en points (≈ 2,5 cm). */
-const LOGO_HEIGHT = 70;
 const { blue, gold, black, white, grey } = BRAND_COLORS;
 
 export type InvoiceRenderOptions = {
@@ -225,108 +199,14 @@ const STATUS_NOTICE: Record<string, string> = {
   REMPLACE: 'Facture remplacée par une version ultérieure.',
 };
 
+const dateLine = (snapshot: InvoiceSnapshot) => `Date d’émission : ${formatInvoiceDate(snapshot.issued_at)}`;
+
 function drawFirstHeader(page: PdfPage, snapshot: InvoiceSnapshot, logo: PdfImage | null): number {
-  const top = A4.height - MARGIN;
-
-  // Logo, ou à défaut le nom — l'identité reste lisible dans les deux cas.
-  // Le logo est calé sur une hauteur : un logo circulaire (1:1) comme un logo
-  // en bandeau garde ses proportions d'origine, sans étirement.
-  if (logo) {
-    const height = LOGO_HEIGHT;
-    const width = (height * logo.width) / logo.height;
-    page.image(logo.name, MARGIN, top - height, width, height);
-  } else {
-    page.fill(blue).text(snapshot.issuer.name, MARGIN, top - 22, 20, 'bold');
-  }
-
-  // Titre, numéro et date, à droite.
-  page.fill(blue).textRight('FACTURE', RIGHT, top - 22, 26, 'bold');
-  page.fill(black).textRight(`N° ${snapshot.reference}`, RIGHT, top - 42, 11.5, 'bold');
-  page.textRight(`Date d’émission : ${formatInvoiceDate(snapshot.issued_at)}`, RIGHT, top - 57, 9.5);
-
-  // Émetteur, sous le logo.
-  let y = top - LOGO_HEIGHT - 16;
-  page.fill(blue).text(snapshot.issuer.name, MARGIN, y, 10.5, 'bold');
-  page.fill(black);
-  for (const line of [
-    snapshot.issuer.slogan,
-    snapshot.issuer.address,
-    [snapshot.issuer.phone && `Tél. ${snapshot.issuer.phone}`, snapshot.issuer.email]
-      .filter(Boolean)
-      .join(' · '),
-  ]) {
-    if (!line) continue;
-    y -= 12;
-    page.text(line, MARGIN, y, 8.8, line === snapshot.issuer.slogan ? 'italic' : 'regular');
-  }
-
-  y -= 14;
-  page.stroke(gold).line(MARGIN, y, RIGHT, y, 1.6);
-  return y - 16;
-}
-
-function drawContinuationHeader(page: PdfPage, snapshot: InvoiceSnapshot): number {
-  const top = A4.height - MARGIN;
-  page.fill(blue).text(`FACTURE ${snapshot.reference}`, MARGIN, top - 12, 12, 'bold');
-  page.fill(black).text('(suite)', MARGIN + textWidth(`FACTURE ${snapshot.reference} `, 12, 'bold'), top - 12, 10, 'italic');
-  page.textRight(`Date d’émission : ${formatInvoiceDate(snapshot.issued_at)}`, RIGHT, top - 12, 9);
-  page.stroke(gold).line(MARGIN, top - 22, RIGHT, top - 22, 1.2);
-  return top - 40;
+  return drawOfficialHeader(page, { issuer: snapshot.issuer, title: 'FACTURE', reference: snapshot.reference, dateLine: dateLine(snapshot) }, logo);
 }
 
 function drawFooter(page: PdfPage, snapshot: InvoiceSnapshot, index: number, count: number): void {
-  page.stroke(gold).line(MARGIN, FOOTER_TOP - 8, RIGHT, FOOTER_TOP - 8, 1);
-
-  const identity = [snapshot.issuer.name, snapshot.issuer.slogan].filter(Boolean).join(' — ');
-  const contact = [snapshot.issuer.address, snapshot.issuer.phone, snapshot.issuer.email]
-    .filter(Boolean)
-    .join(' · ');
-
-  page.fill(blue).text(identity, MARGIN, FOOTER_TOP - 22, 7.8, 'bold');
-  page.fill(black).text(contact, MARGIN, FOOTER_TOP - 33, 7.8);
-  page.fill(blue).textRight(`${snapshot.reference} — page ${index + 1} / ${count}`, RIGHT, FOOTER_TOP - 22, 7.8, 'bold');
-}
-
-/** Bloc à fond gris : un intitulé, puis des lignes. Rend sa hauteur. */
-function drawPanel(
-  page: PdfPage,
-  x: number,
-  top: number,
-  width: number,
-  title: string,
-  rows: { value: string; style?: 'regular' | 'bold'; size?: number }[],
-  minHeight = 0,
-): number {
-  const padding = 10;
-  const laid = rows.flatMap((row) =>
-    wrapLines(row.value, row.size ?? 9.2, width - padding * 2, row.style ?? 'regular').map((line) => ({
-      line,
-      style: row.style ?? 'regular',
-      size: row.size ?? 9.2,
-    })),
-  );
-  const height = Math.max(minHeight, padding * 2 + 12 + laid.reduce((total, row) => total + row.size + 3.5, 0));
-
-  page.fill(grey).rect(x, top - height, width, height);
-  page.fill(gold).rect(x, top - height, 2.5, height);
-
-  let y = top - padding - 7;
-  page.fill(blue).text(title, x + padding + 2, y, 7.8, 'bold');
-  y -= 6;
-  page.fill(black);
-  for (const row of laid) {
-    y -= row.size + 3.5;
-    page.text(row.line, x + padding + 2, y + 3, row.size, row.style);
-  }
-  return height;
-}
-
-function measurePanel(width: number, rows: { value: string; style?: 'regular' | 'bold'; size?: number }[]): number {
-  const padding = 10;
-  const count = rows.flatMap((row) =>
-    wrapLines(row.value, row.size ?? 9.2, width - padding * 2, row.style ?? 'regular').map(() => row.size ?? 9.2),
-  );
-  return padding * 2 + 12 + count.reduce((total, size) => total + size + 3.5, 0);
+  drawOfficialFooter(page, snapshot.issuer, snapshot.reference, index, count);
 }
 
 /**
@@ -343,7 +223,10 @@ export function renderInvoicePdf(snapshot: InvoiceSnapshot, options: InvoiceRend
   const money = (value: number) => formatInvoiceAmount(value, currency);
 
   const flow = new PdfFlow(FOOTER_TOP + 12, (page, index) => {
-    const start = index === 0 ? drawFirstHeader(page, snapshot, logo) : drawContinuationHeader(page, snapshot);
+    const start =
+      index === 0
+        ? drawFirstHeader(page, snapshot, logo)
+        : drawContinuationHeader(page, { title: 'FACTURE', reference: snapshot.reference, dateLine: dateLine(snapshot) });
     if (!notice) return start;
     page.fill(grey).rect(MARGIN, start - 24, CONTENT, 24);
     page.fill(blue).text(notice, MARGIN + 10, start - 16, 10, 'bold');

@@ -8,7 +8,7 @@ import 'server-only';
  * lecture n'emploie la clé à privilèges, sauf mention contraire.
  */
 
-import type { Json } from '@/lib/supabase/types';
+import type { DocumentRow, Json } from '@/lib/supabase/types';
 import type {
   AffiliateAdjustmentRow,
   AffiliateApplicationEventRow,
@@ -457,4 +457,26 @@ export async function findPayout(id: string): Promise<PayoutDetail | null> {
     internal: internal.data?.[0] ?? null,
     affiliate: (affiliate.data ?? null) as PayoutDetail['affiliate'],
   };
+}
+
+// -----------------------------------------------------------------------------
+// Pièces officielles — phase 4H-7
+// -----------------------------------------------------------------------------
+
+export type AffiliateDocumentEntry = Pick<DocumentRow, 'id' | 'reference' | 'doc_type' | 'status' | 'version' | 'issued_at' | 'entity_id'>;
+
+/** Fiches (FIAF) et relevés (RVAF) d'un affilié, lisibles par la session (RLS). */
+export async function listAffiliateDocuments(affiliateId: string, userId: string | null): Promise<AffiliateDocumentEntry[]> {
+  const supabase = await getServerSupabaseClient();
+  if (!supabase) return [];
+  const filter = userId
+    ? `and(doc_type.eq.FIAF,entity_id.eq.${affiliateId}),and(doc_type.eq.RVAF,owner_id.eq.${userId})`
+    : `and(doc_type.eq.FIAF,entity_id.eq.${affiliateId})`;
+  const { data } = await supabase
+    .from('documents')
+    .select('id, reference, doc_type, status, version, issued_at, entity_id')
+    .or(filter)
+    .order('issued_at', { ascending: false })
+    .limit(200);
+  return (data ?? []) as AffiliateDocumentEntry[];
 }

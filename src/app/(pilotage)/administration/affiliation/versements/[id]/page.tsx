@@ -6,6 +6,7 @@ import AdminPage from '@/components/admin/AdminPage';
 import AffiliationDecisionForm from '@/components/admin/AffiliationDecisionForm';
 import { PayoutStatusBadge } from '@/components/admin/AffiliationBadges';
 import ConfirmForm from '@/components/admin/ConfirmForm';
+import OfficialDocumentActions from '@/components/documents/OfficialDocumentActions';
 import { findPayout, listPayoutMethods } from '@/lib/affiliation/admin';
 import { kmf } from '@/lib/affiliation/commissions';
 import { formatMoment } from '@/lib/affiliation/labels';
@@ -161,8 +162,14 @@ export default async function VersementPage({
               ) : null}
               <dt>Référence de transaction</dt>
               <dd>{payout.transaction_reference ?? '—'}</dd>
-              <dt>Relevé</dt>
-              <dd>{payout.reference} — relevé de versement émis, conservé avec son instantané.</dd>
+              <dt>Relevé officiel</dt>
+              <dd>
+                {payout.reference ? (
+                  <OfficialDocumentActions reference={payout.reference} title={`Relevé de versement ${payout.reference}`} />
+                ) : (
+                  '—'
+                )}
+              </dd>
               <dt>Justificatif</dt>
               <dd>
                 {internal?.proof_path ? (

@@ -23,6 +23,7 @@ import type { AdminActionState } from '@/lib/admin/actions';
 import { kmf } from '@/lib/affiliation/commissions';
 import { isIsoDate, proofPath } from '@/lib/affiliation/payouts';
 import { sniffProof } from '@/lib/commerce/proof-format';
+import { archiveIssuedAffiliateDocument } from '@/lib/documents/affiliate-documents';
 import { renderPayoutConfirmed } from '@/lib/emails/affiliation';
 import { sendLoggedEmail } from '@/lib/emails/send';
 import { getSiteUrl } from '@/lib/env';
@@ -141,6 +142,10 @@ export async function confirmPayout(_p: AdminActionState, formData: FormData): P
       p_payout_id: payoutId, p_method_code: method, p_transaction_reference: transaction, p_paid_on: paidOn, p_note: note,
     });
     if (error || !payout) return ko(error ? describe(error) : UNEXPECTED);
+    // Le relevé RVAF est émis avec son instantané par la base ; le serveur en
+    // rend le PDF et l'archive aussitôt (rattrapé au premier téléchargement
+    // si le stockage est indisponible).
+    if (payout.reference) await archiveIssuedAffiliateDocument(payout.reference);
 
     let mail = 'skipped';
     if (notify) {

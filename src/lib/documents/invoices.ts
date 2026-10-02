@@ -25,8 +25,7 @@ import 'server-only';
  * lui-même. Aucune URL n'est remise au navigateur, signée ou non.
  */
 
-import { createHash } from 'node:crypto';
-
+import { OFFICIAL_BUCKET, archiveOfficialPdf, archivePath, readVerifiedArchive } from '@/lib/documents/archive';
 import { invoiceLogo } from '@/lib/documents/logo';
 import { parseReference } from '@/lib/domain/documents';
 import {
@@ -36,11 +35,10 @@ import {
   renderInvoicePdf,
   type InvoiceSnapshot,
 } from '@/lib/domain/invoice-pdf';
-import { getAdminSupabaseClient } from '@/lib/supabase/admin';
 import { getServerSupabaseClient } from '@/lib/supabase/server';
 import type { DocumentRow, DocumentSnapshotRow } from '@/lib/supabase/types';
 
-export const INVOICE_BUCKET = 'documents-officiels';
+export const INVOICE_BUCKET = OFFICIAL_BUCKET;
 
 export type InvoiceRecord = {
   document: DocumentRow;
@@ -48,11 +46,9 @@ export type InvoiceRecord = {
   snapshot: InvoiceSnapshot;
 };
 
-const sha256 = (bytes: Uint8Array) => createHash('sha256').update(bytes).digest('hex');
-
 /** Chemin d'archive : `FACL/<uuid du document>.pdf`. Ni nom, ni référence. */
 export function invoiceArchivePath(documentId: string): string {
-  return `FACL/${documentId}.pdf`;
+  return archivePath({ doc_type: 'FACL', id: documentId });
 }
 
 /**
@@ -110,39 +106,7 @@ export async function archiveInvoice(
   record: Pick<InvoiceRecord, 'document' | 'snapshot'>,
   bytes: Uint8Array = renderInvoice(record),
 ): Promise<boolean> {
-  if (record.document.status !== 'EMIS') return false;
-
-  const admin = getAdminSupabaseClient();
-  if (!admin) return false;
-
-  const path = invoiceArchivePath(record.document.id);
-
-  const upload = await admin.storage.from(INVOICE_BUCKET).upload(path, bytes, {
-    contentType: 'application/pdf',
-    upsert: false,
-    cacheControl: 'private, no-store',
-  });
-
-  // Un objet déjà présent n'est pas une erreur : un rattrapage concurrent l'a
-  // déposé. Son empreinte est vérifiée à la lecture.
-  if (upload.error && !/exist|duplicate/i.test(upload.error.message)) {
-    console.error('[factures] dépôt de l’archive impossible');
-    return false;
-  }
-
-  const { error } = await admin.rpc('record_document_archive', {
-    p_document_id: record.document.id,
-    p_path: path,
-    p_sha256: sha256(bytes),
-    p_size: bytes.byteLength,
-    p_renderer: INVOICE_RENDERER_VERSION,
-  });
-
-  if (error) {
-    console.error('[factures] enregistrement de l’archive impossible');
-    return false;
-  }
-  return true;
+  return archiveOfficialPdf(record.document, bytes, INVOICE_RENDERER_VERSION, 'factures');
 }
 
 /**
@@ -178,20 +142,9 @@ export async function getInvoicePdf(reference: string): Promise<InvoicePdf | nul
   const { snapshotRow } = record;
 
   if (record.document.status === 'EMIS' && snapshotRow.pdf_path && snapshotRow.pdf_sha256) {
-    const supabase = await getServerSupabaseClient();
     // Lecture sous la session : la politique du bucket revérifie le droit.
-    const download = supabase
-      ? await supabase.storage.from(INVOICE_BUCKET).download(snapshotRow.pdf_path)
-      : null;
-
-    if (download?.data) {
-      const bytes = new Uint8Array(await download.data.arrayBuffer());
-      if (sha256(bytes) === snapshotRow.pdf_sha256) {
-        return { bytes, fileName, source: 'archive' };
-      }
-      console.error('[factures] empreinte d’archive inattendue — rendu depuis l’instantané');
-    }
-
+    const archived = await readVerifiedArchive(snapshotRow, 'factures');
+    if (archived) return { bytes: archived, fileName, source: 'archive' };
     return { bytes: renderInvoice(record), fileName, source: 'rendu' };
   }
 

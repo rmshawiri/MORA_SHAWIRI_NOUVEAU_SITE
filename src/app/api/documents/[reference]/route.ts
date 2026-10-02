@@ -34,6 +34,7 @@
 
 import { NextResponse } from 'next/server';
 
+import { getAffiliateDocumentPdf, isAffiliateDocumentType } from '@/lib/documents/affiliate-documents';
 import { getInvoicePdf } from '@/lib/documents/invoices';
 import { getDocumentByReference, renderDocument } from '@/lib/documents/service';
 import { documentFileName, parseReference } from '@/lib/domain/documents';
@@ -119,6 +120,26 @@ export async function GET(
     });
 
     return pdfResponse(invoice.bytes, invoice.fileName, invoice.fileName, inline);
+  }
+
+  /*
+   * Pièces d'affiliation (FIAF, RVAF) : même règle que la facture — rendues
+   * depuis leur instantané figé, ou servies depuis leur archive vérifiée.
+   */
+  const type = parseReference(reference)?.type;
+  if (type && isAffiliateDocumentType(type)) {
+    const piece = await getAffiliateDocumentPdf(reference);
+    if (!piece) return refuse();
+
+    await recordAuditEvent({
+      action: 'documents.telechargement',
+      resourceType: 'document',
+      resourceId: reference,
+      result: 'SUCCES',
+      metadata: { type, source: piece.source },
+    });
+
+    return pdfResponse(piece.bytes, piece.fileName, piece.fileName, inline);
   }
 
   const document = await getDocumentByReference(reference);

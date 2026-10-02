@@ -3,6 +3,7 @@ import Link from 'next/link';
 
 import { CampaignForm, CancelProspectButton, PayoutRequestForm, ProspectForm } from '@/components/affiliation/AffiliateSpaceForm';
 import LinkCopyShare from '@/components/affiliation/LinkCopyShare';
+import OfficialDocumentActions from '@/components/documents/OfficialDocumentActions';
 import PageHero from '@/components/sections/PageHero';
 import {
   ACQUISITION_TRIGGER_LABELS,
@@ -140,6 +141,17 @@ export default async function EspaceAffiliePage() {
       ? await supabase.from('affiliate_payout_items').select('*').in('payout_id', payoutRows.map((row) => row.id)).order('created_at')
       : { data: [] };
   const payoutItems = (payoutItemData ?? []) as AffiliatePayoutItemRow[];
+  // Pièces officielles dont l'affilié est le titulaire (RLS : owner_id).
+  const { data: documentData } = await supabase
+    .from('documents')
+    .select('id, reference, doc_type, status, version, issued_at')
+    .eq('owner_id', me.user!.id)
+    .in('doc_type', ['FIAF', 'RVAF'])
+    .order('issued_at', { ascending: false })
+    .limit(100);
+  const documentRows = (documentData ?? []) as { id: string; reference: string; doc_type: string; status: string; version: number; issued_at: string }[];
+  const currentSheet = documentRows.find((doc) => doc.doc_type === 'FIAF' && doc.status === 'EMIS') ?? null;
+  const previousSheets = documentRows.filter((doc) => doc.doc_type === 'FIAF' && doc.status !== 'EMIS');
   const commissionRows = (commissions.data ?? []) as AffiliateCommissionRow[];
   const adjustmentRows = (adjustments.data ?? []) as AffiliateAdjustmentRow[];
   const commissionTotals = (totals.data ?? [])[0];
@@ -519,6 +531,11 @@ export default async function EspaceAffiliePage() {
                             {formatPayoutDay(payout.confirmed_at)} · {method?.label ?? '—'}
                           </span>
                         </summary>
+                        {payout.reference ? (
+                          <div className="aff-payout__actions">
+                            <OfficialDocumentActions reference={payout.reference} title={`Relevé de versement ${payout.reference}`} space="espace" />
+                          </div>
+                        ) : null}
                         <dl className="auth-meta">
                           {payout.transaction_reference ? (
                             <div>
@@ -546,8 +563,52 @@ export default async function EspaceAffiliePage() {
               )}
               <p className="form__note">
                 Un versement confirmé ne change plus. Une correction éventuelle apparaît comme un ajustement sur un versement
-                suivant. Le relevé de chaque versement sera bientôt téléchargeable ici.
+                suivant. Chaque versement a son relevé officiel, à voir, télécharger ou partager.
               </p>
+            </div>
+
+            <div className="auth-card">
+              <div className="auth-card__head">
+                <h2>Mes documents</h2>
+              </div>
+              <h3 className="aff-subhead">Ma fiche affilié</h3>
+              {currentSheet ? (
+                <>
+                  <p>
+                    Fiche officielle <strong>{currentSheet.reference}</strong>, émise le {formatMoment(currentSheet.issued_at)}
+                    {currentSheet.version > 1 ? ` (version ${currentSheet.version})` : ''}.
+                  </p>
+                  <OfficialDocumentActions reference={currentSheet.reference} title={`Fiche affilié ${currentSheet.reference}`} space="espace" />
+                </>
+              ) : (
+                <p>Aucune fiche officielle n’a encore été émise par MORA Shawiri.</p>
+              )}
+              <p className="form__note">
+                Vous pouvez aussi consulter un{' '}
+                <a href={`/api/affiliation/fiche/${affiliate.id}/apercu/?affichage=1`} target="_blank" rel="noreferrer">
+                  aperçu de votre fiche avec vos conditions actuelles
+                </a>{' '}
+                — sans numéro ni valeur officielle.
+              </p>
+              {previousSheets.length > 0 ? (
+                <>
+                  <h3 className="aff-subhead">Versions précédentes</h3>
+                  <dl className="auth-meta">
+                    {previousSheets.map((doc) => (
+                      <div key={doc.id}>
+                        <dt>
+                          {doc.reference} — {doc.status === 'REMPLACE' ? 'remplacée' : 'annulée'}
+                        </dt>
+                        <dd>
+                          <a href={`/api/documents/${doc.reference}/?affichage=1`} target="_blank" rel="noreferrer">
+                            Voir
+                          </a>
+                        </dd>
+                      </div>
+                    ))}
+                  </dl>
+                </>
+              ) : null}
             </div>
 
             <div className="auth-card">

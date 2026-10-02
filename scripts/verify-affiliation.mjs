@@ -1285,6 +1285,58 @@ async function checkPayouts(target, accessToken, admin, sessions, state) {
   check('le journal d’audit reçoit chaque acte', (audits ?? 0) >= 5, String(audits));
 }
 
+async function checkDocuments(target, accessToken, admin, sessions, state) {
+  log.step('Pièces officielles : fiche FIAF, relevé RVAF, aperçu, droits de lecture');
+  const affId = state.affB.id;
+  const issue = (client, id = affId) => client.rpc('issue_affiliate_sheet', { p_affiliate_id: id });
+
+  // Aperçu : l'affilié lui-même, ou affiliates.view ; sans numéro.
+  const preview = await sessions.affB.rpc('affiliate_sheet_preview', { p_affiliate_id: affId });
+  check('l’affilié lit l’aperçu de sa fiche, sans numéro', preview.data?.preview === true && preview.data?.reference === null, preview.error?.message);
+  check('l’aperçu porte ses conditions et ses règles', Array.isArray(preview.data?.rules) && Boolean(preview.data?.terms?.payoutFrequency));
+  check('un autre affilié ne lit pas cet aperçu', Boolean((await sessions.affA.rpc('affiliate_sheet_preview', { p_affiliate_id: affId })).error));
+  check('affiliates.view lit l’aperçu', !(await sessions.lecteur.rpc('affiliate_sheet_preview', { p_affiliate_id: affId })).error);
+  check('l’aperçu ne montre jamais un numéro de versement entier', !JSON.stringify(preview.data ?? {}).includes('321 12 34'));
+
+  // Émission : permission, jamais par l'affilié.
+  check('affiliates.view seul n’émet pas de fiche', Boolean((await issue(sessions.lecteur)).error));
+  check('l’affilié n’émet pas sa propre fiche', Boolean((await issue(sessions.affB)).error));
+  const first = await issue(sessions.documentiste);
+  check('affiliate_documents.issue émet la fiche, numérotée MORA-FIAF', /^MORA-FIAF-[A-Z]+\d{4}$/.test(first.data?.reference ?? ''), first.error?.message);
+  const { data: snap1 } = await admin.from('document_snapshots').select('content, content_sha256').eq('document_id', first.data?.id).single();
+  check('son instantané fige identité, conditions, règles et codes',
+    snap1?.content?.type === 'FIAF' && snap1.content.preview === false && snap1.content.reference === first.data?.reference
+      && Array.isArray(snap1.content.rules) && Array.isArray(snap1.content.codes) && /^[0-9a-f]{64}$/.test(snap1.content_sha256));
+  check('l’instantané ne se réécrit pas, même par la voie privilégiée',
+    await runSql(target, accessToken, `update public.document_snapshots set content = content || '{"x":1}' where document_id = '${first.data?.id}';`).then(() => false, () => true));
+  const second = await issue(sessions.documentiste);
+  const { data: firstNow } = await admin.from('documents').select('status').eq('id', first.data?.id).single();
+  check('une nouvelle émission remplace la précédente, qui reste consultable',
+    second.data?.version === 2 && second.data?.replaces_id === first.data?.id && firstNow?.status === 'REMPLACE', JSON.stringify({ v: second.data?.version, s: firstNow?.status }));
+  check('une fiche émise ne se supprime pas', refused(await admin.from('documents').delete().eq('id', second.data?.id).select()));
+
+  // Lecture des pièces.
+  const own = await sessions.affB.from('documents').select('reference, doc_type').in('doc_type', ['FIAF', 'RVAF']);
+  const refs = (own.data ?? []).map((d) => d.reference);
+  check('l’affilié lit ses fiches et ses relevés', refs.includes(first.data?.reference) && refs.includes(second.data?.reference)
+    && (own.data ?? []).some((d) => d.doc_type === 'RVAF'), refs.join(','));
+  check('et leur instantané', ((await sessions.affB.from('document_snapshots').select('document_id').eq('document_id', second.data?.id)).data ?? []).length === 1);
+  check('un autre affilié ne les lit pas', empty(await sessions.affA.from('documents').select('id').eq('id', second.data?.id)));
+  check('affiliates.view lit les fiches', ((await sessions.lecteur.from('documents').select('id').eq('id', second.data?.id)).data ?? []).length === 1);
+  check('mais pas les relevés de versement', empty(await sessions.lecteur.from('documents').select('id').eq('doc_type', 'RVAF').eq('owner_id', state.userB.userId)));
+  check('payouts.view lit les relevés', ((await sessions.tresorier.from('documents').select('id').eq('doc_type', 'RVAF').eq('owner_id', state.userB.userId)).data ?? []).length >= 1);
+
+  const { data: rvaf } = await admin.from('documents').select('id').eq('doc_type', 'RVAF').eq('owner_id', state.userB.userId).limit(1).single();
+  const { data: rsnap } = await admin.from('document_snapshots').select('content').eq('document_id', rvaf?.id).single();
+  check('le relevé garde commissions, ajustements, total, moyen, transaction et date',
+    rsnap?.content?.lines?.some((l) => l.type === 'COMMISSION') && rsnap.content.lines.some((l) => l.type === 'AJUSTEMENT')
+      && Number(rsnap.content.total) > 0 && rsnap.content.payout?.method?.code && rsnap.content.payout?.transaction && rsnap.content.payout?.paidOn,
+    JSON.stringify(rsnap?.content?.payout));
+
+  const { data: events } = await admin.from('affiliate_events').select('event_type').eq('affiliate_id', affId).eq('event_type', 'FICHE_EMISE');
+  check('chaque émission rejoint l’historique de l’affilié', (events ?? []).length === 2);
+}
+
 /* ========================================================================== */
 
 async function teardown(target, accessToken, admin, state, before) {
@@ -1319,6 +1371,13 @@ async function teardown(target, accessToken, admin, state, before) {
     -- Une pièce émise s'annule avant de se supprimer (règle de 4D).
     update public.documents set status = 'ANNULE' where id in (select document_id from zz_payouts where document_id is not null);
     delete from public.documents where id in (select document_id from zz_payouts where document_id is not null);
+    -- Fiches FIAF de contrôle : annulées, déliées de leurs versions, supprimées.
+    create temporary table zz_sheets on commit drop as
+      select d.id from public.documents d join public.affiliates a on a.id = d.entity_id
+       where d.doc_type = 'FIAF' and (a.slug like '${PREFIX}-%' or a.contact_email like '${PREFIX}-%');
+    update public.documents set status = 'ANNULE' where id in (select id from zz_sheets);
+    update public.documents set replaces_id = null where id in (select id from zz_sheets);
+    delete from public.documents where id in (select id from zz_sheets);
     alter table public.affiliate_payouts enable trigger affiliate_payouts_guard;
     alter table public.affiliate_payout_items enable trigger affiliate_payout_items_guard;
     alter table public.affiliate_commissions enable trigger affiliate_commissions_guard;
@@ -1523,6 +1582,9 @@ async function main() {
       roleCode: 'ADMIN', label: 'attributeur',
       grants: ['affiliates.view', 'affiliate_attributions.manage', 'affiliate_codes.manage', 'orders.view', 'orders.update'],
     });
+    state.documentiste = await createAccount(admin, {
+      roleCode: 'ADMIN', label: 'documentiste', grants: ['affiliates.view', 'affiliate_documents.issue'],
+    });
     state.commissaire = await createAccount(admin, {
       roleCode: 'ADMIN', label: 'commissaire', grants: ['affiliates.view', 'commissions.view', 'commissions.manage', 'commissions.validate'],
     });
@@ -1557,7 +1619,7 @@ async function main() {
     check('les affiliés de contrôle sont créés (série ZZ)', true);
 
     const sessions = {};
-    for (const key of ['commissaire', 'client', 'nu', 'lecteur', 'editeur', 'regles', 'derogateur', 'candidatures', 'decideur', 'accepteur', 'tresorier', 'payeur', 'codeur', 'gardien', 'attributeur']) {
+    for (const key of ['documentiste', 'commissaire', 'client', 'nu', 'lecteur', 'editeur', 'regles', 'derogateur', 'candidatures', 'decideur', 'accepteur', 'tresorier', 'payeur', 'codeur', 'gardien', 'attributeur']) {
       sessions[key] = await signIn(target, state[key].email);
     }
     sessions.affA = await signIn(target, state.userA.email);
@@ -1568,6 +1630,7 @@ async function main() {
     await checkAttribution(target, admin, sessions, state);
     await checkCommissions(target, accessToken, admin, sessions, state);
     await checkPayouts(target, accessToken, admin, sessions, state);
+    await checkDocuments(target, accessToken, admin, sessions, state);
     await checkApplications(target, admin, sessions, state);
     await checkAffiliates(target, accessToken, admin, sessions, state);
   } catch (error) {

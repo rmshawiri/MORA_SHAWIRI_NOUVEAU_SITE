@@ -9,7 +9,7 @@
  * Les montants `numeric` arrivent en nombre (PostgREST), les taux aussi.
  */
 
-import type { Json } from './types';
+import type { DocumentRow, Json } from './types';
 
 export type AffiliateStatus = 'PREPARATION' | 'ACTIF' | 'SUSPENDU' | 'TERMINE';
 export type PayoutFrequency = 'HEBDOMADAIRE' | 'FIN_DE_MOIS' | 'TRIMESTRIEL' | 'A_LA_DEMANDE';
@@ -719,4 +719,6 @@ export type AffiliationFunctions = {
       payout_account_id: string | null;
     }[];
   };
+  affiliate_sheet_preview: { Args: { p_affiliate_id: string }; Returns: Json };
+  issue_affiliate_sheet: { Args: { p_affiliate_id: string }; Returns: DocumentRow };
 };

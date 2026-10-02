@@ -15,6 +15,7 @@ import {
 import { PayoutStatusBadge } from '@/components/admin/AffiliationBadges';
 import CommissionsTable from '@/components/admin/CommissionsTable';
 import ConfirmForm from '@/components/admin/ConfirmForm';
+import OfficialDocumentActions from '@/components/documents/OfficialDocumentActions';
 import { retryEmail } from '@/lib/affiliation/actions';
 import {
   activateAffiliate,
@@ -47,6 +48,7 @@ import {
 import {
   findAffiliate,
   formatMoment,
+  listAffiliateDocuments,
   listCommissions,
   listPayouts,
   readCommissionTotals,
@@ -57,6 +59,7 @@ import {
 } from '@/lib/affiliation/admin';
 import { maskPayoutValue } from '@/lib/affiliation/applications';
 import { adjustCommission } from '@/lib/affiliation/commission-actions';
+import { issueAffiliateSheet } from '@/lib/affiliation/document-actions';
 import { kmf } from '@/lib/affiliation/commissions';
 import { formatPayoutDay } from '@/lib/affiliation/payouts';
 import { RULE_ORIGIN_LABELS } from '@/lib/domain/affiliation';
@@ -90,6 +93,8 @@ const RESULTS: Record<string, string> = {
   IDENTITE: 'L’identité est mise à jour.',
   RENVOI: 'L’e-mail est reparti.',
   AJUSTEMENT: 'L’ajustement est enregistré. Il sera imputé sur le prochain versement.',
+  FICHE_EMISE: 'La fiche officielle est émise, archivée avec son empreinte. La précédente est marquée « remplacée ».',
+  FICHE_EMISE_SANS_ARCHIVE: 'La fiche officielle est émise. Son archive sera déposée au premier téléchargement.',
 };
 const PROSPECT_RESULTS: Record<string, string> = {
   PROSPECT_A_VERIFIER: 'Le prospect est pris en vérification.',
@@ -160,16 +165,18 @@ export default async function AffiliePage({
     payoutManage: context.can('payouts.manage'),
     commissions: context.can('commissions.view'),
     commissionsManage: context.can('commissions.manage'),
+    issueSheet: context.can('affiliate_documents.issue'),
   };
   const isSelf = affiliate.user_id !== null && affiliate.user_id === context.access.userId;
 
-  const [categories, offers, methods, commissions, totals, payouts] = await Promise.all([
+  const [categories, offers, methods, commissions, totals, payouts, documents] = await Promise.all([
     can.rules ? listCategories() : Promise.resolve([]),
     can.rules || can.codes ? listOffers() : Promise.resolve([]),
     listPayoutMethods(),
     can.commissions ? listCommissions({ affiliateId: id }) : Promise.resolve([]),
     can.commissions ? readCommissionTotals(id) : Promise.resolve(null),
     can.payoutView ? listPayouts({ affiliateId: id }) : Promise.resolve([]),
+    listAffiliateDocuments(id, affiliate.user_id),
   ]);
   const payoutDetails = can.payoutView
     ? Object.fromEntries(
@@ -685,6 +692,81 @@ export default async function AffiliePage({
               </table>
             </div>
           ) : null}
+        </section>
+      ) : null}
+
+      {/* ------------------------------------------------------------ Documents */}
+      {affiliate.status !== 'PREPARATION' ? (
+        <section className="admin-card" id="documents">
+          <div className="admin-card__head">
+            <h2>Documents officiels</h2>
+            <p>
+              Fiche affilié (FIAF) et relevés de versement (RVAF). Une pièce émise se rend toujours depuis son
+              instantané : elle ne change plus. L’aperçu montre l’état actuel, sans numéro ni valeur officielle.
+            </p>
+          </div>
+          <div className="btn-row">
+            <a
+              className="btn btn--ghost"
+              href={`/api/affiliation/fiche/${affiliate.id}/apercu/?affichage=1`}
+              target="_blank"
+              rel="noreferrer"
+            >
+              Aperçu actuel de la fiche
+            </a>
+            {can.issueSheet && !isSelf && affiliate.reference ? (
+              <AffiliationDecisionForm
+                action={issueAffiliateSheet}
+                fields={{ id: affiliate.id }}
+                trigger="Émettre la fiche officielle"
+                title="Émettre la fiche officielle ?"
+                consequence="Une référence FIAF est attribuée et le contenu actuel est figé. La fiche précédente, s’il y en a une, devient « remplacée » et reste consultable."
+                confirmLabel="Émettre"
+                variant="gold"
+                inputs={[]}
+              />
+            ) : null}
+          </div>
+          {documents.length === 0 ? (
+            <p className="admin-field__hint">Aucune pièce émise.</p>
+          ) : (
+            <div className="admin-table-wrap">
+              <table className="admin-table">
+                <caption className="sr-only">Pièces officielles de {affiliate.display_name}</caption>
+                <thead>
+                  <tr>
+                    <th scope="col">Pièce</th>
+                    <th scope="col">Nature</th>
+                    <th scope="col">État</th>
+                    <th scope="col">Émise le</th>
+                    <th scope="col">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {documents.map((doc) => (
+                    <tr key={doc.id}>
+                      <th scope="row">{doc.reference}</th>
+                      <td>
+                        {doc.doc_type === 'FIAF' ? `Fiche affilié — version ${doc.version}` : 'Relevé de versement'}
+                      </td>
+                      <td>
+                        <span className={`admin-badge ${doc.status === 'EMIS' ? 'admin-badge--ok' : 'admin-badge--muted'}`}>
+                          {doc.status === 'EMIS' ? 'En vigueur' : doc.status === 'REMPLACE' ? 'Remplacée' : 'Annulée'}
+                        </span>
+                      </td>
+                      <td>{formatMoment(doc.issued_at)}</td>
+                      <td>
+                        <OfficialDocumentActions
+                          reference={doc.reference}
+                          title={`${doc.doc_type === 'FIAF' ? 'Fiche affilié' : 'Relevé de versement'} ${doc.reference}`}
+                        />
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </section>
       ) : null}
 
