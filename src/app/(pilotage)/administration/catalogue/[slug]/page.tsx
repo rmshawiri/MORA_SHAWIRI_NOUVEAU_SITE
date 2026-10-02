@@ -4,7 +4,9 @@ import { notFound } from 'next/navigation';
 
 import AdminPage from '@/components/admin/AdminPage';
 import ConfirmForm from '@/components/admin/ConfirmForm';
+import OfferAffiliationForm from '@/components/admin/OfferAffiliationForm';
 import ServiceForm from '@/components/admin/ServiceForm';
+import { formatRate } from '@/lib/catalogue/affiliation';
 import { deleteServiceAction, setServiceStatusAction } from '@/lib/catalogue/actions';
 import { findService, listCategories, STATUS_LABELS } from '@/lib/catalogue/admin';
 import { requireModule } from '@/lib/rbac/guards';
@@ -41,6 +43,9 @@ export default async function ServiceDetailPage({
   const canUpdate = context.can('services.update');
   const canPublish = context.can('services.publish');
   const canDelete = context.can('services.delete');
+  // Levier financier : édition de l'offre ET règles d'affiliation, revérifiées
+  // par l'action puis par la base.
+  const canManageAffiliation = canUpdate && context.can('affiliate_rules.manage');
   const neverPublished = service.published_at === null;
 
   return (
@@ -133,6 +138,45 @@ export default async function ServiceDetailPage({
           service={service}
           readOnly={!canUpdate}
         />
+      </section>
+
+      <section className="admin-card" aria-labelledby="bloc-affiliation">
+        <div className="admin-card__head">
+          <h2 id="bloc-affiliation">Affiliation</h2>
+          <p>
+            Une offre éligible peut ouvrir une commission à l’affilié qui l’a apportée, dans la limite
+            de son plafond. L’éligibilité est indépendante de la publication. Un changement vaut pour les
+            ventes à venir : les commissions déjà nées gardent l’état de l’offre à la date de leur vente.
+          </p>
+        </div>
+
+        {canManageAffiliation ? (
+          <OfferAffiliationForm
+            type="SERVICE"
+            offerId={service.id}
+            title={service.title}
+            published={service.status === 'PUBLIE'}
+            eligible={service.affiliate_eligible}
+            maxRate={service.affiliate_max_rate}
+          />
+        ) : (
+          <>
+            <dl className="admin-def">
+              <dt>Éligible à l’affiliation</dt>
+              <dd>{service.affiliate_eligible ? 'Oui' : 'Non'}</dd>
+              <dt>Plafond de commission</dt>
+              <dd>{formatRate(service.affiliate_max_rate)}</dd>
+            </dl>
+            <div className="admin-notice">
+              <p>
+                Modifier l’affiliation d’une offre exige les permissions
+                <code> services.update </code>
+                et
+                <code> affiliate_rules.manage</code>.
+              </p>
+            </div>
+          </>
+        )}
       </section>
 
       {canDelete ? (

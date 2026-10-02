@@ -75,6 +75,19 @@ export type AffiliateRow = {
   updated_at: string;
   created_by: string | null;
   updated_by: string | null;
+  /** Entrée dans le programme : candidature acceptée, ou ajout direct (correctif de clôture 4H). */
+  origin: AffiliateOrigin;
+};
+
+export type AffiliateOrigin = 'CANDIDATURE' | 'ADMINISTRATION';
+
+/** Ce qui existe déjà pour une adresse, avant l'ajout direct d'un affilié. */
+export type AffiliateCreationCheck = {
+  email: string;
+  account: boolean;
+  client: boolean;
+  affiliate: { id: string; status: AffiliateStatus; reference: string | null; name: string } | null;
+  application: { id: string; status: string } | null;
 };
 
 export type AffiliateNoteRow = {
@@ -722,4 +735,25 @@ export type AffiliationFunctions = {
   affiliate_sheet_preview: { Args: { p_affiliate_id: string }; Returns: Json };
   issue_affiliate_sheet: { Args: { p_affiliate_id: string }; Returns: DocumentRow };
   update_my_affiliate_contact: { Args: { p_phone: string; p_city: string; p_country: string }; Returns: AffiliateRow };
+  set_offer_affiliation: {
+    Args: { p_offer_type: 'SERVICE' | 'PRODUCT'; p_offer_id: string; p_eligible: boolean; p_max_rate: number | null };
+    Returns: Json;
+  };
+  affiliate_creation_check: { Args: { p_email: string }; Returns: AffiliateCreationCheck };
+  create_affiliate: {
+    Args: {
+      p_display_name: string;
+      p_party_type: 'PERSONNE' | 'ORGANISATION';
+      p_legal_name: string | null;
+      p_email: string;
+      p_phone: string | null;
+      p_country: string | null;
+      p_city: string | null;
+      p_category_id: string;
+      p_contract_reference?: string | null;
+      p_contract_signed_on?: string | null;
+      p_reason?: string | null;
+    };
+    Returns: AffiliateRow;
+  };
 };

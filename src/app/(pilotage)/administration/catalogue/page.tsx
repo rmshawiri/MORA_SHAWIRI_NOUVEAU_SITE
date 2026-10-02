@@ -3,7 +3,9 @@ import Link from 'next/link';
 
 import AdminPage from '@/components/admin/AdminPage';
 import CategoryForm from '@/components/admin/CategoryForm';
+import OfferAffiliationForm from '@/components/admin/OfferAffiliationForm';
 import ServiceForm from '@/components/admin/ServiceForm';
+import { formatRate } from '@/lib/catalogue/affiliation';
 import {
   countByStatus,
   listCategories,
@@ -53,6 +55,8 @@ export default async function CataloguePage() {
 
   const canUpdate = context.can('services.update');
   const canCreate = context.can('services.create');
+  // Rendre un produit affiliable : édition du produit ET règles d'affiliation.
+  const canManageProductAffiliation = context.can('products.update') && context.can('affiliate_rules.manage');
 
   return (
     <AdminPage
@@ -90,6 +94,7 @@ export default async function CataloguePage() {
                   <th scope="col">Prix</th>
                   <th scope="col">Statut</th>
                   <th scope="col">Boutique</th>
+                  <th scope="col">Affiliation</th>
                   <th scope="col">Fiche</th>
                 </tr>
               </thead>
@@ -112,6 +117,13 @@ export default async function CataloguePage() {
                         <span className="admin-badge admin-badge--ok">Oui</span>
                       ) : (
                         <span className="admin-badge admin-badge--muted">Non</span>
+                      )}
+                    </td>
+                    <td>
+                      {entry.affiliate_eligible ? (
+                        <span className="admin-badge admin-badge--ok">{formatRate(entry.affiliate_max_rate)} max.</span>
+                      ) : (
+                        <span className="admin-badge admin-badge--muted">Non éligible</span>
                       )}
                     </td>
                     <td>
@@ -232,6 +244,7 @@ export default async function CataloguePage() {
                   <tr>
                     <th scope="col">Produit</th>
                     <th scope="col">Statut</th>
+                    <th scope="col">Affiliation</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -239,6 +252,23 @@ export default async function CataloguePage() {
                     <tr key={product.id}>
                       <th scope="row">{product.title}</th>
                       <td>{statusBadge(product.status)}</td>
+                      <td>
+                        {canManageProductAffiliation ? (
+                          <OfferAffiliationForm
+                            type="PRODUCT"
+                            offerId={product.id}
+                            title={product.title}
+                            published={product.status === 'PUBLIE'}
+                            eligible={product.affiliate_eligible}
+                            maxRate={product.affiliate_max_rate}
+                            compact
+                          />
+                        ) : product.affiliate_eligible ? (
+                          <span className="admin-badge admin-badge--ok">{formatRate(product.affiliate_max_rate)} max.</span>
+                        ) : (
+                          <span className="admin-badge admin-badge--muted">Non éligible</span>
+                        )}
+                      </td>
                     </tr>
                   ))}
                 </tbody>

@@ -1259,3 +1259,21 @@
     width: 100%;
   }
 }
+
+/* Éligibilité d'une offre à l'affiliation, sur une ligne de la liste des
+   produits (correctif de clôture 4H). */
+.admin-offer-aff--compact {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--sp-2) var(--sp-3);
+}
+
+.admin-offer-aff--compact .admin-field {
+  margin: 0;
+  max-width: 11rem;
+}
+
+.admin-offer-aff--compact .admin-notice {
+  flex-basis: 100%;
+}

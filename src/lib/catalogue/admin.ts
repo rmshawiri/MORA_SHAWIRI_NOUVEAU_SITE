@@ -32,6 +32,7 @@ export type CatalogueListEntry = Pick<
   | 'is_featured'
   | 'sort_order'
   | 'affiliate_eligible'
+  | 'affiliate_max_rate'
   | 'published_at'
   | 'created_at'
   | 'updated_at'
@@ -75,7 +76,7 @@ export async function listServices(): Promise<CatalogueListEntry[]> {
   const { data, error } = await supabase
     .from('services')
     // prettier-ignore
-    .select('id, slug, title, category_id, price_label, price_amount, status, show_in_shop, is_featured, sort_order, affiliate_eligible, published_at, created_at, updated_at')
+    .select('id, slug, title, category_id, price_label, price_amount, status, show_in_shop, is_featured, sort_order, affiliate_eligible, affiliate_max_rate, published_at, created_at, updated_at')
     .order('sort_order', { ascending: true });
 
   if (error) {
@@ -109,13 +110,15 @@ export async function findService(slug: string): Promise<ServiceRow | null> {
  * Produits. La table est vide au lancement ; la fonction existe pour que
  * l'écran dise « aucun produit » en le sachant, et non en le supposant.
  */
-export async function listProducts(): Promise<Pick<ProductRow, 'id' | 'slug' | 'title' | 'status'>[]> {
+export async function listProducts(): Promise<
+  Pick<ProductRow, 'id' | 'slug' | 'title' | 'status' | 'affiliate_eligible' | 'affiliate_max_rate'>[]
+> {
   const supabase = await getServerSupabaseClient();
   if (!supabase) return [];
 
   const { data, error } = await supabase
     .from('products')
-    .select('id, slug, title, status')
+    .select('id, slug, title, status, affiliate_eligible, affiliate_max_rate')
     .order('sort_order', { ascending: true });
 
   if (error) {

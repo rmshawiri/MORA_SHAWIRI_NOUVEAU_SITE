@@ -18,7 +18,7 @@ export const metadata: Metadata = {
  * fiche. Tout le reste est sur la fiche, sous ses propres permissions.
  */
 export default async function AffiliesPage() {
-  await requireModule('affiliation');
+  const context = await requireModule('affiliation');
   const affiliates = await listAffiliates();
   const counts = affiliates.reduce<Record<string, number>>((acc, row) => {
     acc[row.status] = (acc[row.status] ?? 0) + 1;
@@ -29,11 +29,18 @@ export default async function AffiliesPage() {
     <AdminPage
       eyebrow="Affiliation"
       title="Affiliés"
-      lead="Chaque affilié naît d’une candidature acceptée, en préparation. Il devient actif une fois sa configuration complète."
+      lead="Un affilié naît d’une candidature acceptée ou d’un ajout direct, en préparation. Il devient actif une fois sa configuration complète."
       actions={
-        <Link className="btn btn--ghost" href="/administration/affiliation/">
-          Retour au module
-        </Link>
+        <>
+          <Link className="btn btn--ghost" href="/administration/affiliation/">
+            Retour au module
+          </Link>
+          {context.can('affiliates.create') ? (
+            <Link className="btn btn--primary" href="/administration/affiliation/affilies/nouveau/">
+              Ajouter un affilié
+            </Link>
+          ) : null}
+        </>
       }
     >
       <section className="admin-card">
@@ -47,7 +54,7 @@ export default async function AffiliesPage() {
         {affiliates.length === 0 ? (
           <div className="admin-empty">
             <p className="admin-empty__title">Aucun affilié</p>
-            <p>C’est l’état réel de la base. Un affilié apparaît ici dès qu’une candidature est acceptée.</p>
+            <p>C’est l’état réel de la base. Un affilié apparaît ici dès qu’une candidature est acceptée ou qu’il est ajouté directement.</p>
           </div>
         ) : (
           <div className="admin-table-wrap">
@@ -58,6 +65,7 @@ export default async function AffiliesPage() {
                   <th scope="col">Affilié</th>
                   <th scope="col">Référence</th>
                   <th scope="col">Catégorie</th>
+                  <th scope="col">Origine</th>
                   <th scope="col">Statut</th>
                   <th scope="col">Créé le</th>
                   <th scope="col">Fiche</th>
@@ -69,6 +77,7 @@ export default async function AffiliesPage() {
                     <th scope="row">{row.display_name}</th>
                     <td>{row.reference ? <code>{row.reference}</code> : '—'}</td>
                     <td>{row.categoryLabel}</td>
+                    <td>{row.origin === 'ADMINISTRATION' ? 'Ajout direct' : 'Candidature'}</td>
                     <td>
                       <AffiliateStatusBadge status={row.status} />
                     </td>

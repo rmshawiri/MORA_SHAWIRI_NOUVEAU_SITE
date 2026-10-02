@@ -74,6 +74,7 @@ export const metadata: Metadata = {
 
 /** Retours possibles d'un acte : liste fermée, jamais un texte reçu. */
 const RESULTS: Record<string, string> = {
+  CREE: 'La fiche est créée en préparation. Réglez maintenant la catégorie, les règles et les coordonnées de versement, puis activez-la.',
   ACTIVE: 'L’affilié est activé : sa référence est attribuée et son espace est ouvert.',
   SUSPENDU: 'L’affiliation est suspendue.',
   REACTIVE: 'L’affiliation est réactivée.',
@@ -281,6 +282,8 @@ export default async function AffiliePage({
         <dl className="admin-def">
           <dt>Référence</dt>
           <dd>{affiliate.reference ?? '—'}</dd>
+          <dt>Origine</dt>
+          <dd>{affiliate.origin === 'ADMINISTRATION' ? 'Ajout direct par l’administration' : 'Candidature acceptée'}</dd>
           <dt>Nature</dt>
           <dd>{affiliate.party_type === 'ORGANISATION' ? 'Organisation' : 'Personne'}</dd>
           {affiliate.legal_name ? (

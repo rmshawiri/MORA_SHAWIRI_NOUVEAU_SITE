@@ -69,6 +69,8 @@ const TABLES = [
   'affiliate_attributions', 'affiliate_prospects', 'affiliate_code_uses', 'orders', 'quote_requests', 'leads',
   'affiliate_commissions', 'affiliate_commission_adjustments', 'notification_events', 'payments', 'refunds', 'services',
   'affiliate_payouts', 'affiliate_payout_items', 'documents',
+  // Correctif de clôture 4H.
+  'products', 'categories', 'offer_affiliation_history',
 ];
 
 const sessionClient = (target) =>
@@ -1103,11 +1105,14 @@ async function checkCommissions(target, accessToken, admin, sessions, state) {
   await admin.from('affiliates').update({ acquisition_trigger: null }).eq('id', state.affB.id);
 
   // 6. Aucune rétroactivité : une nouvelle version de règle n'atteint pas une affaire antérieure.
+  // Depuis le correctif de clôture, l'éligibilité aussi se lit à la date de
+  // l'affaire : l'offre est rendue éligible avant la commande.
+  await admin.from('services').update({ affiliate_eligible: true, affiliate_max_rate: 50 }).eq('id', closed.id);
   const o3 = await order(9303);
   await attribute(o3.id);
-  await admin.from('order_items').insert({ order_id: o3.id, service_id: closed.id, designation: 'Offre non éligible', unit_price: 100000, quantity: 1 });
+  await admin.from('order_items').insert({ order_id: o3.id, designation: 'Ligne libre', unit_price: 100000, quantity: 1 });
   check('une commande sans ligne commissionnable n’a pas de commission', !(await commissionOf(o3.id)));
-  await admin.from('services').update({ affiliate_eligible: true, affiliate_max_rate: 50 }).eq('id', closed.id);
+  await admin.from('order_items').insert({ order_id: o3.id, service_id: closed.id, designation: 'Offre éligible', unit_price: 100000, quantity: 1 });
   const newer = await sessions.regles.rpc('publish_affiliate_rule', {
     p_owner_type: 'CATEGORY', p_owner_id: state.category.id, p_target_type: 'ALL', p_target_id: null,
     p_kind: 'PERCENT', p_rate: 20, p_fixed_amount: null, p_tiers: null, p_min_commission: null,
@@ -1339,6 +1344,350 @@ async function checkDocuments(target, accessToken, admin, sessions, state) {
 
 /* ========================================================================== */
 
+/* ========================================================================== */
+/* Correctif de clôture 4H — éligibilité administrable, ajout direct          */
+/* ========================================================================== */
+
+async function checkOfferEligibility(target, admin, sessions, state) {
+  log.step('Clôture 4H — éligibilité des offres : permissions, sept cas métier, services et produits');
+  const run = RUN.toLowerCase();
+  const serial = (n) => `ZZ${String(n).padStart(4, '0')}`;
+
+  // A5 : l'état réel du catalogue, relu à la fin.
+  const realEligible = async () => {
+    const [s, p] = await Promise.all([
+      admin.from('services').select('id', { count: 'exact', head: true }).eq('affiliate_eligible', true).not('slug', 'like', `${PREFIX}-%`),
+      admin.from('products').select('id', { count: 'exact', head: true }).eq('affiliate_eligible', true).not('slug', 'like', `${PREFIX}-%`),
+    ]);
+    return `${s.count}/${p.count}`;
+  };
+  const eligibleBefore = await realEligible();
+
+  // Offres de contrôle. « Publiées » sans paraître nulle part : le site public
+  // ne liste que les offres montrées en Boutique.
+  const { data: serviceCategory } = await admin.from('categories').select('id').eq('kind', 'SERVICE').limit(1).single();
+  const { data: productCategory, error: pcError } = await admin.from('categories')
+    .insert({ slug: `${PREFIX}-produits-${run}`, name: 'Contrôle 4H', kind: 'PRODUIT', is_active: false }).select().single();
+  if (pcError) throw new Error(`catégorie produit : ${pcError.message}`);
+  state.productCategoryId = productCategory.id;
+  const common = {
+    title: 'Contrôle 4H', tag: 'Contrôle', short_description: 'Offre de contrôle.', description: 'Offre de contrôle, supprimée à la fin.',
+    price_label: 'Sur devis', image_path: '/images/offre-logo.webp', cta_label: 'Demander', show_in_shop: false,
+  };
+  const offer = async (type, slug, status) => {
+    const table = type === 'SERVICE' ? 'services' : 'products';
+    const extra = type === 'SERVICE'
+      ? { category_id: serviceCategory.id, request_subject: 'Contrôle', show_in_services: false }
+      : { category_id: productCategory.id };
+    const { data, error } = await admin.from(table)
+      .insert({ ...common, ...extra, slug: `${PREFIX}-${slug}-${run}`, status }).select().single();
+    if (error) throw new Error(`offre ${slug} : ${error.message}`);
+    return { ...data, type, table };
+  };
+  const sPub = await offer('SERVICE', 'svc-publie', 'PUBLIE');
+  const pPub = await offer('PRODUCT', 'prd-publie', 'PUBLIE');
+  const sDraft = await offer('SERVICE', 'svc-brouillon', 'BROUILLON');
+  const pDraft = await offer('PRODUCT', 'prd-brouillon', 'BROUILLON');
+  check('les offres de contrôle naissent non éligibles', [sPub, pPub, sDraft, pDraft].every((o) => o.affiliate_eligible === false && o.affiliate_max_rate === null));
+  const { data: seeded } = await admin.from('offer_affiliation_history').select('offer_id, eligible').in('offer_id', [sPub.id, pPub.id]);
+  check('chaque offre créée ouvre son historique d’éligibilité', (seeded ?? []).length === 2 && seeded.every((h) => h.eligible === false), JSON.stringify(seeded));
+
+  // Catégorie et affilié dédiés : une règle de catégorie à 10 %, rien d'autre.
+  const { data: category, error: catError } = await admin.from('affiliate_categories')
+    .insert({ code: `${CATEGORY_CODE}_E`, label: 'Contrôle 4H — éligibilité', description: 'Catégorie de contrôle automatisé' }).select().single();
+  if (catError) throw new Error(`catégorie d’éligibilité : ${catError.message}`);
+  const publishRule = (client, extra) => client.rpc('publish_affiliate_rule', {
+    p_owner_type: 'CATEGORY', p_owner_id: category.id, p_target_type: 'ALL', p_target_id: null, p_kind: 'PERCENT', p_rate: 10,
+    p_fixed_amount: null, p_tiers: null, p_min_commission: null, p_max_commission: null, p_min_base: null, p_effective_at: null,
+    p_label: null, p_reason: 'Contrôle 4H — éligibilité', p_derogation: false, p_derogation_reason: null, ...extra,
+  });
+  const rule = await publishRule(sessions.regles, {});
+  check('la catégorie de contrôle reçoit sa règle à 10 %', !rule.error, rule.error?.message);
+  state.userE = await createAccount(admin, { roleCode: 'AFFILIE', label: 'affe' });
+  const { data: affE, error: affError } = await admin.from('affiliates').insert({
+    slug: `${PREFIX}-e-${run}`, reference: 'MORA-AFIL-ZZ9003', user_id: state.userE.userId, category_id: category.id, status: 'ACTIF',
+    display_name: 'Contrôle E', contact_email: state.userE.email, started_on: new Date().toISOString().slice(0, 10),
+  }).select().single();
+  if (affError) throw new Error(`affilié E : ${affError.message}`);
+
+  // ---------------------------------------------------------------- A3
+  const setAs = (client, o, eligible, rate) =>
+    client.rpc('set_offer_affiliation', { p_offer_type: o.type, p_offer_id: o.id, p_eligible: eligible, p_max_rate: rate });
+  const current = async (o) => (await admin.from(o.table).select('status, affiliate_eligible, affiliate_max_rate').eq('id', o.id).single()).data;
+  for (const o of [sPub, pPub]) {
+    const label = o.type === 'SERVICE' ? 'service' : 'produit';
+    check(`A3 (${label}) : l’édition du catalogue seule ne rend pas affiliable (fonction)`, Boolean((await setAs(sessions.catalogueSeul, o, true, 8)).error));
+    const direct = await sessions.catalogueSeul.from(o.table).update({ affiliate_eligible: true, affiliate_max_rate: 8 }).eq('id', o.id).select();
+    check(`A3 (${label}) : ni par une écriture directe, refusée par la base`, refused(direct), JSON.stringify(direct.data ?? direct.error?.message));
+    const plain = await sessions.catalogueSeul.from(o.table).update({ tag: 'Contrôle modifié' }).eq('id', o.id).select();
+    check(`A3 (${label}) : elle modifie toujours le reste de l’offre`, !plain.error && plain.data?.length === 1, plain.error?.message);
+    check(`A3 (${label}) : affiliate_rules.manage seul ne modifie pas l’offre (fonction)`, Boolean((await setAs(sessions.regles, o, true, 8)).error));
+    await sessions.regles.from(o.table).update({ affiliate_eligible: true, affiliate_max_rate: 8 }).eq('id', o.id);
+    check(`A3 (${label}) : ni par écriture directe`, (await current(o))?.affiliate_eligible === false);
+    check(`A3 (${label}) : un ADMIN sans permission ne fait rien`, Boolean((await setAs(sessions.nu, o, true, 8)).error));
+    check(`A3 (${label}) : une offre éligible sans plafond est refusée`, Boolean((await setAs(sessions.eligibilite, o, true, null)).error));
+    check(`A3 (${label}) : un plafond hors bornes est refusé`,
+      Boolean((await setAs(sessions.eligibilite, o, true, 0)).error) && Boolean((await setAs(sessions.eligibilite, o, true, 150)).error));
+    check(`A3 (${label}) : rien n’a changé après ces refus`, (await current(o))?.affiliate_eligible === false);
+  }
+
+  // Ventes de contrôle, attribuées à E.
+  const leadRow = (await admin.from('leads').insert({ email: `${PREFIX}-eligibilite-${run}@${TEST_DOMAIN}`, full_name: 'Contrôle éligibilité' }).select().single()).data;
+  const sale = async (n, o, amount = 200000) => {
+    const { data, error } = await admin.from('orders').insert({
+      reference: `MORA-CMCL-${serial(n)}`, user_id: state.client.userId, customer_name: 'Contrôle 4H', customer_email: leadRow.email, lead_id: leadRow.id,
+    }).select().single();
+    if (error) throw new Error(`commande ${n} : ${error.message}`);
+    state.orderIds.push(data.id);
+    const line = await admin.from('order_items').insert({
+      order_id: data.id, [o.type === 'SERVICE' ? 'service_id' : 'product_id']: o.id, designation: `Ligne ${n}`, unit_price: amount, quantity: 1, position: 1,
+    });
+    if (line.error) throw new Error(`ligne ${n} : ${line.error.message}`);
+    const att = await sessions.attributeur.rpc('attribute_affair', { p_target_type: 'ORDER', p_target_id: data.id, p_affiliate_id: affE.id, p_reason: 'Contrôle éligibilité' });
+    if (att.error) throw new Error(`attribution ${n} : ${att.error.message}`);
+    return data;
+  };
+  const commissionOf = async (orderId) =>
+    (await admin.from('affiliate_commissions').select('*').eq('order_id', orderId).order('created_at', { ascending: false }).limit(1)).data?.[0];
+  const pay = async (orderId, amount, n) => {
+    const now = new Date().toISOString();
+    const { error } = await admin.from('payments').insert({
+      order_id: orderId, method_code: 'ESPECES', amount, status: 'PAYE', transaction_reference: `ZZ-${RUN}-E${n}`,
+      declared_at: now, verified_at: now, confirmed_at: now,
+    });
+    if (error) throw new Error(`paiement : ${error.message}`);
+  };
+
+  let n = 9400;
+  const history = {};
+  for (const o of [sPub, pPub]) {
+    const label = o.type === 'SERVICE' ? 'service' : 'produit';
+    // 1. Publiée et non affiliable : aucune commission.
+    const o1 = await sale(++n, o);
+    check(`cas 1 (${label}) : publiée et non affiliable → aucune commission`, !(await commissionOf(o1.id)));
+
+    // 2. Publiée et affiliable (plafond 8 %) : commission correcte.
+    const enabled = await setAs(sessions.eligibilite, o, true, 8);
+    check(`édition + affiliate_rules.manage rend le ${label} affiliable`, !enabled.error && enabled.data?.eligible === true, enabled.error?.message);
+    check(`la publication n’a pas bougé (${label})`, (await current(o))?.status === 'PUBLIE');
+    const o2 = await sale(++n, o);
+    const c2 = await commissionOf(o2.id);
+    check(`cas 2 (${label}) : publiée et affiliable → 8 % de 200 000 = 16 000 KMF (règle 10 %, plafond 8 %)`,
+      Number(c2?.amount) === 16000 && c2?.lines?.[0]?.capApplied === true, JSON.stringify(c2?.lines?.[0] ?? null));
+    check(`une vente antérieure à l’éligibilité reste sans commission (${label})`, !(await commissionOf(o1.id)));
+
+    // 4. Plafond modifié : les nouveaux calculs suivent.
+    const lowered = await setAs(sessions.eligibilite, o, true, 5);
+    check(`le plafond du ${label} passe à 5 %`, !lowered.error && Number(lowered.data?.maxRate) === 5, lowered.error?.message);
+    const o4 = await sale(++n, o);
+    check(`cas 4 (${label}) : nouveau plafond → 5 % de 200 000 = 10 000 KMF`, Number((await commissionOf(o4.id))?.amount) === 10000);
+
+    // 5. Historique : la commission prévisionnelle de o2 garde le plafond de sa vente…
+    await admin.from('order_items').insert({
+      order_id: o2.id, [o.type === 'SERVICE' ? 'service_id' : 'product_id']: o.id, designation: 'Seconde ligne', unit_price: 100000, quantity: 1, position: 2,
+    });
+    check(`cas 5 (${label}) : recalculée, la commission prévisionnelle garde le plafond de sa date (8 % de 300 000 = 24 000)`,
+      Number((await commissionOf(o2.id))?.amount) === 24000, (await commissionOf(o2.id))?.amount);
+
+    // … même quand l'offre cesse d'être affiliable.
+    const disabled = await setAs(sessions.eligibilite, o, false, null);
+    check(`retirer le ${label} de l’affiliation conserve le plafond mémorisé`,
+      !disabled.error && disabled.data?.eligible === false && Number(disabled.data?.maxRate) === 5, disabled.error?.message);
+    const o5 = await sale(++n, o);
+    check(`après désactivation, une nouvelle vente du ${label} ne produit aucune commission`, !(await commissionOf(o5.id)));
+    await pay(o2.id, 300000, n);
+    const acquired = await commissionOf(o2.id);
+    check(`cas 5 (${label}) : payée après la désactivation, la commission historique s’acquiert intacte (24 000 KMF)`,
+      acquired?.status === 'ACQUISE' && Number(acquired.amount) === 24000, `${acquired?.status} ${acquired?.amount}`);
+    check(`cas 5 (${label}) : la commission au plafond 5 % reste à 10 000 KMF`, Number((await commissionOf(o4.id))?.amount) === 10000);
+
+    // 6. Non affiliable + dérogation contractuelle : toujours rien.
+    const derog = await sessions.derogateur.rpc('publish_affiliate_rule', {
+      p_owner_type: 'AFFILIATE', p_owner_id: affE.id, p_target_type: o.type, p_target_id: o.id, p_kind: 'PERCENT', p_rate: 30,
+      p_fixed_amount: null, p_tiers: null, p_min_commission: null, p_max_commission: null, p_min_base: null, p_effective_at: null,
+      p_label: null, p_reason: 'Contrôle 4H', p_derogation: true, p_derogation_reason: 'Convention de contrôle',
+    });
+    check(`une dérogation contractuelle se publie sur le ${label}`, !derog.error, derog.error?.message);
+    const o6 = await sale(++n, o);
+    check(`cas 6 (${label}) : non affiliable + dérogation → aucune commission`, !(await commissionOf(o6.id)));
+
+    // 7. Affiliable + dérogation : le plafond est dépassé.
+    await setAs(sessions.eligibilite, o, true, 5);
+    const o7 = await sale(++n, o);
+    const c7 = await commissionOf(o7.id);
+    check(`cas 7 (${label}) : affiliable + dérogation → 30 % de 200 000 = 60 000 KMF, au-delà du plafond de 5 %`,
+      Number(c7?.amount) === 60000 && c7?.lines?.[0]?.capRate === null, JSON.stringify(c7?.lines?.[0] ?? null));
+
+    // Traçabilité : historique daté, auteur, journal du catalogue.
+    const { data: rows } = await admin.from('offer_affiliation_history').select('eligible, max_rate, changed_by').eq('offer_id', o.id).order('id');
+    history[o.type] = rows ?? [];
+    check(`l’historique du ${label} trace chaque changement, avec son auteur`,
+      JSON.stringify((rows ?? []).map((r) => [r.eligible, r.max_rate === null ? null : Number(r.max_rate)])) ===
+        JSON.stringify([[false, null], [true, 8], [true, 5], [false, 5], [true, 5]]) &&
+        rows.slice(1).every((r) => r.changed_by === state.eligibilite.userId),
+      JSON.stringify(rows));
+    check(`l’historique du ${label} ne se réécrit pas`,
+      refused(await admin.from('offer_affiliation_history').update({ eligible: true }).eq('offer_id', o.id).select()) &&
+        refused(await admin.from('offer_affiliation_history').delete().eq('offer_id', o.id).select()));
+    const { data: audit } = await admin.from('audit_logs').select('action, actor_id').eq('resource_id', o.id);
+    check(`le journal d’audit du catalogue enregistre les changements du ${label}`,
+      (audit ?? []).some((a) => a.actor_id === state.eligibilite.userId), JSON.stringify(audit?.slice(0, 3)));
+  }
+
+  // 3. Non publiée et affiliable : la configuration ne dépend pas de la publication.
+  for (const o of [sDraft, pDraft]) {
+    const label = o.type === 'SERVICE' ? 'service' : 'produit';
+    const set = await setAs(sessions.eligibilite, o, true, 15);
+    check(`cas 3 (${label}) : un brouillon se rend affiliable sans être publié`,
+      !set.error && (await current(o))?.status === 'BROUILLON' && (await current(o))?.affiliate_eligible === true, set.error?.message);
+    await admin.from(o.table).update({ status: 'PUBLIE' }).eq('id', o.id);
+    await admin.from(o.table).update({ status: 'NON_PUBLIE' }).eq('id', o.id);
+    const after = await current(o);
+    check(`cas 3 (${label}) : publication puis retrait laissent l’affiliation intacte (15 %)`,
+      after?.status === 'NON_PUBLIE' && after.affiliate_eligible === true && Number(after.affiliate_max_rate) === 15, JSON.stringify(after));
+  }
+
+  // L'espace affilié ne liste que des offres publiées : un brouillon affiliable n'y paraît pas.
+  const affSession = await signIn(target, state.userE.email);
+  const visible = await affSession.from('services').select('id').eq('id', sDraft.id);
+  check('un brouillon affiliable reste invisible pour l’affilié', empty(visible));
+
+  check('A5 : aucune offre réelle n’a changé d’éligibilité', (await realEligible()) === eligibleBefore, `${eligibleBefore} → ${await realEligible()}`);
+  state.eligibilityHistory = history;
+}
+
+async function checkManualAffiliates(target, accessToken, admin, sessions, state) {
+  log.step('Clôture 4H — ajout direct d’un affilié : permission, doublons, activation');
+  const fresh = (label) => `${PREFIX}-${label}-${randomUUID().slice(0, 8)}@${TEST_DOMAIN}`;
+  const create = (client, email, extra = {}) => client.rpc('create_affiliate', {
+    p_display_name: `Contrôle manuel ${RUN}`, p_party_type: 'PERSONNE', p_legal_name: null, p_email: email,
+    p_phone: '+269 000 00 00', p_country: 'Union des Comores', p_city: 'Moroni', p_category_id: state.category.id,
+    p_contract_reference: null, p_contract_signed_on: null, p_reason: 'Contrôle automatisé', ...extra,
+  });
+  const authUser = async (email) => (await admin.rpc('find_auth_user_by_email', { p_email: email })).data ?? null;
+
+  // B5 : permission.
+  const newEmail = fresh('manuel-nouveau');
+  check('B5 : sans affiliates.create, la vérification est refusée', Boolean((await sessions.nu.rpc('affiliate_creation_check', { p_email: newEmail })).error));
+  check('B5 : sans affiliates.create, la création est refusée (ADMIN sans droit)', Boolean((await create(sessions.nu, newEmail)).error));
+  check('B5 : affiliates.update ne suffit pas', Boolean((await create(sessions.editeur, newEmail)).error));
+  check('B5 : l’affilié ne s’ajoute pas lui-même', Boolean((await create(sessions.affA, newEmail)).error));
+  check('B5 : un visiteur anonyme non plus', Boolean((await sessionClient(target).rpc('create_affiliate', {
+    p_display_name: 'X', p_party_type: 'PERSONNE', p_legal_name: null, p_email: newEmail, p_phone: null, p_country: null, p_city: null, p_category_id: state.category.id,
+  })).error));
+
+  // B3 : une adresse inconnue.
+  const probe = await sessions.createur.rpc('affiliate_creation_check', { p_email: newEmail });
+  check('B3 : adresse inconnue — ni compte, ni client, ni fiche, ni candidature',
+    probe.data && !probe.data.account && !probe.data.client && probe.data.affiliate === null && probe.data.application === null, JSON.stringify(probe.data ?? probe.error?.message));
+  const created = await create(sessions.createur, newEmail.toUpperCase());
+  check('affiliates.create crée la fiche en préparation', !created.error && created.data?.status === 'PREPARATION', created.error?.message);
+  const manual = created.data;
+  state.manualNewId = manual?.id;
+  check('B4 : origine ADMINISTRATION, auteur enregistré, adresse normalisée',
+    manual?.origin === 'ADMINISTRATION' && manual.created_by === state.createur.userId && manual.contact_email === newEmail, JSON.stringify(manual));
+  check('B3 : aucune référence ni compte avant l’activation', manual?.reference === null && manual?.user_id === null);
+  check('B3 : aucun compte Auth n’a été créé', (await authUser(newEmail)) === null);
+  const { count: fakeApps } = await admin.from('affiliate_applications').select('id', { count: 'exact', head: true }).ilike('email', newEmail);
+  check('B4 : aucune candidature fabriquée', fakeApps === 0, String(fakeApps));
+  const { data: events } = await admin.from('affiliate_events').select('event_type, actor_id, reason, created_at').eq('affiliate_id', manual?.id);
+  check('B4 : l’historique dit qui, quand et selon quelle origine',
+    (events ?? []).length === 1 && events[0].event_type === 'AFFILIE_CREE' && events[0].actor_id === state.createur.userId &&
+      /Ajout direct par l'administration/.test(events[0].reason ?? '') && Boolean(events[0].created_at), JSON.stringify(events));
+  check('une candidature acceptée garde l’origine CANDIDATURE',
+    (await admin.from('affiliates').select('origin').eq('id', state.acceptedAffiliateId).single()).data?.origin === 'CANDIDATURE');
+
+  // B7 : doublons.
+  check('B7 : même adresse qu’un affilié existant → refusé', Boolean((await create(sessions.createur, ` ${newEmail} `)).error));
+  check('B7 : l’adresse d’un affilié actif → refusé', Boolean((await create(sessions.createur, state.userA.email)).error));
+  const dupCheck = await sessions.createur.rpc('affiliate_creation_check', { p_email: state.userA.email });
+  check('B7 : la vérification désigne la fiche existante', dupCheck.data?.affiliate?.id === state.affA.id, JSON.stringify(dupCheck.data));
+  // Même compte Auth, rattaché à une fiche dont l'adresse de contact diffère.
+  const linked = await createAccount(admin, { roleCode: 'AFFILIE', label: 'lie' });
+  const { error: linkError } = await admin.from('affiliates').insert({
+    slug: `${PREFIX}-lie-${RUN.toLowerCase()}`, reference: 'MORA-AFIL-ZZ9004', user_id: linked.userId, category_id: state.category.id, status: 'ACTIF',
+    display_name: 'Contrôle lié', contact_email: fresh('contact-lie'), started_on: new Date().toISOString().slice(0, 10),
+  });
+  if (linkError) throw new Error(`fiche liée : ${linkError.message}`);
+  check('B7 : un compte Auth déjà rattaché à une affiliation → refusé', Boolean((await create(sessions.createur, linked.email)).error));
+  // Candidature en cours.
+  const candidate = fresh('candidat-en-cours');
+  const submitted = await sessionClient(target).rpc('submit_affiliate_application', application({ p_email: candidate }));
+  if (submitted.error) throw new Error(`candidature : ${submitted.error.message}`);
+  state.applicationIds = [...(state.applicationIds ?? []), submitted.data?.id ?? submitted.data].filter((v) => typeof v === 'string');
+  const appCheck = await sessions.createur.rpc('affiliate_creation_check', { p_email: candidate });
+  check('B7 : la vérification signale la candidature en cours', Boolean(appCheck.data?.application), JSON.stringify(appCheck.data));
+  check('B7 : un candidat déjà présent → refusé, la candidature se traite', Boolean((await create(sessions.createur, candidate)).error));
+  // Double clic : deux envois simultanés, une seule fiche.
+  const twice = fresh('double-clic');
+  const [first, second] = await Promise.all([create(sessions.createur, twice), create(sessions.createur, twice)]);
+  const { count: twins } = await admin.from('affiliates').select('id', { count: 'exact', head: true }).eq('contact_email', twice);
+  check('B7 : double clic — un seul envoi aboutit, une seule fiche', twins === 1 && [first, second].filter((r) => !r.error).length === 1,
+    `${twins} fiche(s) ; ${first.error?.message ?? 'ok'} / ${second.error?.message ?? 'ok'}`);
+  const forced = await admin.from('affiliates').insert({
+    slug: `${PREFIX}-force-${RUN.toLowerCase()}`, category_id: state.category.id, display_name: 'Forcé', contact_email: twice.toUpperCase(),
+  }).select();
+  check('B7 : la base refuse le doublon même par la clé de service (index unique, casse comprise)', refused(forced) && forced.error?.code === '23505', forced.error?.code);
+
+  // B8 : client existant → ajout → activation sur son compte.
+  const clientCheck = await sessions.createur.rpc('affiliate_creation_check', { p_email: state.client.email });
+  check('B3 : un client existant est reconnu (compte et client), sans fiche',
+    clientCheck.data?.account === true && clientCheck.data?.client === true && clientCheck.data?.affiliate === null, JSON.stringify(clientCheck.data));
+  const fromClient = await create(sessions.createur, state.client.email, { p_display_name: 'Client devenu affilié' });
+  check('B8 : la fiche d’un client existant se crée, sans compte rattaché', !fromClient.error && fromClient.data?.user_id === null, fromClient.error?.message);
+  state.manualClientId = fromClient.data?.id;
+
+  const activate = async (affiliateId, email) => {
+    const proposed = await sessions.payeur.rpc('propose_payout_account', {
+      p_affiliate_id: affiliateId, p_method: 'MVOLA', p_details: { numero: '000 00 00', titulaire: 'Contrôle' },
+    });
+    if (proposed.error) throw new Error(`coordonnées : ${proposed.error.message}`);
+    const reviewed = await sessions.payeur.rpc('review_payout_account', { p_account_id: proposed.data.id, p_approve: true, p_note: null });
+    if (reviewed.error) throw new Error(`validation : ${reviewed.error.message}`);
+    const blockers = await sessions.createur.rpc('affiliate_activation_blockers', { p_affiliate_id: affiliateId });
+    check('la fiche ajoutée suit le parcours existant : plus aucun blocage', (blockers.data ?? []).length === 0, JSON.stringify(blockers.data));
+    // Même enchaînement que l'action `activateAffiliate` : compte retrouvé par l'adresse, créé sinon.
+    let userId = await authUser(email);
+    let createdAccount = false;
+    if (!userId) {
+      const made = await admin.auth.admin.createUser({ email, password: PASSWORD, email_confirm: true });
+      if (made.error) throw new Error(`compte : ${made.error.message}`);
+      userId = made.data.user.id;
+      createdAccount = true;
+    }
+    const done = await sessions.createur.rpc('activate_affiliate', { p_affiliate_id: affiliateId, p_user_id: userId, p_started_on: null });
+    return { done, userId, createdAccount };
+  };
+
+  const { data: usersBefore } = await admin.auth.admin.listUsers({ perPage: 1000 });
+  const b8 = await activate(state.manualClientId, state.client.email);
+  check('B8 : le compte du client est retrouvé, pas recréé', b8.createdAccount === false && b8.userId === state.client.userId);
+  check('B8 : activation réussie, référence MORA-AFIL attribuée',
+    !b8.done.error && b8.done.data?.status === 'ACTIF' && /^MORA-AFIL-[A-Z]+\d{4}$/.test(b8.done.data?.reference ?? ''), b8.done.error?.message ?? b8.done.data?.reference);
+  const { data: usersAfter } = await admin.auth.admin.listUsers({ perPage: 1000 });
+  check('B8 : aucun second compte', (usersAfter?.users ?? []).filter((u) => u.email === state.client.email).length === 1 &&
+    (usersAfter?.users ?? []).length === (usersBefore?.users ?? []).length);
+  const { data: clientRoles } = await admin.from('user_roles').select('roles!inner(code)').eq('user_id', state.client.userId);
+  const clientCodes = (clientRoles ?? []).map((r) => r.roles.code).sort();
+  check('B8 : le client garde son rôle CLIENT et reçoit AFFILIE', JSON.stringify(clientCodes) === JSON.stringify(['AFFILIE', 'CLIENT']), clientCodes.join(','));
+  const clientSession = await signIn(target, state.client.email);
+  const ownB8 = await clientSession.from('affiliates').select('id, status, reference, origin').eq('id', state.manualClientId);
+  check('B8 : sa session lit sa fiche active (espace affilié)', ownB8.data?.[0]?.status === 'ACTIF' && ownB8.data[0].origin === 'ADMINISTRATION', JSON.stringify(ownB8.data));
+
+  // B9 : nouvelle adresse .test → activation crée le compte.
+  const b9 = await activate(state.manualNewId, newEmail);
+  check('B9 : le compte est créé à l’activation, pas avant', b9.createdAccount === true);
+  check('B9 : activation réussie, référence MORA-AFIL attribuée',
+    !b9.done.error && b9.done.data?.status === 'ACTIF' && /^MORA-AFIL-[A-Z]+\d{4}$/.test(b9.done.data?.reference ?? ''), b9.done.error?.message);
+  const { data: newRoles } = await admin.from('user_roles').select('roles!inner(code)').eq('user_id', b9.userId);
+  check('B9 : le nouveau compte reçoit le rôle AFFILIE, et lui seul', (newRoles ?? []).length === 1 && newRoles[0].roles.code === 'AFFILIE', JSON.stringify(newRoles));
+  const newSession = await signIn(target, newEmail);
+  const ownB9 = await newSession.from('affiliates').select('id, status').eq('id', state.manualNewId);
+  check('B9 : sa session lit sa fiche active (espace affilié)', ownB9.data?.[0]?.status === 'ACTIF');
+  check('B1 : une fois actif, il emprunte le même moteur (totaux de commission lisibles)',
+    !(await newSession.rpc('affiliate_commission_totals', { p_affiliate_id: state.manualNewId })).error);
+}
+
 async function teardown(target, accessToken, admin, state, before) {
   log.step('Nettoyage des données de contrôle');
   // 4H-4 : attributions et utilisations de code d'abord (elles référencent
@@ -1476,7 +1825,15 @@ async function teardown(target, accessToken, admin, state, before) {
      where e.category_id = c.id and c.code like 'ZZ_VERIF_%';
     delete from public.affiliates where slug like '${PREFIX}-%' or contact_email like '${PREFIX}-%';
     delete from public.affiliate_categories where code like 'ZZ_VERIF_%';
+    -- Offres de contrôle publiées (cas 1 et 2 du correctif de clôture) : la
+    -- garde « publiée = jamais supprimée » est levée le temps de les retirer.
+    alter table public.services disable trigger services_no_delete_when_published;
+    alter table public.products disable trigger products_no_delete_when_published;
     delete from public.services where slug like '${PREFIX}-%';
+    delete from public.products where slug like '${PREFIX}-%';
+    alter table public.services enable trigger services_no_delete_when_published;
+    alter table public.products enable trigger products_no_delete_when_published;
+    delete from public.categories where slug like '${PREFIX}-%';
     alter table public.affiliate_rules  enable trigger affiliate_rules_immutable;
     alter table public.affiliate_rules  enable trigger affiliate_rules_history;
     alter table public.affiliate_events enable trigger affiliate_events_append_only;
@@ -1492,10 +1849,11 @@ async function teardown(target, accessToken, admin, state, before) {
     select tgname, tgenabled from pg_trigger
      where tgname in ('affiliate_rules_immutable', 'affiliate_rules_history', 'affiliate_events_append_only',
                       'affiliate_application_events_append_only', 'affiliate_commissions_guard', 'affiliate_adjustments_guard',
-                      'affiliate_payouts_guard', 'affiliate_payout_items_guard');
+                      'affiliate_payouts_guard', 'affiliate_payout_items_guard',
+                      'services_no_delete_when_published', 'products_no_delete_when_published');
   `).catch(() => []);
   check('les gardes d’immuabilité sont réactivés',
-    (triggers ?? []).length === 8 && triggers.every((t) => t.tgenabled === 'O'), JSON.stringify(triggers));
+    (triggers ?? []).length === 10 && triggers.every((t) => t.tgenabled === 'O'), JSON.stringify(triggers));
 
   for (const table of TABLES) {
     const { count } = await admin.from(table).select('id', { count: 'exact', head: true });
@@ -1589,6 +1947,14 @@ async function main() {
       roleCode: 'ADMIN', label: 'commissaire', grants: ['affiliates.view', 'commissions.view', 'commissions.manage', 'commissions.validate'],
     });
     state.candidateEmail = `${PREFIX}-candidat-${randomUUID().slice(0, 8)}@${TEST_DOMAIN}`;
+    state.catalogueSeul = await createAccount(admin, {
+      roleCode: 'ADMIN', label: 'catalogue', grants: ['services.view', 'services.update', 'products.view', 'products.update'],
+    });
+    state.eligibilite = await createAccount(admin, {
+      roleCode: 'ADMIN', label: 'eligibilite',
+      grants: ['services.view', 'services.update', 'products.view', 'products.update', 'affiliates.view', 'affiliate_rules.manage'],
+    });
+    state.createur = await createAccount(admin, { roleCode: 'ADMIN', label: 'createur', grants: ['affiliates.view', 'affiliates.create'] });
     state.derogateur = await createAccount(admin, {
       roleCode: 'ADMIN', label: 'derogateur', grants: ['affiliates.view', 'affiliate_rules.manage', 'affiliate_rules.derogate'],
     });
@@ -1619,7 +1985,7 @@ async function main() {
     check('les affiliés de contrôle sont créés (série ZZ)', true);
 
     const sessions = {};
-    for (const key of ['documentiste', 'commissaire', 'client', 'nu', 'lecteur', 'editeur', 'regles', 'derogateur', 'candidatures', 'decideur', 'accepteur', 'tresorier', 'payeur', 'codeur', 'gardien', 'attributeur']) {
+    for (const key of ['catalogueSeul', 'eligibilite', 'createur', 'documentiste', 'commissaire', 'client', 'nu', 'lecteur', 'editeur', 'regles', 'derogateur', 'candidatures', 'decideur', 'accepteur', 'tresorier', 'payeur', 'codeur', 'gardien', 'attributeur']) {
       sessions[key] = await signIn(target, state[key].email);
     }
     sessions.affA = await signIn(target, state.userA.email);
@@ -1633,6 +1999,8 @@ async function main() {
     await checkDocuments(target, accessToken, admin, sessions, state);
     await checkApplications(target, admin, sessions, state);
     await checkAffiliates(target, accessToken, admin, sessions, state);
+    await checkOfferEligibility(target, admin, sessions, state);
+    await checkManualAffiliates(target, accessToken, admin, sessions, state);
   } catch (error) {
     results.failed += 1;
     log.fail(`interruption : ${error.message}`);
