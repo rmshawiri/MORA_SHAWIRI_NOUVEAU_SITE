@@ -20,6 +20,9 @@ import { usePathname } from 'next/navigation';
 
 export const CLIENT_SPACE_SECTIONS = [
   { href: '/espace-client/', label: 'Tableau de bord' },
+  { href: '/espace-client/commandes/', label: 'Mes commandes' },
+  { href: '/espace-client/paiements/', label: 'Mes paiements' },
+  { href: '/espace-client/documents/', label: 'Mes documents' },
   { href: '/espace-client/profil/', label: 'Mon profil' },
 ] as const;
 

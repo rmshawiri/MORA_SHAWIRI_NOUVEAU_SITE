@@ -34,7 +34,12 @@ function isCurrent(pathname: string, href: string): boolean {
   return href === '/espace-affilie/' ? path === href : path.startsWith(href);
 }
 
-export default function AffiliateSpaceNav() {
+/**
+ * `clientSpace` (phase 4I-2) : pour un compte qui porte aussi le rôle CLIENT,
+ * un lien de retour vers son espace client, sous la liste. Un affilié seul ne
+ * le voit pas.
+ */
+export default function AffiliateSpaceNav({ clientSpace = false }: { clientSpace?: boolean }) {
   const pathname = usePathname() ?? '/espace-affilie/';
   const current = AFFILIATE_SPACE_SECTIONS.find((section) => isCurrent(pathname, section.href));
 
@@ -55,6 +60,13 @@ export default function AffiliateSpaceNav() {
           </li>
         );
       })}
+      {clientSpace ? (
+        <li>
+          <Link href="/espace-client/" className="aff-nav__link">
+            Mon espace client →
+          </Link>
+        </li>
+      ) : null}
     </ul>
   );
 

@@ -5,6 +5,7 @@ import AffiliateSpaceNav from '@/components/affiliation/AffiliateSpaceNav';
 import PageHero from '@/components/sections/PageHero';
 import { AFFILIATE_STATUS_LABELS } from '@/lib/affiliation/affiliates';
 import { getMySpace } from '@/lib/affiliation/space';
+import { getAuthContext } from '@/lib/auth/session';
 
 /**
  * Espace affilié — gabarit commun (phase 4H-8).
@@ -46,6 +47,8 @@ export default async function EspaceAffilieLayout({ children }: { children: Reac
   }
 
   const { affiliate } = space;
+  // Passerelle vers l'espace client (4I-2), pour un compte qui est aussi client.
+  const isClient = (await getAuthContext())?.roles.includes('CLIENT') ?? false;
   return (
     <>
       <PageHero
@@ -57,7 +60,7 @@ export default async function EspaceAffilieLayout({ children }: { children: Reac
       <section className="section aff-space-section">
         <div className="container">
           <div className="aff-space">
-            <AffiliateSpaceNav />
+            <AffiliateSpaceNav clientSpace={isClient} />
             <div className="aff-main">
               {affiliate.status !== 'ACTIF' ? (
                 <div className="auth-notice auth-notice--warn" role="status">

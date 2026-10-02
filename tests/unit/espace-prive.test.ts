@@ -81,7 +81,7 @@ test('aucun écran privé n’emprunte une classe de l’administration', () => 
 
 test('les classes des écrans privés existent dans les feuilles du groupe', () => {
   const page = readFileSync(
-    resolve(COMPTE, 'espace-client', 'commandes', '[reference]', 'page.tsx'),
+    resolve(COMPTE, 'espace-client', '(espace)', 'commandes', '[reference]', 'page.tsx'),
     'utf8',
   );
   const used = new Set([...page.matchAll(/className="(espace-[a-z_-]+)"/g)].map((m) => m[1]));

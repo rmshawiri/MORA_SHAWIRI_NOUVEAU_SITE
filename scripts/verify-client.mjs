@@ -15,6 +15,11 @@
  * Lot 4I-1 : attribution de la référence, immuabilité, RLS de la fiche,
  * écriture du profil, compte suspendu ; avec `--base`, l'espace lui-même
  * (tableau de bord, profil, passerelle affilié, session suspendue).
+ *
+ * Lot 4I-2 (avec `--base`) : commandes, paiements, justificatifs,
+ * remboursements et factures — IDOR A / B et compte CLIENT + ADMIN, dont les
+ * droits d'administration ne doivent jamais élargir son espace client ;
+ * passerelle espace affilié ↔ espace client. Suites CMCL / FACL rendues.
  */
 
 import { randomUUID } from 'node:crypto';
@@ -338,6 +343,252 @@ async function http(ctx, base) {
   check('un visiteur est renvoyé à la connexion', (anon.location ?? '').includes('/connexion/'));
 }
 
+
+/* -------------------------------------------------------------------------- */
+/* Lot 4I-2 — commandes, paiements, documents ; passerelle affilié            */
+/* -------------------------------------------------------------------------- */
+
+const ORDER_LINES = [{ designation: `${PREFIX} — prestation de contrôle`, unit_price: 20000, quantity: 1 }];
+
+async function seedCommerce(ctx) {
+  log.step('Données commerce de contrôle (A, B, et un compte CLIENT + ADMIN)');
+  const { admin, target, state } = ctx;
+  state.startedAt = new Date().toISOString();
+
+  // Le cas découvert en 4I-1 : un compte client qui détient aussi tous les
+  // droits commerce. C'est lui qui traite le dossier de B.
+  state.ca = await createAccount(admin, {
+    roles: ['CLIENT', 'ADMIN'],
+    label: 'client-admin',
+    fullName: 'Contrôle Client Admin',
+    grants: ['orders.view', 'orders.update', 'payments.view', 'payments.verify', 'payments.refund', 'orders.refund', 'invoices.issue'],
+  });
+  const { client: ca } = await signIn(target, state.ca.email);
+  const { client: b } = await signIn(target, state.b.email);
+  state.sessionCA = ca;
+
+  const order = async (userId) => {
+    const { data, error } = await admin.rpc('create_manual_order', { p_user_id: userId, p_items: ORDER_LINES, p_fees: 0, p_note: `${PREFIX} — contrôle` });
+    if (error) throw new Error(`commande de contrôle : ${error.message}`);
+    return data;
+  };
+  state.orderA = await order(state.a.userId);
+  state.orderB = await order(state.b.userId);
+  state.orderCA = await order(state.ca.userId);
+
+  // B : un paiement vérifié puis partiellement remboursé, un paiement en
+  // vérification avec justificatif, une facture émise.
+  state.trxB = `${PREFIX}-B-${randomUUID().slice(0, 8)}`.toUpperCase();
+  const paidB = await b.rpc('declare_payment', { p_order_id: state.orderB.id, p_method_code: 'MVOLA', p_amount: 15000, p_transaction_reference: state.trxB, p_client_note: null });
+  if (paidB.error) throw new Error(`paiement B : ${paidB.error.message}`);
+  const verified = await ca.rpc('verify_payment', { p_payment_id: paidB.data.id, p_admin_note: `${PREFIX} note interne` });
+  if (verified.error) throw new Error(`vérification B : ${verified.error.message}`);
+  const refund = await ca.rpc('record_refund', { p_order_id: state.orderB.id, p_amount: 3000, p_reason: `${PREFIX} motif interne`, p_payment_id: paidB.data.id, p_method_code: null });
+  if (refund.error) throw new Error(`remboursement B : ${refund.error.message}`);
+  state.refundB = refund.data;
+
+  const pendingB = await b.rpc('declare_payment', { p_order_id: state.orderB.id, p_method_code: 'ESPECES', p_amount: 2000, p_transaction_reference: null, p_client_note: null });
+  if (pendingB.error) throw new Error(`second paiement B : ${pendingB.error.message}`);
+  state.paymentB = pendingB.data;
+  const jpeg = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46, 0, 0]);
+  const path = `${state.orderB.id}/${state.paymentB.id}/${randomUUID()}.jpg`;
+  const uploaded = await b.storage.from('paiements-justificatifs').upload(path, jpeg, { contentType: 'image/jpeg' });
+  if (uploaded.error) throw new Error(`justificatif B : ${uploaded.error.message}`);
+  const proof = await b.rpc('attach_payment_proof', { p_payment_id: state.paymentB.id, p_storage_path: path, p_mime_type: 'image/jpeg', p_file_size: jpeg.byteLength, p_checksum: 'a'.repeat(64), p_original_name: 'recu.jpg' });
+  if (proof.error) throw new Error(`rattachement B : ${proof.error.message}`);
+  state.proofB = proof.data;
+
+  const invoice = await ca.rpc('issue_order_invoice', { p_order_id: state.orderB.id });
+  if (invoice.error) throw new Error(`facture B : ${invoice.error.message}`);
+  state.invoiceB = invoice.data.reference;
+
+  // A et le compte CLIENT + ADMIN : un paiement déclaré chacun.
+  const { client: a } = await signIn(target, state.a.email);
+  state.trxA = `${PREFIX}-A-${randomUUID().slice(0, 8)}`.toUpperCase();
+  const paidA = await a.rpc('declare_payment', { p_order_id: state.orderA.id, p_method_code: 'MVOLA', p_amount: 5000, p_transaction_reference: state.trxA, p_client_note: null });
+  if (paidA.error) throw new Error(`paiement A : ${paidA.error.message}`);
+  state.trxCA = `${PREFIX}-C-${randomUUID().slice(0, 8)}`.toUpperCase();
+  const paidCA = await ca.rpc('declare_payment', { p_order_id: state.orderCA.id, p_method_code: 'MVOLA', p_amount: 4000, p_transaction_reference: state.trxCA, p_client_note: null });
+  if (paidCA.error) throw new Error(`paiement CLIENT + ADMIN : ${paidCA.error.message}`);
+
+  check('données de contrôle prêtes (commandes, paiements, remboursement, justificatif, facture)',
+    Boolean(state.orderA && state.orderB && state.orderCA && state.refundB && state.proofB && state.invoiceB));
+
+  // Le scénario reproduit bien le défaut : par l'API, avec ses droits
+  // d'administration, ce compte lit la commande de B. C'est légitime pour
+  // l'administration ; c'est son espace client qui ne doit jamais la montrer.
+  const raw = await ca.from('orders').select('reference').eq('id', state.orderB.id);
+  check('scénario reproduit : par ses droits d’administration, le compte CLIENT + ADMIN lit la commande de B',
+    (raw.data ?? []).length === 1);
+}
+
+async function commerceHttp(ctx, base) {
+  log.step(`Espace client — commandes, paiements, documents (${base})`);
+  const { target, state } = ctx;
+  const storageKey = `sb-${new URL(target.url).hostname.split('.')[0]}-auth-token`;
+  const cookie = async (account) => sessionCookieHeader(storageKey, (await signIn(target, account.email)).session);
+  const cA = await cookie(state.a);
+  const cB = await cookie(state.b);
+  const cCA = await cookie(state.ca);
+  const foreignOfCA = [state.orderA.reference, state.orderB.reference, state.trxA, state.trxB, state.invoiceB];
+
+  // --- Le compte CLIENT + ADMIN : seulement ses propres données.
+  for (const path of ['/espace-client/', '/espace-client/commandes/', '/espace-client/paiements/', '/espace-client/documents/']) {
+    const page = await visit(base, path, cCA);
+    const leaked = foreignOfCA.filter((marker) => page.body.includes(marker));
+    check(`CLIENT + ADMIN ${path} : ses données seulement`, page.status === 200 && leaked.length === 0, `HTTP ${page.status} ${leaked.join(', ')}`);
+  }
+  check('CLIENT + ADMIN : sa propre commande est bien listée', (await visit(base, '/espace-client/commandes/', cCA)).body.includes(state.orderCA.reference));
+  check('CLIENT + ADMIN : son propre paiement est bien listé', (await visit(base, '/espace-client/paiements/', cCA)).body.includes(state.trxCA));
+  check('CLIENT + ADMIN : la fiche de A par URL directe est introuvable', (await visit(base, `/espace-client/commandes/${state.orderA.reference}/`, cCA)).status === 404);
+  check('CLIENT + ADMIN : la fiche de B par URL directe est introuvable', (await visit(base, `/espace-client/commandes/${state.orderB.reference}/`, cCA)).status === 404);
+  const caInvoice = await visit(base, `/api/documents/${state.invoiceB}/?espace=client`, cCA);
+  check('CLIENT + ADMIN : la facture de B est refusée en mode espace client', caInvoice.status === 404, `HTTP ${caInvoice.status}`);
+  const caProof = await visit(base, `/api/justificatifs/${state.proofB.id}/?espace=client`, cCA);
+  check('CLIENT + ADMIN : le justificatif de B est refusé en mode espace client', caProof.status === 404, `HTTP ${caProof.status}`);
+
+  // --- L'administration n'est pas cassée : mêmes droits, contexte administratif.
+  const adminInvoice = await visit(base, `/api/documents/${state.invoiceB}/`, cCA);
+  check('administration intacte : avec orders.view, la facture de B reste lisible hors espace client', adminInvoice.status === 200, `HTTP ${adminInvoice.status}`);
+  const adminProof = await visit(base, `/api/justificatifs/${state.proofB.id}/`, cCA);
+  check('administration intacte : avec payments.view, le justificatif de B reste lisible hors espace client', adminProof.status === 307, `HTTP ${adminProof.status}`);
+  const adminOrder = await visit(base, `/administration/commandes/${state.orderB.reference}/`, cCA);
+  check('administration intacte : la fiche administrative de la commande de B s’ouvre', adminOrder.status === 200, `HTTP ${adminOrder.status}`);
+
+  // --- Client A contre client B.
+  const aPages = [];
+  for (const path of ['/espace-client/commandes/', '/espace-client/paiements/', '/espace-client/documents/']) aPages.push(await visit(base, path, cA));
+  check('A ne voit aucune donnée de B dans ses rubriques',
+    aPages.every((page) => page.status === 200 && ![state.orderB.reference, state.trxB, state.invoiceB].some((marker) => page.body.includes(marker))));
+  check('A voit sa commande et son paiement', aPages[0].body.includes(state.orderA.reference) && aPages[1].body.includes(state.trxA));
+  check('A n’ouvre pas la fiche de B par URL directe', (await visit(base, `/espace-client/commandes/${state.orderB.reference}/`, cA)).status === 404);
+  check('A n’obtient pas la facture de B (mode espace client)', (await visit(base, `/api/documents/${state.invoiceB}/?espace=client`, cA)).status === 404);
+  check('A n’obtient pas la facture de B (route sans mode)', (await visit(base, `/api/documents/${state.invoiceB}/`, cA)).status === 404);
+  check('A n’obtient pas le justificatif de B (mode espace client)', (await visit(base, `/api/justificatifs/${state.proofB.id}/?espace=client`, cA)).status === 404);
+  check('A n’obtient pas le justificatif de B (route sans mode)', (await visit(base, `/api/justificatifs/${state.proofB.id}/`, cA)).status === 404);
+
+  // --- B voit tout ce qui est à lui.
+  const bOrder = await visit(base, `/espace-client/commandes/${state.orderB.reference}/`, cB);
+  check('B : sa fiche commande s’ouvre dans le nouveau gabarit', bOrder.status === 200 && bOrder.body.includes('aff-nav--side'), `HTTP ${bOrder.status}`);
+  check('B : lignes, paiements, remboursement et carte facture conservés',
+    bOrder.body.includes('prestation de contrôle') && bOrder.body.includes(state.trxB) && bOrder.body.includes('Remboursements') &&
+      bOrder.body.includes('Votre facture') && bOrder.body.includes(state.invoiceB));
+  check('B : aucune note ni motif interne n’apparaît', !bOrder.body.includes('note interne') && !bOrder.body.includes('motif interne'));
+  check('B : la carte facture et le justificatif passent en mode espace client',
+    bOrder.body.includes(`/api/documents/${state.invoiceB}/?espace=client`) && bOrder.body.includes(`/api/justificatifs/${state.proofB.id}/?espace=client`));
+  const bPay = await visit(base, '/espace-client/paiements/', cB);
+  check('B : ses paiements avec leur état réel, et son remboursement',
+    bPay.body.includes(state.trxB) && bPay.body.includes('En vérification') && bPay.body.includes('Mes remboursements'));
+  const bDocs = await visit(base, '/espace-client/documents/', cB);
+  check('B : sa facture dans Mes documents, avec Voir / Télécharger / Partager',
+    bDocs.body.includes(state.invoiceB) && bDocs.body.includes('espace=client') && bDocs.body.includes('Partager le PDF'));
+  const pdf = await fetch(`${base}/api/documents/${state.invoiceB}/?espace=client`, { headers: { cookie: cB } });
+  check('B : le vrai PDF de sa facture est servi', pdf.status === 200 && (pdf.headers.get('content-type') ?? '').includes('application/pdf'), `HTTP ${pdf.status}`);
+  check('B : son justificatif est servi par URL signée', (await visit(base, `/api/justificatifs/${state.proofB.id}/?espace=client`, cB)).status === 307);
+  check('un visiteur n’obtient aucune facture', (await visit(base, `/api/documents/${state.invoiceB}/?espace=client`, null)).status === 404);
+}
+
+async function affiliateGateway(ctx, base) {
+  log.step('Passerelle espace affilié ↔ espace client');
+  const { admin, target, state } = ctx;
+  const storageKey = `sb-${new URL(target.url).hostname.split('.')[0]}-auth-token`;
+  const run = randomUUID().slice(0, 6).toUpperCase().replace(/[^A-Z]/g, 'X');
+  const { data: category, error } = await admin.from('affiliate_categories').insert({ code: `ZZ_VERIF_4I_${run}`, label: 'Contrôle 4I' }).select().single();
+  if (error) throw new Error(`catégorie de contrôle : ${error.message}`);
+  state.gatewaySeeded = true;
+  const affiliate = async (account, serial) => {
+    const inserted = await admin.from('affiliates').insert({
+      slug: `${PREFIX}-${serial}-${run.toLowerCase()}`, reference: `MORA-AFIL-ZZ${serial}`, status: 'ACTIF', category_id: category.id,
+      display_name: `Partenaire ${serial}`, contact_email: account.email, user_id: account.userId, started_on: '2026-10-01',
+    });
+    if (inserted.error) throw new Error(`affilié de contrôle : ${inserted.error.message}`);
+  };
+  const serial = 9400 + Math.floor(Math.random() * 90);
+  await affiliate(state.both, String(serial));
+  await affiliate(state.aff, String(serial + 1));
+
+  const cBoth = sessionCookieHeader(storageKey, (await signIn(target, state.both.email)).session);
+  const cAff = sessionCookieHeader(storageKey, (await signIn(target, state.aff.email)).session);
+  const bothAff = await visit(base, '/espace-affilie/', cBoth);
+  check('CLIENT + AFFILIE : l’espace affilié propose le retour vers l’espace client', bothAff.status === 200 && bothAff.body.includes('href="/espace-client/"'), `HTTP ${bothAff.status}`);
+  const bothCli = await visit(base, '/espace-client/', cBoth);
+  check('CLIENT + AFFILIE : l’espace client propose l’espace affilié', bothCli.status === 200 && bothCli.body.includes('href="/espace-affilie/"'));
+  const affOnly = await visit(base, '/espace-affilie/', cAff);
+  check('AFFILIE seul : aucun lien vers un espace client', affOnly.status === 200 && affOnly.body.includes('aff-nav--side') && !affOnly.body.includes('href="/espace-client/"'),
+    `HTTP ${affOnly.status}`);
+}
+
+async function cleanupCommerce(ctx) {
+  const { admin, target, accessToken, state } = ctx;
+  if (!state.startedAt && !state.gatewaySeeded) return;
+  log.step('Démontage des données commerce et affiliation de contrôle');
+
+  // Affiliés de contrôle : leur journal est en ajout seul ; la garde n'est
+  // levée que dans cette transaction, et l'on vérifie qu'elle est rétablie.
+  await runSql(target, accessToken, `
+    begin;
+    alter table public.affiliate_events disable trigger affiliate_events_append_only;
+    delete from public.affiliate_events
+     where affiliate_id in (select id from public.affiliates where slug like '${PREFIX}-%')
+        or category_id in (select id from public.affiliate_categories where code like 'ZZ_VERIF_4I_%');
+    delete from public.affiliates where slug like '${PREFIX}-%';
+    delete from public.affiliate_categories where code like 'ZZ_VERIF_4I_%';
+    alter table public.affiliate_events enable trigger affiliate_events_append_only;
+    commit;`).catch((error) => log.fail(`démontage affiliation : ${error.message}`));
+  const guard = await runSql(target, accessToken, `select tgenabled from pg_trigger where tgname = 'affiliate_events_append_only';`).catch(() => null);
+  check('la garde du journal d’affiliation est rétablie', guard?.[0]?.tgenabled === 'O');
+
+  // Justificatifs, puis archives de factures, puis commandes, puis pièces
+  // (annulées avant d'être supprimées : règle de 4D).
+  const orderIds = [state.orderA, state.orderB, state.orderCA].filter(Boolean).map((order) => order.id);
+  for (const orderId of orderIds) {
+    const { data: folders } = await admin.storage.from('paiements-justificatifs').list(orderId, { limit: 100 });
+    for (const folder of folders ?? []) {
+      const { data: files } = await admin.storage.from('paiements-justificatifs').list(`${orderId}/${folder.name}`, { limit: 100 });
+      if ((files ?? []).length > 0) await admin.storage.from('paiements-justificatifs').remove(files.map((file) => `${orderId}/${folder.name}/${file.name}`));
+    }
+  }
+  const since = state.startedAt ? `'${state.startedAt}'::timestamptz` : `now()`;
+  const docs = (await runSql(target, accessToken, `select id from public.documents where doc_type = 'FACL' and issued_at >= ${since};`).catch(() => [])) ?? [];
+  if (docs.length > 0) await admin.storage.from('documents-officiels').remove(docs.map((row) => `FACL/${row.id}.pdf`));
+  if (orderIds.length > 0) {
+    await admin.from('refunds').delete().in('order_id', orderIds);
+    await admin.from('payments').delete().in('order_id', orderIds);
+    await admin.from('order_events').delete().in('order_id', orderIds);
+    await admin.from('order_status_history').delete().in('order_id', orderIds);
+    await admin.from('order_items').delete().in('order_id', orderIds);
+    await admin.from('orders').delete().in('id', orderIds);
+  }
+  await runSql(target, accessToken, `update public.documents set status = 'ANNULE' where doc_type in ('CMCL', 'FACL') and issued_at >= ${since};`).catch((error) => log.warn(error.message));
+  await runSql(target, accessToken, `delete from public.documents where doc_type in ('CMCL', 'FACL') and issued_at >= ${since};`).catch((error) => log.warn(error.message));
+
+  // Toutes les suites hors CLI (que le lanceur rend lui-même) : rendues telles
+  // qu'elles ont été relevées.
+  const before = ctx.before.sequences ?? [];
+  const now = (await runSql(target, accessToken, `select doc_type from public.document_sequences where doc_type <> 'CLI';`).catch(() => [])) ?? [];
+  for (const row of now) {
+    const initial = before.find((entry) => entry.doc_type === row.doc_type);
+    await runSql(target, accessToken, initial
+      ? `update public.document_sequences set series = '${initial.series}', last_number = ${initial.last_number}, allocated_count = ${initial.allocated_count} where doc_type = '${row.doc_type}';`
+      : `delete from public.document_sequences where doc_type = '${row.doc_type}';`).catch((error) => log.fail(error.message));
+  }
+
+  const idList = orderIds.map((id) => `'${id}'::uuid`).join(',') || 'null::uuid';
+  const residue = (await runSql(target, accessToken, `
+    select (select count(*) from public.orders where id = any(array[${idList}]))::int as orders,
+           (select count(*) from public.payments where order_id = any(array[${idList}]))::int as payments,
+           (select count(*) from public.refunds where order_id = any(array[${idList}]))::int as refunds,
+           (select count(*) from public.documents where issued_at >= ${since})::int as documents,
+           (select count(*) from public.affiliates where slug like '${PREFIX}-%')::int as affiliates;`).catch(() => null))?.[0];
+  check('aucune commande, paiement, remboursement, pièce ni affilié de contrôle ne subsiste',
+    residue && Object.values(residue).every((value) => value === 0), JSON.stringify(residue));
+  const objects = [];
+  for (const orderId of orderIds) objects.push(await admin.storage.from('paiements-justificatifs').list(orderId, { limit: 10 }));
+  check('aucun justificatif de contrôle ne subsiste', objects.every((result) => (result.data ?? []).length === 0));
+  const archives = docs.length === 0 ? [] : (await admin.storage.from('documents-officiels').list('FACL', { limit: 1000 })).data ?? [];
+  check('aucune archive de facture de contrôle ne subsiste', !docs.some((row) => archives.some((file) => file.name === `${row.id}.pdf`)));
+}
+
 async function cleanup(ctx) {
   log.step('Démontage');
   const { admin, target, accessToken, before } = ctx;
@@ -372,12 +623,17 @@ async function main() {
     await immutability(ctx);
     await rls(ctx);
     await profile(ctx);
-    if (base) await http(ctx, base);
-    else log.skip('Écrans non contrôlés (aucun --base)');
+    if (base) {
+      await http(ctx, base);
+      await seedCommerce(ctx);
+      await commerceHttp(ctx, base);
+      await affiliateGateway(ctx, base);
+    } else log.skip('Écrans non contrôlés (aucun --base)');
   } catch (error) {
     results.failed += 1;
     log.fail(`interruption : ${error.message}`);
   } finally {
+    await cleanupCommerce(ctx).catch((error) => log.fail(`démontage commerce : ${error.message}`));
     await cleanup(ctx);
   }
 

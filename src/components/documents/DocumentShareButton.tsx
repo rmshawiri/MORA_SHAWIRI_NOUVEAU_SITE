@@ -69,8 +69,11 @@ export default function DocumentShareButton({
   label = 'Envoyer / partager le PDF',
   tone,
   variant = 'ghost',
+  ownerOnly = false,
 }: {
   reference: string;
+  /** Espace client (4I-2) : la route n'accepte que le titulaire de la pièce. */
+  ownerOnly?: boolean;
   /** Titre proposé à l'application de destination, p. ex. « Facture MORA-FACL-A0001 ». */
   title?: string;
   label?: string;
@@ -78,7 +81,7 @@ export default function DocumentShareButton({
   variant?: 'ghost' | 'primary' | 'gold';
 }) {
   const [state, setState] = useState<State>({ step: 'idle' });
-  const href = `/api/documents/${encodeURIComponent(reference)}/`;
+  const href = `/api/documents/${encodeURIComponent(reference)}/${ownerOnly ? '?espace=client' : ''}`;
   const fileName = `${reference}.pdf`;
 
   async function prepare() {

@@ -64,6 +64,40 @@ function field(formData: FormData, name: string): string {
   return typeof value === 'string' ? value.trim() : '';
 }
 
+type Session = NonNullable<Awaited<ReturnType<typeof getServerSupabaseClient>>>;
+
+/**
+ * La commande (et, s'il est donné, le paiement) appartient-elle au compte de
+ * la session ? (phase 4I-2)
+ *
+ * `declare_payment` et `attach_payment_proof` acceptent aussi un détenteur de
+ * `payments.verify` : c'est voulu pour l'administration, qui enregistre un
+ * règlement pour le compte d'un client. Mais ces actions-ci sont celles de
+ * l'**espace client** : un compte à la fois client et administrateur ne doit
+ * pas pouvoir, depuis son espace, agir sur la commande d'un autre en forgeant
+ * un identifiant. La propriété est donc vérifiée ici, sur `user_id`, avant
+ * tout appel.
+ */
+async function ownsOrder(supabase: Session, orderId: string, paymentId?: string): Promise<boolean> {
+  const { data: me } = await supabase.auth.getUser();
+  if (!me.user) return false;
+  const { data: order } = await supabase
+    .from('orders')
+    .select('id')
+    .eq('id', orderId)
+    .eq('user_id', me.user.id)
+    .maybeSingle();
+  if (!order) return false;
+  if (!paymentId) return true;
+  const { data: payment } = await supabase
+    .from('payments')
+    .select('id')
+    .eq('id', paymentId)
+    .eq('order_id', order.id)
+    .maybeSingle();
+  return Boolean(payment);
+}
+
 function describe(error: { code?: string | null; message?: string }): string {
   const text = error.message ?? '';
 
@@ -115,6 +149,7 @@ export async function declareMyPayment(
 
   const supabase = await getServerSupabaseClient();
   if (!supabase) return ko(MESSAGES.noSupabase);
+  if (!(await ownsOrder(supabase, orderId))) return ko(MESSAGES.unknownOrder);
 
   const { data: payment, error } = await supabase.rpc('declare_payment', {
     p_order_id: orderId,
@@ -175,6 +210,10 @@ export async function attachMyProof(
   if (!orderId || !paymentId) return ko(MESSAGES.unexpected);
   if (!(proof instanceof File) || proof.size === 0) return ko(MESSAGES.proofBadType);
   if (proof.size > PROOF_MAX_BYTES) return ko(MESSAGES.proofTooBig);
+
+  const supabase = await getServerSupabaseClient();
+  if (!supabase) return ko(MESSAGES.noSupabase);
+  if (!(await ownsOrder(supabase, orderId, paymentId))) return ko(MESSAGES.unknownOrder);
 
   const upload = await uploadPaymentProof({ orderId, paymentId, file: proof });
 

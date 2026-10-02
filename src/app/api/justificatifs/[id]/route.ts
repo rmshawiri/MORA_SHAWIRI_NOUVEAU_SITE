@@ -32,7 +32,7 @@ import { getServerSupabaseClient } from '@/lib/supabase/server';
  * Références : `07_ARCHITECTURE_TECHNIQUE/05_STOCKAGE.md` § 22-25, § 74,
  * § 79-81, § 184.
  */
-export async function GET(_request: Request, context: { params: Promise<{ id: string }> }) {
+export async function GET(request: Request, context: { params: Promise<{ id: string }> }) {
   const { id } = await context.params;
 
   const refused = NextResponse.json({ erreur: 'Introuvable.' }, { status: 404 });
@@ -54,6 +54,22 @@ export async function GET(_request: Request, context: { params: Promise<{ id: st
     .maybeSingle();
 
   if (error || !proof) return refused;
+
+  // Espace client (phase 4I-2) : `?espace=client` exige que le justificatif
+  // appartienne à une commande du compte de la session — quels que soient ses
+  // droits sur les paiements. L'administration n'utilise pas ce mode.
+  if (new URL(request.url).searchParams.get('espace') === 'client') {
+    const { data: me } = await supabase.auth.getUser();
+    const { data: link } = await supabase.from('payment_proofs').select('payment_id').eq('id', id).maybeSingle();
+    const { data: payment } = link
+      ? await supabase.from('payments').select('order_id').eq('id', link.payment_id).maybeSingle()
+      : { data: null };
+    const { data: owned } =
+      me.user && payment
+        ? await supabase.from('orders').select('id').eq('id', payment.order_id).eq('user_id', me.user.id).maybeSingle()
+        : { data: null };
+    if (!owned) return refused;
+  }
 
   const url = await signProofUrl(proof.storage_path);
   if (!url) return refused;

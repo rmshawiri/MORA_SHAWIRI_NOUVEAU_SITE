@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 
-import { SpaceCard, SpaceEmpty, SpaceItem, SpaceKpis, SpaceList } from '@/components/affiliation/SpaceUi';
+import { SpaceCard, SpaceEmpty, SpaceItem, SpaceKpis, SpaceList, SpaceMore } from '@/components/affiliation/SpaceUi';
 import SignOutButton from '@/components/auth/SignOutButton';
 import { formatClientDate } from '@/lib/client/labels';
 import { getMyClientSpace, myDashboard } from '@/lib/client/space';
@@ -81,6 +81,7 @@ export default async function EspaceClientPage() {
             ))}
           </SpaceList>
         )}
+        {dashboard.orders.length > 0 ? <SpaceMore href="/espace-client/commandes/">Voir toutes mes commandes</SpaceMore> : null}
       </SpaceCard>
 
       <SpaceCard title="Mes demandes en cours">

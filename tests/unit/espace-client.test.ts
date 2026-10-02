@@ -164,9 +164,13 @@ test('la navigation n’annonce que des rubriques réellement construites', () =
   const nav = readFileSync(resolve(ROOT, 'src/components/client/ClientSpaceNav.tsx'), 'utf8');
   const hrefs = [...nav.matchAll(/href: '(\/espace-client\/[^']*)'/g)].map((match) => match[1]!);
   assert.ok(hrefs.length >= 2);
+  // Une page peut vivre dans un groupe de routes « (…) », invisible dans l'adresse.
+  const pages = walk(SPACE)
+    .filter((path) => path.endsWith('page.tsx'))
+    .map((path) => `/${path.slice(SPACE.length + 1).split(/[\\/]/).filter((part) => !/^\(.*\)$/.test(part)).join('/').replace(/page\.tsx$/, '')}`);
   for (const href of hrefs) {
-    const segment = href.replace(/^\/espace-client\//, '').replace(/\/$/, '');
-    assert.ok(existsSync(resolve(SPACE, segment, 'page.tsx')), `${href} n’a pas de page`);
+    const route = href.replace(/^\/espace-client/, '');
+    assert.ok(pages.includes(route), `${href} n’a pas de page (${pages.join(', ')})`);
   }
 });
 
@@ -250,4 +254,85 @@ test('une date de création s’affiche en date lisible, dans le fuseau des Como
   assert.equal(formatClientDate('2026-10-01T22:30:00Z'), '2 octobre 2026');
   assert.equal(formatClientDate(null), '—');
   assert.equal(formatClientDate('n’importe quoi'), '—');
+});
+
+/* -------------------------------------------------------------------------- */
+/* Lot 4I-2 — l'espace client ne s'élargit jamais aux droits d'administration  */
+/* -------------------------------------------------------------------------- */
+
+const read = (path: string) => readFileSync(resolve(ROOT, path), 'utf8');
+
+test('« Mes commandes » et la fiche filtrent sur le compte de la session, pas seulement sur la RLS', () => {
+  const client = read('src/lib/commerce/client.ts');
+  const list = client.slice(client.indexOf('export async function listMyOrders'), client.indexOf('export type ActivePaymentMethod'));
+  assert.match(list, /\.eq\('user_id', uid\)/);
+  const find = client.slice(client.indexOf('export async function findMyOrder'));
+  assert.match(find, /\.eq\('reference', reference\)\s*\.eq\('user_id', uid\)/);
+  // La facture lue sur la fiche est celle dont le compte est titulaire.
+  assert.match(find, /\.eq\('owner_id', uid\)/);
+  assert.match(find, /from\('refunds'\)/);
+});
+
+test('les actions client de paiement vérifient la propriété avant tout appel', () => {
+  const actions = read('src/lib/commerce/client-actions.ts');
+  const declare = actions.slice(actions.indexOf('export async function declareMyPayment'), actions.indexOf('export async function attachMyProof'));
+  assert.ok(declare.indexOf('ownsOrder(supabase, orderId)') > 0);
+  assert.ok(declare.indexOf('ownsOrder(supabase, orderId)') < declare.indexOf("rpc('declare_payment'"));
+  const attach = actions.slice(actions.indexOf('export async function attachMyProof'));
+  assert.ok(attach.indexOf('ownsOrder(supabase, orderId, paymentId)') > 0);
+  assert.ok(attach.indexOf('ownsOrder(supabase, orderId, paymentId)') < attach.indexOf('uploadPaymentProof('));
+  const owns = actions.slice(actions.indexOf('async function ownsOrder'), actions.indexOf('function describe'));
+  assert.match(owns, /\.eq\('user_id', me\.user\.id\)/);
+  assert.match(owns, /\.eq\('order_id', order\.id\)/);
+});
+
+test('les routes partagées ont un mode « espace client » qui exige la propriété', () => {
+  const documents = read('src/app/api/documents/[reference]/route.ts');
+  assert.match(documents, /params\.get\('espace'\) === 'client'/);
+  assert.match(documents, /\.eq\('owner_id', userData\.user\.id\)/);
+  // Le contrôle a lieu avant toute lecture de pièce (facture, affiliation, autres).
+  assert.ok(documents.indexOf("params.get('espace') === 'client'") < documents.indexOf("parseReference(reference)?.type === 'FACL'"));
+  const proofs = read('src/app/api/justificatifs/[id]/route.ts');
+  assert.match(proofs, /searchParams\.get\('espace'\) === 'client'/);
+  assert.match(proofs, /\.eq\('user_id', me\.user\.id\)/);
+  assert.ok(proofs.indexOf("get('espace') === 'client'") < proofs.indexOf('signProofUrl(proof.storage_path)'));
+});
+
+test('tous les liens de pièces et de justificatifs de l’espace client passent par ce mode', () => {
+  for (const file of walk(SPACE).filter((path) => path.endsWith('.tsx'))) {
+    const source = readFileSync(file, 'utf8');
+    for (const match of source.matchAll(/\/api\/(documents|justificatifs)\/\$\{[^}]+\}\/[^`'"]*/g)) {
+      assert.match(match[0], /espace=client/, `${file} : ${match[0]}`);
+    }
+    for (const match of source.matchAll(/<(OfficialDocumentActions|DocumentShareButton)\b[\s\S]*?\/>/g)) {
+      assert.match(match[0], /ownerOnly/, `${file} : ${match[1]} sans ownerOnly`);
+    }
+  }
+});
+
+test('les lectures de l’espace client ne sortent aucune note interne', () => {
+  const commerce = read('src/lib/client/commerce.ts');
+  assert.doesNotMatch(commerce.replace(/\/\*\*[\s\S]*?\*\//g, ''), /admin_note|reason'|select\('\*'\)/);
+  for (const match of commerce.matchAll(/\.from\('(orders|payments|refunds|documents)'\)/g)) assert.ok(match);
+  const fiche = readFileSync(resolve(SPACE, 'commandes', '[reference]', 'page.tsx'), 'utf8');
+  assert.doesNotMatch(fiche, /admin_note|refund\.reason/);
+});
+
+test('passerelle retour : l’espace affilié ne propose l’espace client qu’à un compte CLIENT', () => {
+  const nav = read('src/components/affiliation/AffiliateSpaceNav.tsx');
+  assert.match(nav, /clientSpace = false/);
+  assert.match(nav, /\{clientSpace \? \(/);
+  const layout = read('src/app/(site)/(compte)/espace-affilie/layout.tsx');
+  assert.match(layout, /roles\.includes\('CLIENT'\)/);
+  assert.match(layout, /<AffiliateSpaceNav clientSpace=\{isClient\} \/>/);
+});
+
+test('aucune zone de chargement au-dessus de la fiche commande : une commande d’autrui répond 404', () => {
+  // Une zone de chargement fait partir la réponse (200) avant que la page ne
+  // sache si la commande existe ; `notFound()` ne pourrait plus poser le 404.
+  const ancestors = ['', 'commandes', 'commandes/[reference]'];
+  for (const dir of ancestors) {
+    assert.ok(!existsSync(resolve(SPACE, dir, 'loading.tsx')), `loading.tsx dans ${dir || '(espace)'}`);
+  }
+  assert.ok(existsSync(resolve(SPACE, '(accueil)', 'loading.tsx')));
 });

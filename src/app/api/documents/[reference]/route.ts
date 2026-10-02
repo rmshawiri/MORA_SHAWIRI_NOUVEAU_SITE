@@ -100,7 +100,25 @@ export async function GET(
   const { data: userData } = await supabase.auth.getUser();
   if (!userData?.user) return refuse();
 
-  const inline = new URL(request.url).searchParams.get('affichage') === '1';
+  const params = new URL(request.url).searchParams;
+  const inline = params.get('affichage') === '1';
+
+  /*
+   * Espace client (phase 4I-2) : `?espace=client` exige que le compte soit le
+   * **titulaire** de la pièce, quels que soient ses droits d'administration.
+   * Sans ce mode, la RLS laisserait un compte à la fois client et
+   * administrateur ouvrir, depuis son espace, la facture d'un autre client.
+   * L'administration n'utilise pas ce mode : ses accès restent les siens.
+   */
+  if (params.get('espace') === 'client') {
+    const { data: owned } = await supabase
+      .from('documents')
+      .select('id')
+      .eq('reference', reference)
+      .eq('owner_id', userData.user.id)
+      .maybeSingle();
+    if (!owned) return refuse();
+  }
 
   /*
    * Facture : rendue depuis son instantané figé à l'émission, ou servie depuis
