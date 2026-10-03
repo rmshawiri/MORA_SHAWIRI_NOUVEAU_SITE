@@ -75,3 +75,48 @@ test('le formulaire porte un compteur − / + accessible, sans liste déroulante
   assert.match(form, /const estimate = pricedOffer \? pricedOffer\.priceAmount! \* quantity : null;/);
   assert.match(form, /<output id="montant-indicatif" htmlFor="quantite" className="form__estimate" aria-live="polite">/);
 });
+
+/* ------------------------------------------------- échelle desktop */
+
+const SCOPE_TOKENS = ':root:where(:has(.site-header):not(:has(.espace)))';
+const SCOPE_RULES = ':where(:root:has(.site-header):not(:has(.espace)))';
+
+function desktopBlock(): string {
+  const css = read('src/styles/globals.css');
+  const start = css.indexOf('11. ÉCHELLE DESKTOP DES PAGES PUBLIQUES');
+  assert.ok(start > 0);
+  return css.slice(css.indexOf('@media (min-width: 1081px) {', start)).replace(/\/\*[\s\S]*?\*\//g, '');
+}
+
+test('la réduction desktop tient dans un seul bloc, au-delà du seuil burger de 1080 px', () => {
+  const css = read('src/styles/globals.css');
+  assert.equal(css.split('11. ÉCHELLE DESKTOP DES PAGES PUBLIQUES').length - 1, 1);
+  assert.equal(css.split('@media (min-width: 1081px)').length - 1, 1);
+  // Le seuil est celui où l'en-tête quitte le menu burger.
+  assert.match(css, /@media \(max-width: 1080px\) \{\n {2}\.nav-toggle \{ display: inline-flex; \}/);
+  const block = desktopBlock();
+  assert.doesNotMatch(block, /zoom|scale\(|@media \(max-width/);
+});
+
+test('chaque règle du bloc est confinée aux pages publiques, hors portée .espace', () => {
+  const block = desktopBlock();
+  const selectors = [...block.matchAll(/(?<=^|[{};])\s*([^{};]+?)\s*\{/g)].map((match) => match[1]!.trim());
+  assert.equal(selectors[0], '@media (min-width: 1081px)');
+  assert.equal(selectors[1], SCOPE_TOKENS);
+  assert.equal(selectors[2], SCOPE_RULES);
+  const nested = selectors.slice(3);
+  assert.ok(nested.length > 60);
+  for (const selector of nested) {
+    for (const part of selector.split(',')) assert.match(part.trim(), /^& [.a-z]/, `sélecteur hors portée : ${part}`);
+  }
+});
+
+test('la réduction ne touche ni l’administration ni les espaces privés', () => {
+  for (const file of ['src/styles/admin.css', 'src/styles/espace.css', 'src/styles/auth.css']) {
+    assert.doesNotMatch(read(file), /1081px|site-header/, file);
+  }
+  // L'administration ne porte pas l'en-tête public, condition de la portée.
+  assert.doesNotMatch(read('src/app/(pilotage)/administration/layout.tsx'), /SiteChrome|Header/);
+  // Les écrans de compte posent la portée .espace.
+  assert.match(read('src/app/(site)/(compte)/layout.tsx'), /<div className="espace">\{children\}<\/div>/);
+});

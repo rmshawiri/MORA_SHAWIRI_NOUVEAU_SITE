@@ -1813,6 +1813,7 @@ textarea.rdv-input { min-height: 132px; resize: vertical; }
    jetons du design system uniquement. Zones tactiles de 48 px, celles des
    champs du formulaire. Le compteur ne s'étire pas dans sa cellule : c'est
    l'étirement de la rangée qui donnait à la liste sa hauteur démesurée. */
+.field--qty { align-content: start; }
 .qty {
   display: inline-flex; align-items: stretch;
   justify-self: start; align-self: start;
@@ -1841,4 +1842,145 @@ textarea.rdv-input { min-height: 132px; resize: vertical; }
   font-family: var(--font-display); font-size: 1.0625rem; font-weight: 700;
   font-variant-numeric: tabular-nums;
   color: var(--mora-blue-deep);
+}
+
+/* =========================================================================
+   11. ÉCHELLE DESKTOP DES PAGES PUBLIQUES (remarques 02)
+   -------------------------------------------------------------------------
+   Décision du propriétaire, 3 octobre 2026 : sur ordinateur, les pages
+   publiques sont mieux proportionnées avec une échelle plus resserrée. Ce
+   bloc ne change QUE des dimensions — tailles de texte, espacements, hauteurs
+   minimales, tailles de pastilles d'icône. Aucune couleur, police, bordure,
+   ombre, animation, transition ou disposition : `remarques-02.test.ts`
+   refuse toute autre propriété ici.
+
+   Deux portées, et elles seules :
+
+   * `min-width: 1081px` — le seuil desktop du projet, celui où l'en-tête
+     quitte le menu burger (§ 9). Tablette et mobile ne reçoivent rien : leurs
+     styles de base ne sont ni modifiés ni rattrapés.
+   * une page publique — elle porte l'en-tête du site (`.site-header`, absent
+     de l'administration) et pas la portée `.espace` des écrans de compte.
+     Espace client, espace affilié, connexion et administration gardent leur
+     rendu au pixel près. `:where()` laisse la spécificité des règles
+     intactes : chaque sélecteur garde le rang qu'il avait déjà face aux
+     états (`.is-stuck`, survols, modificateurs).
+
+   Le conteneur garde sa largeur de 1320 px : la densité vient des tailles,
+   pas de marges latérales.
+   ========================================================================= */
+@media (min-width: 1081px) {
+  :root:where(:has(.site-header):not(:has(.espace))) {
+    --text-hero: clamp(3rem, 1.5rem + 2.2vw, 3.75rem);     /* 72 → 54-60 */
+    --text-h1: clamp(2.5rem, 1.25rem + 1.75vw, 3rem);      /* 56 → 44-48 */
+    --text-h2: clamp(1.875rem, 1rem + 1.35vw, 2.25rem);    /* 40 → 34-36 */
+    --text-h3: clamp(1.375rem, .95rem + .55vw, 1.5rem);    /* 28 → 23-24 */
+    --text-lead: clamp(1.0625rem, .9rem + .35vw, 1.1875rem); /* 21 → 19 */
+    --text-body: clamp(1rem, .95rem + .1vw, 1.0625rem);    /* 17-18 → 16,6-17 */
+    --text-small: .9375rem;                                /* 16 → 15 */
+    --section-y: clamp(64px, 5.5vw, 88px);                 /* 109-120 → 75-88 */
+    scroll-padding-top: 84px;
+  }
+
+  :where(:root:has(.site-header):not(:has(.espace))) {
+    /* Typographie et mise en page */
+    & h4 { font-size: 1.0625rem; }
+    & .section--tight { padding-block: clamp(40px, 3.6vw, 56px); }
+    & .section-head { margin-bottom: clamp(32px, 3vw, 48px); }
+    & .grid { gap: clamp(20px, 1.6vw, 28px); }
+    & .split { gap: clamp(32px, 4vw, 64px); }
+
+    /* Boutons, badges, pastilles */
+    & .btn { min-height: 44px; padding: 11px 22px; }
+    & .btn--lg { min-height: 50px; padding: 13px 26px; font-size: 1rem; }
+    & .badge { padding: 5px 12px; font-size: .8125rem; }
+    & .pill-row li { padding: 8px 16px; }
+
+    /* Cartes */
+    & .card { padding: clamp(22px, 2vw, 28px); }
+    & .card__icon { width: 48px; height: 48px; }
+    & .card__num { font-size: 2rem; }
+    & .offer { padding: 0; }
+    & .offer__body { padding: clamp(20px, 1.8vw, 24px); }
+    & .offer__body h3 { font-size: 1.125rem; }
+    & .offer__price { font-size: 1rem; }
+    & .offer-group + .offer-group { margin-top: var(--sp-10); }
+    & .post-card { padding: 0; }
+    & .post-card__body { padding: clamp(20px, 1.8vw, 24px); }
+    & .post-card h3 { font-size: 1.0625rem; }
+    & .timeline { gap: clamp(24px, 2.2vw, 32px); }
+    & .timeline__item h3 { font-size: 1.0625rem; }
+    & .steps { gap: clamp(20px, 1.8vw, 26px); }
+    & .steps__item { padding-top: var(--sp-5); }
+    & .steps__item h3 { font-size: 1.0625rem; }
+    & .quote { padding: clamp(24px, 2.2vw, 32px); gap: var(--sp-4); }
+    & .quote blockquote { font-size: 1.03125rem; }
+    & .quote__avatar { width: 44px; height: 44px; }
+    & .faq summary { padding: var(--sp-4) clamp(18px, 1.8vw, 24px); font-size: 1rem; }
+    & .faq__body { padding: 0 clamp(18px, 1.8vw, 24px) var(--sp-4); }
+    & table.compare th, & table.compare td { padding: var(--sp-3) var(--sp-4); }
+    & .cta-band { padding: clamp(28px, 3vw, 44px); gap: clamp(20px, 2.4vw, 36px); }
+    & .contact-item { padding: var(--sp-4); }
+    & .contact-item__icon { width: 40px; height: 40px; }
+    & .proof { padding: clamp(20px, 2vw, 26px); }
+    & .proof h3 { font-size: 1.0625rem; }
+
+    /* Formulaires publics */
+    & .form, & .form__row { gap: var(--sp-4); }
+    & .field input, & .field select, & .field textarea { min-height: 44px; padding: 10px 14px; }
+    & .field textarea { min-height: 128px; }
+    & .form__estimate { min-height: 44px; padding: 10px 14px; }
+    & .qty__btn { width: 44px; min-height: 44px; }
+    & .qty__value { min-width: 52px; }
+
+    /* En-tête : les hauteurs déjà appliquées à la tablette (72 / 64 px) */
+    & .header-inner { min-height: 72px; }
+    & .site-header.is-stuck .header-inner { min-height: 64px; }
+    & .site-header .brand img { width: 50px; height: 50px; }
+    & .site-header.is-stuck .brand img { width: 44px; height: 44px; }
+    & .hero, & .page-hero { margin-top: 72px; }
+
+    /* Héros d'accueil et en-têtes de page */
+    & .hero { padding-block: clamp(72px, 6.5vw, 112px) clamp(48px, 5vw, 80px); }
+    & .hero__grid { gap: clamp(32px, 4vw, 56px); }
+    & .hero h1 { margin-bottom: var(--sp-4); }
+    & .hero__lead { margin-bottom: var(--sp-6); }
+    & .hero__proof { margin-top: var(--sp-6); padding-top: var(--sp-5); }
+    & .hero__float { padding: var(--sp-3) var(--sp-4); }
+    & .page-hero { padding-block: clamp(56px, 5.5vw, 88px) clamp(44px, 4.5vw, 72px); }
+    & .page-hero h1 { margin-bottom: var(--sp-4); }
+    & .breadcrumb { margin-bottom: var(--sp-5); }
+    & .marquee { padding-block: var(--sp-3); }
+
+    /* Formation, fondateur, simulateur */
+    & .pv-price { padding: clamp(22px, 2.4vw, 34px); gap: var(--sp-4); }
+    & .pv-price__amount { font-size: 3.25rem; }
+    & .pv-pay li { padding: 11px 16px; }
+    & .founder { gap: clamp(32px, 4vw, 60px); }
+    & .founder__quote { font-size: 1.1875rem; }
+    & .calc { padding: clamp(24px, 2.4vw, 34px); gap: clamp(24px, 2.4vw, 36px); }
+    & .calc__out { padding: clamp(20px, 2vw, 26px); }
+    & .calc__amount { font-size: clamp(2rem, 1.2rem + 1.6vw, 2.5rem); }
+    & .calc__example { padding: var(--sp-4); }
+
+    /* Article */
+    & .article > h2 { margin-top: var(--sp-10); }
+    & .article > h3 { margin-top: var(--sp-6); font-size: 1.1875rem; }
+    & .article figure { margin: var(--sp-8) 0; }
+    & .article__note { padding: var(--sp-5); margin: var(--sp-6) 0; }
+
+    /* Prise de rendez-vous */
+    & .rdv-shell { gap: clamp(20px, 2.4vw, 32px); }
+    & .rdv-panel { padding: clamp(20px, 2.4vw, 32px); }
+    & .rdv-q { font-size: clamp(1.25rem, 1rem + .5vw, 1.5rem); }
+    & .rdv-opt { min-height: 50px; padding: 10px 14px; }
+    & .rdv-input { min-height: 46px; padding: 11px 14px; }
+
+    /* Pied de page */
+    & .site-footer { padding-top: clamp(44px, 4.5vw, 68px); }
+    & .footer-grid { gap: clamp(28px, 3vw, 44px); padding-bottom: var(--sp-10); }
+    & .site-footer .footer-heading, & .site-footer h4 { margin-bottom: var(--sp-4); }
+    & .footer-about { margin: var(--sp-4) 0 var(--sp-5); }
+    & .footer-bottom { padding-top: var(--sp-5); }
+  }
 }

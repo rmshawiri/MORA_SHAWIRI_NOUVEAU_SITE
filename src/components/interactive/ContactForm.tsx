@@ -322,7 +322,7 @@ export default function ContactForm({ offers }: ContactFormProps) {
             {pricedOffer.priceNote ? ` (${pricedOffer.priceNote.toLowerCase()})` : ''}.
           </p>
           <div className="form__row">
-            <div className="field">
+            <div className="field field--qty">
               <label id="quantite-label" htmlFor="quantite">
                 Quantité
               </label>

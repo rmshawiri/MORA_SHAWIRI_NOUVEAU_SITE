@@ -13,6 +13,16 @@
  * écart — un mot, un taux, une classe, un style, une carte, l'ordre d'un
  * élément — change l'empreinte, et le test échoue.
  *
+ * ## Exception des remarques 02 (3 octobre 2026)
+ *
+ * Le propriétaire autorise une seconde exception, très limitée : la réduction
+ * des DIMENSIONS desktop, commune à toutes les pages publiques. Elle ne passe
+ * pas par les sources de la page — elles restent gelées, empreintes
+ * inchangées — mais par le bloc « 11. ÉCHELLE DESKTOP » de `globals.css`.
+ * Le dernier test ci-dessous vérifie que ce bloc reste ce qui a été autorisé :
+ * au-delà de 1080 px seulement, et uniquement des tailles, espacements et
+ * hauteurs — ni couleur, ni police, ni animation, ni disposition.
+ *
  * Ce contrôle porte sur la source. `scripts/verify-public.mjs` compare en
  * plus le HTML réellement servi, avant et après (rapport 15).
  */
@@ -102,4 +112,19 @@ test('/affiliation/ : aucun lien vers l’ancien parcours d’inscription par me
   // Les CTA d'inscription n'ouvrent plus /contact/ ; le bandeau garde son
   // bouton WhatsApp « Parler sur WhatsApp », qui n'est pas un CTA d'inscription.
   assert.ok(!page.includes('href="/contact/"'));
+});
+
+test('/affiliation/ : l’exception des remarques 02 ne touche que les dimensions desktop', () => {
+  const css = read('src/styles/globals.css');
+  const start = css.indexOf('11. ÉCHELLE DESKTOP DES PAGES PUBLIQUES');
+  assert.ok(start > 0, 'bloc desktop introuvable');
+  const block = css.slice(css.indexOf('@media (min-width: 1081px) {', start));
+  assert.ok(block.startsWith('@media (min-width: 1081px) {'));
+  const allowed = /^(--text-(hero|h1|h2|h3|lead|body|small)|--section-y|font-size|(padding|margin)(-block|-inline|-top|-right|-bottom|-left)?|gap|min-height|min-width|width|height|scroll-padding-top)$/;
+  const declarations = [...block.replace(/\/\*[\s\S]*?\*\//g, '').matchAll(/\{([^{}]*)\}/g)].flatMap((match) => match[1]!.split(';'));
+  const properties = declarations.map((line) => line.split(':')[0]!.trim()).filter(Boolean);
+  assert.ok(properties.length > 40);
+  for (const property of properties) assert.match(property, allowed, `propriété non autorisée : ${property}`);
+  // Aucune règle propre à la page Affiliation : elle hérite de l'échelle commune.
+  assert.doesNotMatch(block, /affiliation/i);
 });
