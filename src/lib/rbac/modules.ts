@@ -149,7 +149,9 @@ export const ADMIN_MODULES = [
     label: 'Affiliation',
     summary: 'Affiliés, profils, taux, commissions et versements.',
     permission: 'affiliates.view',
-    status: 'A_VENIR',
+    // Livré en 4H (checkpoint-4H-final) mais resté `A_VENIR` ici : le menu
+    // affichait « à venir » sur un module en service. Corrigé après 4I.
+    status: 'DISPONIBLE',
     group: 'ACTIVITE',
     phase: '4H',
   },

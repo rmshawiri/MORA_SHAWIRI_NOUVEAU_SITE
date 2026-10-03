@@ -15,7 +15,7 @@
  * si elles oublient l'un des deux côtés.
  */
 
-import { readdirSync, existsSync } from 'node:fs';
+import { readdirSync, existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -148,5 +148,65 @@ test('chaque module est ouvert par sa permission, et par elle seule', () => {
         `${entry.permission} ouvre indûment ${other.label}`,
       );
     }
+  }
+});
+
+/* -------------------------------------------------------------------------- */
+/*  L'état affiché suit l'état réel des modules                                */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Affiliation, livrée en 4H, est restée marquée « à venir » jusqu'après 4I.
+ * Les états sont épinglés ici : un module livré qui reste annoncé, ou un
+ * module futur annoncé comme disponible, échoue.
+ */
+test('les états des modules correspondent à ce qui est livré', () => {
+  const expected: Record<string, 'DISPONIBLE' | 'A_VENIR'> = {
+    commandes: 'DISPONIBLE',
+    demandes: 'DISPONIBLE',
+    'rendez-vous': 'DISPONIBLE',
+    clients: 'DISPONIBLE',
+    affiliation: 'DISPONIBLE',
+    paiements: 'DISPONIBLE',
+    catalogue: 'DISPONIBLE',
+    contenus: 'DISPONIBLE',
+    administrateurs: 'DISPONIBLE',
+    journal: 'DISPONIBLE',
+    notifications: 'A_VENIR',
+    marketing: 'A_VENIR',
+    popups: 'A_VENIR',
+    statistiques: 'A_VENIR',
+    parametres: 'A_VENIR',
+  };
+
+  for (const entry of ADMIN_MODULES) {
+    if (entry.slug === null) continue;
+    assert.equal(entry.status, expected[entry.slug], `état inattendu pour ${entry.label}`);
+  }
+});
+
+test('Affiliation reste fermée sans affiliates.view, et chacune de ses pages a son garde', () => {
+  const affiliation = findModule('affiliation');
+  assert.equal(affiliation?.permission, 'affiliates.view');
+  assert.equal(affiliation?.href, '/administration/affiliation/');
+
+  for (const permission of ['commissions.view', 'payouts.view', 'affiliate_applications.view', 'users.view']) {
+    const slugs: (string | null)[] = visibleModules([permission], allows).map((entry) => entry.slug);
+    assert.ok(!slugs.includes('affiliation'), `${permission} ne doit pas ouvrir Affiliation`);
+  }
+
+  const dir = resolve(ADMIN_DIR, 'affiliation');
+  const pages = readdirSync(dir, { recursive: true, encoding: 'utf8' }).filter((path) =>
+    path.endsWith('page.tsx'),
+  );
+  assert.ok(pages.length >= 12, 'les pages du module Affiliation sont introuvables');
+
+  for (const page of pages) {
+    const source = readFileSync(resolve(dir, page), 'utf8');
+    assert.match(
+      source,
+      /requireModule\('affiliation'\)|requirePermission\('affiliates\./,
+      `${page} n’est adossée à aucun garde du module`,
+    );
   }
 });
