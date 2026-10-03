@@ -1501,3 +1501,42 @@
     min-height: 44px;
   }
 }
+
+/* Tableau de bord par domaines (remarques 01). Une carte d'indicateur est un
+   lien vers son module ; « à traiter » se signale par le liseré or. */
+.admin-dash__title {
+  font-size: var(--text-caption);
+  font-weight: 700;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+  margin: 0 0 var(--sp-2);
+}
+
+.admin-stat--link {
+  display: flex;
+  flex-direction: column;
+  text-decoration: none;
+  color: inherit;
+  transition: border-color var(--t-quick), box-shadow var(--t-quick);
+}
+
+.admin-stat--link .admin-stat__label,
+.admin-stat--link .admin-stat__value,
+.admin-stat--link .admin-stat__note {
+  display: block;
+}
+
+.admin-stat--link:hover {
+  border-color: var(--mora-blue);
+  box-shadow: var(--shadow-md, var(--shadow-sm));
+}
+
+.admin-stat--link:focus-visible {
+  outline: 2px solid var(--mora-blue);
+  outline-offset: 2px;
+}
+
+.admin-stat--attention {
+  border-left: 3px solid var(--shawiri-gold);
+}

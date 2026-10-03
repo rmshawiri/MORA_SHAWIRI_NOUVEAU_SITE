@@ -6,6 +6,7 @@ import SignOutButton from '@/components/auth/SignOutButton';
 import { displayIdentity } from '@/lib/auth/identifiers';
 import { AUTH_ROUTES } from '@/lib/auth/routes';
 import { listAdministrators, listInvitations, invitationState } from '@/lib/admin/administrators';
+import { loadDashboardIndicators } from '@/lib/admin/dashboard';
 import { requireAdminContext } from '@/lib/rbac/guards';
 import { ADMIN_MODULES, ADMIN_ROOT } from '@/lib/rbac/modules';
 
@@ -32,6 +33,14 @@ export const metadata: Metadata = {
  * jour où les commandes existeront, personne ne saurait dire si le zéro était
  * vrai ou provisoire.
  *
+ * ## Remarques 01 — l'activité réelle
+ *
+ * Depuis que les modules existent, le tableau de bord compte ce qu'ils
+ * enregistrent : demandes, devis, commandes, paiements, rendez-vous,
+ * clients, affiliation (`src/lib/admin/dashboard.ts`). Chaque indicateur
+ * exige la permission de consultation de son module et se compte sous la
+ * session : un compteur ne révèle jamais ce que le compte ne peut pas lire.
+ *
  * ## Aucun rechargement automatique
  *
  * Le prompt maître § 45-48 l'interdit. La page ne s'actualise que sur clic,
@@ -43,9 +52,10 @@ export default async function AdministrationPage() {
 
   const canSeeAdmins = context.can('admins.view');
 
-  const [administrators, invitations] = await Promise.all([
+  const [administrators, invitations, groups] = await Promise.all([
     canSeeAdmins ? listAdministrators() : Promise.resolve([]),
     canSeeAdmins ? listInvitations() : Promise.resolve([]),
+    loadDashboardIndicators(context),
   ]);
 
   const pending = invitations.filter((row) => invitationState(row) === 'EN_ATTENTE').length;
@@ -70,7 +80,38 @@ export default async function AdministrationPage() {
         </div>
       ) : null}
 
+      {groups.map((group) => (
+        <section className="admin-dash" key={group.title} aria-labelledby={`dash-${group.title}`}>
+          <h2 className="admin-dash__title" id={`dash-${group.title}`}>
+            {group.title}
+          </h2>
+          <div className="admin-stats">
+            {group.indicators.map((indicator) => (
+              <Link
+                key={indicator.key}
+                href={indicator.href}
+                className={`admin-stat admin-stat--link${indicator.attention ? ' admin-stat--attention' : ''}`}
+              >
+                <span className="admin-stat__label">{indicator.label}</span>
+                <span className="admin-stat__value">{indicator.value === null ? '—' : indicator.value}</span>
+                {indicator.note ? <span className="admin-stat__note">{indicator.note}</span> : null}
+              </Link>
+            ))}
+          </div>
+        </section>
+      ))}
+
+      {groups.length === 0 && !canSeeAdmins ? (
+        <div className="admin-notice">
+          <p>Aucun indicateur ne vous est ouvert : ils suivent les permissions de consultation de chaque module.</p>
+        </div>
+      ) : null}
+
       {canSeeAdmins ? (
+        <section className="admin-dash" aria-labelledby="dash-gouvernance">
+        <h2 className="admin-dash__title" id="dash-gouvernance">
+          Gouvernance
+        </h2>
         <div className="admin-stats">
           <div className="admin-stat">
             <p className="admin-stat__label">Administrateurs</p>
@@ -95,6 +136,7 @@ export default async function AdministrationPage() {
             <p className="admin-stat__note">selon vos permissions</p>
           </div>
         </div>
+        </section>
       ) : null}
 
       <section className="admin-card">
