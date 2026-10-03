@@ -25,7 +25,7 @@ import { redirect } from 'next/navigation';
 
 import type { AdminActionState } from '@/lib/admin/actions';
 import { affiliateLink } from '@/lib/affiliation/affiliates';
-import { moroniLocalToIso } from '@/lib/affiliation/time';
+import { moroniLocalToIso, resolveEffectiveStart } from '@/lib/affiliation/time';
 import { validateRule, type Rule, type Tier } from '@/lib/domain/affiliation';
 import {
   renderAffiliateActivated,
@@ -363,9 +363,15 @@ export async function publishRule(_previous: AdminActionState, formData: FormDat
     }
     if (kind === 'TIERED' && !tiers) return ko('La grille de paliers est illisible.');
 
-    const effectiveRaw = field(formData, 'effective_at', 20);
-    const effectiveAt = effectiveRaw ? moroniLocalToIso(effectiveRaw) : null;
-    if (effectiveRaw && !effectiveAt) return ko('Date d’effet invalide.');
+    // Immédiatement (la base prend son `now()`) ou une date ET une heure de
+    // Moroni strictement à venir — jamais un minuit implicite.
+    const start = resolveEffectiveStart(
+      field(formData, 'effective_mode', 10),
+      field(formData, 'effective_date', 10),
+      field(formData, 'effective_time', 5),
+    );
+    if (!start.ok) return ko(start.message);
+    const effectiveAt = start.iso;
 
     // Le moteur dit, avant la base, ce qui cloche dans la configuration.
     const draft: Rule = {

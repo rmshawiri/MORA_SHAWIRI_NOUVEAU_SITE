@@ -876,7 +876,8 @@
   border-top: 1px solid var(--border);
 }
 
-.admin-check input[type='checkbox'] {
+.admin-check input[type='checkbox'],
+.admin-check input[type='radio'] {
   margin-top: 4px;
   width: 18px;
   height: 18px;

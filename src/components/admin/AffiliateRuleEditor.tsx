@@ -13,6 +13,7 @@ import {
   type Rule,
   type Tier,
 } from '@/lib/domain/affiliation';
+import { moroniToday } from '@/lib/affiliation/time';
 
 /**
  * Publication d'une règle de commission — phase 4H-3.
@@ -65,6 +66,12 @@ export default function AffiliateRuleEditor({
   const [max, setMax] = useState('');
   const [minBase, setMinBase] = useState('');
   const [derogation, setDerogation] = useState(false);
+  const [startMode, setStartMode] = useState<'IMMEDIAT' | 'PROGRAMME'>('IMMEDIAT');
+  const [startDate, setStartDate] = useState('');
+  const [startTime, setStartTime] = useState('');
+  // Lue au choix « programmée », jamais au rendu : la date du jour à Moroni
+  // borne le calendrier sans risque d'écart entre serveur et navigateur.
+  const [today, setToday] = useState<string | undefined>(undefined);
   const [tiers, setTiers] = useState<TierRow[]>([
     { to: '', mode: 'rate', value: '', min: '', max: '', label: '' },
   ]);
@@ -277,17 +284,78 @@ export default function AffiliateRuleEditor({
         </div>
       ) : null}
 
-      <div className="admin-form__grid">
-        <label className="admin-field">
-          <span className="admin-field__label">Date d’effet (heure de Moroni)</span>
-          <input className="admin-input" type="datetime-local" name="effective_at" />
-          <span className="admin-field__hint">Vide : immédiatement. Jamais dans le passé.</span>
+      <fieldset className="admin-fieldset">
+        <legend>Prise d’effet</legend>
+        <label className="admin-check">
+          <input
+            type="radio"
+            name="effective_mode"
+            value="IMMEDIAT"
+            checked={startMode === 'IMMEDIAT'}
+            onChange={() => setStartMode('IMMEDIAT')}
+          />
+          <span>
+            Immédiatement
+            <small>La règle est en vigueur dès la publication.</small>
+          </span>
         </label>
-        <label className="admin-field">
-          <span className="admin-field__label">Libellé (facultatif)</span>
-          <input className="admin-input" name="label" maxLength={120} />
+        <label className="admin-check">
+          <input
+            type="radio"
+            name="effective_mode"
+            value="PROGRAMME"
+            checked={startMode === 'PROGRAMME'}
+            onChange={() => {
+              setStartMode('PROGRAMME');
+              setToday(moroniToday());
+            }}
+          />
+          <span>
+            À une date et une heure à venir
+            <small>La règle reste « Programmée » jusqu’à cet instant, heure de Moroni (UTC+3).</small>
+          </span>
         </label>
-      </div>
+        {startMode === 'PROGRAMME' ? (
+          <div className="admin-form__grid">
+            <label className="admin-field">
+              <span className="admin-field__label">Date (heure de Moroni)</span>
+              <input
+                className="admin-input"
+                type="date"
+                name="effective_date"
+                required
+                min={today}
+                value={startDate}
+                onChange={(e) => setStartDate(e.target.value)}
+              />
+            </label>
+            <label className="admin-field">
+              <span className="admin-field__label">Heure (heure de Moroni)</span>
+              <input
+                className="admin-input"
+                type="time"
+                name="effective_time"
+                required
+                step={60}
+                value={startTime}
+                onChange={(e) => setStartTime(e.target.value)}
+              />
+            </label>
+          </div>
+        ) : null}
+        {startMode === 'PROGRAMME' ? (
+          <p className="admin-field__hint">
+            {startDate && startTime
+              ? `La règle commencera le ${startDate.split('-').reverse().join('/')} à ${startTime}, heure de Moroni.`
+              : 'Indiquez la date et l’heure : aucune heure n’est supposée.'}
+          </p>
+        ) : null}
+      </fieldset>
+
+      <label className="admin-field">
+        <span className="admin-field__label">Libellé (facultatif)</span>
+        <input className="admin-input" name="label" maxLength={120} />
+      </label>
 
       {ownerType === 'AFFILIATE' && canDerogate ? (
         <>
