@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { ArrowRight, Check, Whatsapp } from '@/components/ui/Icon';
 import { CONTACT_BUDGETS, CONTACT_SUBJECTS } from '@/content/contact';
 import type { OfferContext } from '@/lib/catalogue/public';
+import { QUANTITY_MAX, QUANTITY_MIN, clampQuantity } from '@/lib/catalogue/quantity';
 import { site, whatsappLink } from '@/lib/site';
 
 type Status = 'idle' | 'sending' | 'sent' | 'error';
@@ -57,14 +58,12 @@ const SERVER_MESSAGES: Record<string, string> = {
   send_failed:
     'Votre demande n’a pas pu être transmise. Vos informations sont conservées ci-dessous : réessayez, ou passez par WhatsApp.',
   invalid_email: 'L’adresse e-mail saisie n’a pas été acceptée. Vérifiez-la puis réessayez.',
+  invalid_quantity: 'La quantité indiquée n’a pas été acceptée : elle doit être comprise entre 1 et 99.',
 };
 
 const NBSP = String.fromCharCode(0xa0);
 /** `45 000 KMF` — montant indicatif affiché pendant la saisie. */
 const kmf = (value: number) => `${Math.round(value).toString().replace(/\B(?=(\d{3})+(?!\d))/g, NBSP)}${NBSP}KMF`;
-
-/** Quantité commandée : un entier de 1 à 99 (même borne que le serveur). */
-const QUANTITIES = Array.from({ length: 99 }, (_, index) => String(index + 1));
 
 const GENERIC_ERROR =
   'Votre demande n’a pas pu être envoyée. Vos informations sont conservées ci-dessous : réessayez, ou écrivez-nous sur WhatsApp.';
@@ -122,8 +121,10 @@ export default function ContactForm({ offers }: ContactFormProps) {
    * Aucun paiement n'est demandé ni enregistré à cette étape.
    */
   const pricedOffer = offer?.priceAmount ? offer : null;
-  const [quantity, setQuantity] = useState('1');
-  const estimate = pricedOffer ? pricedOffer.priceAmount! * Number(quantity) : null;
+  /** Quantité commandée, de 1 à 99 : les bornes du serveur (remarques 02). */
+  const [quantity, setQuantity] = useState(QUANTITY_MIN);
+  const changeQuantity = (delta: number) => setQuantity((current) => clampQuantity(current + delta));
+  const estimate = pricedOffer ? pricedOffer.priceAmount! * quantity : null;
 
   // La confirmation est un changement d'état majeur : elle prend le focus.
   useEffect(() => {
@@ -195,7 +196,7 @@ export default function ContactForm({ offers }: ContactFormProps) {
        */
       offreSlug: offer?.id ?? '',
       /** Remarques 01 : quantité d'une offre à prix défini, bornée côté serveur. */
-      ...(pricedOffer ? { quantite: quantity } : {}),
+      ...(pricedOffer ? { quantite: String(quantity) } : {}),
     };
 
     try {
@@ -234,7 +235,7 @@ export default function ContactForm({ offers }: ContactFormProps) {
       ...(offer ? [{ key: 'Offre concernée', value: offer.title }] : []),
       ...(pricedOffer && estimate !== null
         ? [
-            { key: 'Quantité', value: quantity },
+            { key: 'Quantité', value: String(quantity) },
             { key: 'Montant indicatif', value: `${kmf(estimate)} (${pricedOffer.priceLabel}${pricedOffer.priceNote ? ` ${pricedOffer.priceNote.toLowerCase()}` : ''})` },
           ]
         : []),
@@ -322,14 +323,37 @@ export default function ContactForm({ offers }: ContactFormProps) {
           </p>
           <div className="form__row">
             <div className="field">
-              <label htmlFor="quantite">Quantité</label>
-              <select id="quantite" name="quantite" value={quantity} onChange={(event) => setQuantity(event.target.value)}>
-                {QUANTITIES.map((value) => (
-                  <option key={value} value={value}>
-                    {value}
-                  </option>
-                ))}
-              </select>
+              <label id="quantite-label" htmlFor="quantite">
+                Quantité
+              </label>
+              {/* Remarques 02 : compteur − / + à la place de la liste de 1 à 99.
+                  Aux bornes, le bouton reste focalisable (`aria-disabled`) : un
+                  attribut `disabled` ferait perdre le focus au clavier. */}
+              <div className="qty" role="group" aria-labelledby="quantite-label">
+                <button
+                  type="button"
+                  className="qty__btn"
+                  aria-label="Diminuer la quantité"
+                  aria-controls="quantite"
+                  aria-disabled={quantity <= QUANTITY_MIN}
+                  onClick={() => changeQuantity(-1)}
+                >
+                  <span aria-hidden="true">−</span>
+                </button>
+                <output id="quantite" className="qty__value" aria-live="polite" aria-atomic="true">
+                  {quantity}
+                </output>
+                <button
+                  type="button"
+                  className="qty__btn"
+                  aria-label="Augmenter la quantité"
+                  aria-controls="quantite"
+                  aria-disabled={quantity >= QUANTITY_MAX}
+                  onClick={() => changeQuantity(1)}
+                >
+                  <span aria-hidden="true">+</span>
+                </button>
+              </div>
             </div>
             <div className="field">
               <label htmlFor="montant-indicatif">Montant indicatif</label>

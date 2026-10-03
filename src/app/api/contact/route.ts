@@ -11,6 +11,7 @@ import {
 } from '@/lib/emails/templates';
 import { attachReferral } from '@/lib/affiliation/attach';
 import { getPublicCatalogue } from '@/lib/catalogue/public';
+import { parseQuantity } from '@/lib/catalogue/quantity';
 import { clientKey, rateLimit } from '@/lib/rate-limit';
 import {
   persistAppointmentRequest,
@@ -115,8 +116,6 @@ const DETAIL_VALUE_MAX = 400;
  */
 const PERSIST_LIMITS = {
   offreSlug: 80,
-  /** Remarques 01 : quantité commandée d'une offre à prix défini. */
-  quantite: 3,
   rdvDateIso: 10,
   rdvCreneau: 80,
   rdvFormat: 80,
@@ -175,14 +174,17 @@ const kmf = (value: number) => `${Math.round(value).toString().replace(/\B(?=(\d
  * Parcours « prix défini » (remarques 01, A6). Le prix n'est jamais lu dans la
  * requête : il est relu dans le catalogue publié. Une offre sans prix, ou
  * inconnue, ne donne rien — la demande reste une demande de devis ordinaire.
+ *
+ * Remarques 02 : une quantité hors de 1 à 99 n'est plus ramenée à 1 en
+ * silence. La demande est refusée, avant tout enregistrement.
  */
-async function pricedSummary(offerSlug: string, rawQuantity: string): Promise<MailRow[] | null> {
+async function pricedSummary(offerSlug: string, rawQuantity: unknown): Promise<MailRow[] | null | 'invalid_quantity'> {
   if (!offerSlug) return null;
   const { offers } = await getPublicCatalogue();
   const offer = offers.find((entry) => entry.id === offerSlug);
   if (!offer?.priceAmount) return null;
-  const parsed = Number.parseInt(rawQuantity, 10);
-  const quantity = Number.isInteger(parsed) && parsed >= 1 && parsed <= 99 ? parsed : 1;
+  const quantity = parseQuantity(rawQuantity);
+  if (quantity === null) return 'invalid_quantity';
   return [
     { label: 'Formule', value: 'Offre à prix défini' },
     { label: 'Quantité', value: String(quantity) },
@@ -286,7 +288,11 @@ export async function POST(request: Request) {
   })();
 
   // Remarques 01 : récapitulatif d'une offre à prix défini, calculé ici.
-  const priced = kind === 'devis' ? await pricedSummary(offerSlug, readPersistField(raw, 'quantite')) : null;
+  const pricedResult = kind === 'devis' ? await pricedSummary(offerSlug, raw.quantite) : null;
+  if (pricedResult === 'invalid_quantity') {
+    return NextResponse.json({ ok: false, error: 'invalid_quantity' }, { status: 400 });
+  }
+  const priced = pricedResult;
   const details = [
     ...readDetails(raw.details).filter((row) => !PRICED_LABELS.has(row.label)),
     ...(priced ?? []),

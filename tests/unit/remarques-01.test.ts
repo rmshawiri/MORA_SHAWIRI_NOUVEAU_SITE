@@ -57,7 +57,8 @@ test('offre à prix défini : prix relu dans le catalogue, récapitulatif réser
   const priced = route.slice(route.indexOf('async function pricedSummary'));
   assert.match(priced, /await getPublicCatalogue\(\)/);
   assert.match(priced, /offer\?\.priceAmount/);
-  assert.match(priced, /parsed >= 1 && parsed <= 99/);
+  // Remarques 02 : la quantité hors bornes est refusée, plus ramenée à 1.
+  assert.match(priced, /const quantity = parseQuantity\(rawQuantity\);\n  if \(quantity === null\) return 'invalid_quantity';/);
   assert.match(route, /readDetails\(raw\.details\)\.filter\(\(row\) => !PRICED_LABELS\.has\(row\.label\)\)/);
   assert.match(route, /return priced \? 'boutique-prix' : 'boutique'/);
   // Un seul workflow : la même fonction de base que la demande de devis.

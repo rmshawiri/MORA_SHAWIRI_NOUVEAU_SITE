@@ -1807,3 +1807,38 @@ textarea.rdv-input { min-height: 132px; resize: vertical; }
   border: 1.5px dashed var(--border); border-radius: var(--r-btn);
   font-family: var(--font-display);
 }
+
+/* Compteur de quantité d'une offre à prix défini (remarques 02) — remplace la
+   liste déroulante de 1 à 99. Sélecteurs nouveaux, aucune règle modifiée ;
+   jetons du design system uniquement. Zones tactiles de 48 px, celles des
+   champs du formulaire. Le compteur ne s'étire pas dans sa cellule : c'est
+   l'étirement de la rangée qui donnait à la liste sa hauteur démesurée. */
+.qty {
+  display: inline-flex; align-items: stretch;
+  justify-self: start; align-self: start;
+  background: var(--white);
+  border: 1.5px solid var(--border); border-radius: var(--r-btn);
+  overflow: hidden;
+  transition: border-color var(--t-medium);
+}
+.qty:hover { border-color: #cbd3dd; }
+.qty__btn {
+  display: grid; place-items: center; flex: none;
+  width: 48px; min-height: 48px; padding: 0;
+  background: var(--gray-light); color: var(--mora-blue);
+  border: 0; cursor: pointer;
+  font-family: var(--font-display); font-size: 1.25rem; font-weight: 600; line-height: 1;
+  transition: background var(--t-quick);
+}
+.qty__btn:hover { background: var(--gray-secondary); }
+.qty__btn:focus-visible { outline: 3px solid var(--shawiri-gold); outline-offset: -3px; border-radius: 0; }
+.qty__btn[aria-disabled="true"] { cursor: not-allowed; opacity: .45; }
+.qty__btn[aria-disabled="true"]:hover { background: var(--gray-light); }
+.qty__value {
+  display: grid; place-items: center;
+  min-width: 56px; padding: 0 var(--sp-2);
+  border-inline: 1.5px solid var(--border);
+  font-family: var(--font-display); font-size: 1.0625rem; font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--mora-blue-deep);
+}
