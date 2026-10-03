@@ -1512,13 +1512,19 @@ async function teardown(target, accessToken, admin, state, before) {
     .select('id', { count: 'exact', head: true });
   check('aucun justificatif de contrôle ne subsiste', proofs === before.counts.payment_proofs);
 
+  // Depuis le 2026-10-03, le bucket porte de vrais justificatifs (commande
+  // réelle) : seuls comptent les dossiers qu'aucun justificatif en base ne
+  // désigne — ceux d'un contrôle.
   const { data: leftoverObjects } = await admin.storage
     .from('paiements-justificatifs')
     .list('', { limit: 100 });
+  const { data: realProofs } = await admin.from('payment_proofs').select('storage_path');
+  const realFolders = new Set((realProofs ?? []).map((row) => row.storage_path.split('/')[0]));
+  const orphans = (leftoverObjects ?? []).filter((entry) => !realFolders.has(entry.name));
   check(
     'aucun fichier de contrôle ne subsiste dans le bucket',
-    (leftoverObjects ?? []).length === 0,
-    `${(leftoverObjects ?? []).length} dossier(s)`,
+    orphans.length === 0,
+    `${orphans.length} dossier(s) orphelin(s)`,
   );
 
   const { data: accounts } = await admin.auth.admin.listUsers({ perPage: 1000 });

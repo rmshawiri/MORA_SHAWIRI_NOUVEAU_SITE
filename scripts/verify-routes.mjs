@@ -2050,8 +2050,10 @@ async function commerceRouteChecks(target, base) {
     const residue = await runSql(
       target,
       accessToken,
-      `select (select count(*) from public.orders)::int as commandes,
-              (select count(*) from public.documents where doc_type = 'CMCL')::int as pieces;`,
+      // Depuis le 2026-10-03, des commandes réelles existent : seules
+      // comptent celles nées pendant ce contrôle.
+      `select (select count(*) from public.orders where created_at >= '${startedAt}')::int as commandes,
+              (select count(*) from public.documents where doc_type = 'CMCL' and issued_at >= '${startedAt}')::int as pieces;`,
     ).catch(() => null);
 
     check(
