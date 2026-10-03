@@ -72,7 +72,9 @@ export default async function DemandePage({
 }) {
   const context = await requireModule('demandes');
   const { reference } = await params;
-  const { affiliation: affiliationNotice, edition } = await searchParams;
+  const { affiliation: affiliationNotice, edition, resultat, devis: issuedRef } = await searchParams;
+  const result = typeof resultat === 'string' && Object.hasOwn(RESULTS, resultat) ? RESULTS[resultat]! : null;
+  const issued = typeof issuedRef === 'string' && /^MORA-DVCL-[A-Z]+\d{4}$/.test(issuedRef) ? issuedRef : null;
   const editing = edition === 'brouillon';
 
   const detail = await findQuoteRequest(decodeURIComponent(reference));
@@ -104,6 +106,26 @@ export default async function DemandePage({
       label: `${QUOTE_STATUS_LABELS[quote.status].toLowerCase()}, ${formatAmount(quote.amount, quote.currency)}`,
       pending: quote.status === 'ENVOYE',
     }));
+  // Une nouvelle version part du contenu de la plus récente version émise
+  // (lignes, objet, observations) : on corrige, on ne ressaisit pas.
+  const previous = quotes.find((quote) => replaceable.some((entry) => entry.id === quote.id)) ?? null;
+  const newInitial = previous
+    ? {
+        quoteId: null,
+        summary: previous.summary,
+        notes: previous.notes ?? '',
+        validUntil: previous.valid_until && previous.valid_until >= today ? previous.valid_until : '',
+        replaces: previous.status === 'ENVOYE' ? previous.id : '',
+        lines: draftLines(workspace.itemsByQuote.get(previous.id) ?? [], previous),
+      }
+    : {
+        quoteId: null,
+        summary: '',
+        notes: '',
+        validUntil: '',
+        replaces: '',
+        lines: suggestedLines(request, workspace.offer),
+      };
 
   return (
     <AdminPage
@@ -264,6 +286,12 @@ export default async function DemandePage({
           />
         ) : null}
       </section>
+
+      {result ? (
+        <div className={`admin-notice ${result.ok ? 'admin-notice--ok' : 'admin-notice--error'}`} role="status">
+          <p>{result.text.replace('{devis}', issued ?? 'Le devis')}</p>
+        </div>
+      ) : null}
 
       <section className="admin-card" id="devis">
         <div className="admin-card__head">
@@ -449,7 +477,7 @@ export default async function DemandePage({
 
         {!draft && canCreateQuote && request.status !== 'ANNULEE' ? (
           <div className="admin-card__foot" id="devis-nouveau">
-            <h3>Préparer un devis</h3>
+            <h3>{previous ? 'Préparer une nouvelle version du devis' : 'Préparer un devis'}</h3>
             <dl className="admin-meta quote-editor__context">
               <div>
                 <dt>Client</dt>
@@ -472,23 +500,22 @@ export default async function DemandePage({
                 <dt>Offre demandée</dt>
                 <dd>
                   {workspace.offer
-                    ? `${workspace.offer.title}${workspace.offer.price !== null ? ` — prix du catalogue : ${formatAmount(String(workspace.offer.price), 'KMF')}${workspace.offer.priceLabel ? ` (${workspace.offer.priceLabel})` : ''}` : ' — sur devis'}`
+                    ? `${workspace.offer.title}${workspace.offer.price !== null ? ` — prix du catalogue : ${formatAmount(String(workspace.offer.price), 'KMF')}` : ' — sur devis'}`
                     : (request.offer_title ?? 'Aucune offre précise')}
                   {quantityAsked ? ` · quantité demandée : ${quantityAsked}` : ''}
                 </dd>
               </div>
             </dl>
+            {previous ? (
+              <p className="admin-field__hint">
+                Prérempli à partir du devis {previous.reference} : corrigez ce qui change, puis enregistrez la
+                nouvelle version.
+              </p>
+            ) : null}
             <QuoteEditor
               reference={request.reference}
               currency="KMF"
-              initial={{
-                quoteId: null,
-                summary: '',
-                notes: '',
-                validUntil: '',
-                replaces: replaceable.find((entry) => entry.pending)?.id ?? '',
-                lines: suggestedLines(request, workspace.offer),
-              }}
+              initial={newInitial}
               replaceable={replaceable}
               today={today}
             />
@@ -717,6 +744,17 @@ function QuoteLinesTable({ items, quote }: { items: readonly QuoteItemRow[]; quo
     </>
   );
 }
+
+/** Retours d'action, lus dans une liste fermée — jamais un texte reçu. */
+const RESULTS: Record<string, { ok: boolean; text: string }> = {
+  'brouillon-cree': { ok: true, text: 'Le devis a été créé en brouillon. Vérifiez l’aperçu avant de l’émettre : il n’est pas encore envoyé.' },
+  'brouillon-maj': { ok: true, text: 'Le brouillon a été mis à jour. Il n’est pas encore envoyé.' },
+  'devis-envoye': { ok: true, text: '{devis} a été émis et l’e-mail « devis disponible » est parti chez le client.' },
+  'devis-emis-sans-mail': {
+    ok: false,
+    text: '{devis} a été émis, mais l’e-mail au client n’a pas pu partir : renvoyez-le depuis la rubrique « E-mails » ci-dessous.',
+  },
+};
 
 /** Origine lisible d'une demande ; une valeur inconnue s'affiche telle quelle. */
 const SOURCE_LABELS: Record<string, string> = {

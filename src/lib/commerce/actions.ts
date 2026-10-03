@@ -36,6 +36,7 @@
  */
 
 import { revalidatePath } from 'next/cache';
+import { redirect } from 'next/navigation';
 
 import type { AdminActionState } from '@/lib/admin/actions';
 import { archiveIssuedCommercialDocument } from '@/lib/documents/commercial-documents';
@@ -468,6 +469,7 @@ export async function issueOrderDocument(
   _previous: AdminActionState,
   formData: FormData,
 ): Promise<AdminActionState> {
+  let destination: string;
   try {
     await assertPermission('orders.update', 'commerce.commande.document');
 
@@ -487,11 +489,12 @@ export async function issueOrderDocument(
     await archiveIssuedCommercialDocument(data.reference);
 
     refresh();
-    return ok(`Le document de commande ${data.reference} est établi. Le client le retrouve dans Mes documents.`);
+    destination = `/administration/commandes/${data.reference}/?resultat=bon-de-commande`;
   } catch (error) {
     if (error instanceof PermissionDenied) return ko(MESSAGES.denied);
     return ko(MESSAGES.unexpected);
   }
+  redirect(destination);
 }
 
 /* ===================================================== REMBOURSEMENTS === */

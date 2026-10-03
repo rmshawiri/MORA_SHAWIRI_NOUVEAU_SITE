@@ -24,7 +24,7 @@ export default function SignOutButton({
 }: {
   label?: string;
   /** `item` : entrée du menu du compte de l'en-tête public. */
-  variant?: 'ghost' | 'primary' | 'light' | 'item' | 'admin';
+  variant?: 'ghost' | 'primary' | 'light' | 'item' | 'admin' | 'topbar';
   destination?: 'accueil';
 }) {
   return (
@@ -43,7 +43,9 @@ function Button({ label, variant }: { label: string; variant: string }) {
       ? 'header-account__item header-account__item--button'
       : variant === 'admin'
         ? 'admin-signout'
-        : `btn btn--${variant}`;
+        : variant === 'topbar'
+          ? 'admin-signout admin-signout--topbar'
+          : `btn btn--${variant}`;
 
   return (
     <button className={className} type="submit" disabled={pending} role={variant === 'item' ? 'menuitem' : undefined}>

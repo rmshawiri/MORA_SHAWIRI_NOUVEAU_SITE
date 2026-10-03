@@ -72,7 +72,7 @@ export default async function CommandeFichePage({
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const { reference } = await params;
-  const { affiliation: affiliationNotice } = await searchParams;
+  const { affiliation: affiliationNotice, resultat } = await searchParams;
   const context = await requireModule('commandes');
 
   const detail = await findOrder(decodeURIComponent(reference));
@@ -305,6 +305,12 @@ export default async function CommandeFichePage({
       ) : null}
 
       {/* --------------------------------------- document de commande --- */}
+
+      {resultat === 'bon-de-commande' ? (
+        <div className="admin-notice admin-notice--ok" role="status">
+          <p>Le document de commande est établi. Le client le retrouve dans Mes documents.</p>
+        </div>
+      ) : null}
 
       {orderDocumentReady || canEstablishOrderDocument ? (
         <section className="admin-card">

@@ -1298,7 +1298,7 @@
 .quote-lines__head,
 .quote-line {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 84px 124px 112px 124px 132px;
+  grid-template-columns: minmax(0, 1fr) 72px 112px 100px 116px 184px;
   gap: var(--sp-2) var(--sp-3);
   align-items: start;
 }
@@ -1539,4 +1539,29 @@
 
 .admin-stat--attention {
   border-left: 3px solid var(--shawiri-gold);
+}
+
+/* Barre supérieure mobile : déconnexion à droite, un seul geste. */
+.admin-topbar__signout {
+  margin-left: auto;
+}
+
+.admin-signout--topbar {
+  width: auto;
+  min-height: 40px;
+  padding: 6px 12px;
+  font-size: var(--text-caption);
+  color: var(--white);
+  background: rgba(255, 255, 255, .1);
+  border-color: rgba(255, 255, 255, .28);
+  box-shadow: none;
+}
+
+.admin-signout--topbar:hover {
+  color: var(--white);
+  border-color: var(--white);
+}
+
+.admin-signout--topbar:focus-visible {
+  outline-color: var(--white);
 }

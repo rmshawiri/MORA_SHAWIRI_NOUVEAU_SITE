@@ -41,6 +41,7 @@
  */
 
 import { revalidatePath } from 'next/cache';
+import { redirect } from 'next/navigation';
 
 import type { AdminActionState } from '@/lib/admin/actions';
 import { formatAmount } from '@/lib/commerce/labels';
@@ -296,6 +297,7 @@ export async function saveQuoteDraft(
   _previous: AdminActionState,
   formData: FormData,
 ): Promise<AdminActionState> {
+  let destination: string;
   try {
     const quoteId = field(formData, 'quoteId');
     await assertPermission(quoteId ? 'quotes.update' : 'quotes.create', 'relation.devis.brouillon');
@@ -320,7 +322,7 @@ export async function saveQuoteDraft(
     const supabase = await getServerSupabaseClient();
     if (!supabase) return ko(MESSAGES.noSupabase);
 
-    const { error } = await supabase.rpc('save_quote_draft', {
+    const { data: saved, error } = await supabase.rpc('save_quote_draft', {
       p_request_reference: reference || null,
       p_quote_id: quoteId || null,
       p_summary: summary,
@@ -338,15 +340,20 @@ export async function saveQuoteDraft(
     }
 
     refresh();
-    return ok(
-      quoteId
-        ? 'Le brouillon a été mis à jour. Il n’est pas encore envoyé.'
-        : 'Le devis a été créé en brouillon. Il n’est pas encore envoyé.',
-    );
+    // Le brouillon enregistré remplace l'éditeur à l'écran : le message part
+    // avec la redirection (code fermé), sinon il disparaîtrait avec lui.
+    const { data: owner } = await supabase
+      .from('quote_requests')
+      .select('reference')
+      .eq('id', saved?.quote_request_id ?? '')
+      .maybeSingle();
+    if (!owner) return ok('Le brouillon a été enregistré. Il n’est pas encore envoyé.');
+    destination = `/administration/demandes/${owner.reference}/?resultat=${quoteId ? 'brouillon-maj' : 'brouillon-cree'}#devis-brouillon`;
   } catch (error) {
     if (error instanceof PermissionDenied) return ko(MESSAGES.denied);
     return ko(MESSAGES.unexpected);
   }
+  redirect(destination);
 }
 
 /**
@@ -365,6 +372,7 @@ export async function sendQuote(
   _previous: AdminActionState,
   formData: FormData,
 ): Promise<AdminActionState> {
+  let destination: string;
   try {
     const context = await assertPermission('quotes.manage', 'relation.devis.emission');
 
@@ -391,15 +399,18 @@ export async function sendQuote(
     await archiveIssuedCommercialDocument(data.reference);
 
     const mail = await notifyQuoteIssued(data.id, data.reference, context.auth.userId);
-    return mail === 'sent'
-      ? ok(`Le devis ${data.reference} a été émis et l’e-mail est parti chez le client.`)
-      : ok(
-          `Le devis ${data.reference} a été émis. L’e-mail au client n’a pas pu partir : renvoyez-le depuis la rubrique « E-mails » de cette demande.`,
-        );
+    const { data: owner } = await supabase
+      .from('quote_requests')
+      .select('reference')
+      .eq('id', data.quote_request_id)
+      .maybeSingle();
+    if (!owner) return ok(`Le devis ${data.reference} a été émis.`);
+    destination = `/administration/demandes/${owner.reference}/?resultat=${mail === 'sent' ? 'devis-envoye' : 'devis-emis-sans-mail'}&devis=${data.reference}#devis`;
   } catch (error) {
     if (error instanceof PermissionDenied) return ko(MESSAGES.denied);
     return ko(MESSAGES.unexpected);
   }
+  redirect(destination);
 }
 
 /**

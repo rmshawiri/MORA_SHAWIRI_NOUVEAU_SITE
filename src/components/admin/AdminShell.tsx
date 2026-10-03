@@ -106,6 +106,11 @@ export default function AdminShell({
         </button>
 
         <p className="admin-topbar__title">Espace de pilotage</p>
+
+        {/* Remarques 01 : sur téléphone, la déconnexion sans ouvrir le menu. */}
+        <div className="admin-topbar__signout">
+          <SignOutButton label="Me déconnecter" variant="topbar" />
+        </div>
       </header>
 
       <div className="admin__grid">
