@@ -14,7 +14,7 @@
  * documentaires) est éprouvé par `scripts/verify-facturation.mjs`.
  */
 
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -222,7 +222,17 @@ test('l’instantané est immuable, et son empreinte calculée par la base', () 
 });
 
 test('l’identité de l’émetteur en base est celle du site', () => {
-  const body = functionBody('document_issuer_identity');
+  // La définition en vigueur est la dernière : l'adresse officielle a changé
+  // le 2026-10-03 (remarques 01). Les instantanés déjà émis gardent la leur.
+  const marker = 'create or replace function public.document_issuer_identity(';
+  const current = readdirSync(resolve(ROOT, 'supabase', 'migrations'))
+    .filter((name) => name.endsWith('.sql'))
+    .sort()
+    .map((name) => readFileSync(resolve(ROOT, 'supabase', 'migrations', name), 'utf8').replace(/--[^\n]*/g, ''))
+    .filter((sql) => sql.includes(marker))
+    .pop()!;
+  const start = current.indexOf(marker);
+  const body = current.slice(start, current.indexOf('$fn$;', start));
   for (const value of [site.name, site.slogan, site.addressLabel, site.phone, site.email]) {
     assert.ok(body.includes(`'${value}'`), `${value} absent de document_issuer_identity()`);
   }

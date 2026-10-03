@@ -8,10 +8,13 @@ import CommerceReasonForm from '@/components/admin/CommerceReasonForm';
 import ConfirmForm from '@/components/admin/ConfirmForm';
 import OrderMoneyForm from '@/components/admin/OrderMoneyForm';
 import RelationSelectForm from '@/components/admin/RelationSelectForm';
+import OfficialDocumentActions from '@/components/documents/OfficialDocumentActions';
+import { isDocumentEstablished } from '@/lib/documents/commercial-documents';
 import {
   cancelOrder,
   completeRefund,
   issueInvoice,
+  issueOrderDocument,
   recordOfflinePayment,
   recordRefund,
   rejectPayment,
@@ -85,6 +88,9 @@ export default async function CommandeFichePage({
 
   const due = remainingDue(order.total_amount, order.paid_amount);
   const invoice = documents.find((document) => document.doc_type === 'FACL' && document.status === 'EMIS');
+  const orderDocumentReady = await isDocumentEstablished(order.document_id);
+  const canEstablishOrderDocument =
+    !orderDocumentReady && context.can('orders.update') && order.status !== 'NOUVELLE' && order.status !== 'ANNULEE';
 
   const transitions = ORDER_TRANSITIONS[order.status]
     .filter((status) => status !== 'ANNULEE')
@@ -294,6 +300,41 @@ export default async function CommandeFichePage({
                 variant="danger"
               />
             ) : null}
+          </div>
+        </section>
+      ) : null}
+
+      {/* --------------------------------------- document de commande --- */}
+
+      {orderDocumentReady || canEstablishOrderDocument ? (
+        <section className="admin-card">
+          <div className="admin-card__head">
+            <h2>Document de commande</h2>
+            <p>
+              {orderDocumentReady
+                ? `Le bon de commande ${order.reference} : son contenu est figé depuis son établissement, et le client le retrouve dans Mes documents.`
+                : 'Établir le bon de commande fige son contenu — lignes, totaux, règlement constaté — sous la référence de la commande. Aucun numéro supplémentaire n’est consommé.'}
+            </p>
+          </div>
+          {orderDocumentReady ? (
+            <OfficialDocumentActions reference={order.reference} title={`Bon de commande ${order.reference}`} />
+          ) : (
+            <ConfirmForm
+              action={issueOrderDocument}
+              fields={{ commande: order.id }}
+              trigger="Établir le document de commande"
+              title="Établir le document de commande ?"
+              consequence="Le contenu du bon de commande sera figé tel qu’il est maintenant, et le document apparaîtra dans l’espace du client. Une modification ultérieure des lignes ne le réécrira pas."
+              confirmLabel="Établir le document"
+              variant="gold"
+            />
+          )}
+        </section>
+      ) : order.status === 'NOUVELLE' && context.can('orders.update') ? (
+        <section className="admin-card">
+          <div className="admin-card__head">
+            <h2>Document de commande</h2>
+            <p>Le bon de commande s’établit une fois la commande confirmée.</p>
           </div>
         </section>
       ) : null}

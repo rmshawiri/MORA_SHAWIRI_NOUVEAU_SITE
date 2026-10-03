@@ -15,7 +15,10 @@ export const site = {
   locality: 'Moroni',
   region: 'Grande Comore',
   country: 'KM',
-  addressLabel: 'Moroni — Union des Comores',
+  // Adresse officielle (décision du propriétaire, 2026-10-03). Miroir de
+  // `document_issuer_identity()` en base, comparé par test.
+  streetAddress: 'Oasis, route les puffins',
+  addressLabel: 'Moroni Oasis, route les puffins',
   openingHours: 'Lun. – Sam. · 08H - 17H (Heure de Moroni)',
   phone: '+269 430 63 06',
   phoneHref: 'tel:+2694306306',

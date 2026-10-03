@@ -474,3 +474,30 @@
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
+
+/* ------------------------------------- Documents et devis (remarques 01) */
+
+/* Nature de la pièce devant sa référence : « Devis », « Facture »… */
+.espace .espace-doc-kind {
+  font-family: var(--font-display);
+  font-size: var(--text-caption);
+  font-weight: 700;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+  margin-right: 4px;
+}
+
+/* Précision sous une désignation de ligne. */
+.espace .espace-table__sub {
+  display: block;
+  font-weight: 400;
+  font-size: var(--text-caption);
+  color: var(--text-secondary);
+  margin-top: 2px;
+}
+
+.espace .espace-subtitle {
+  font-size: var(--text-small);
+  margin: var(--sp-4) 0 var(--sp-2);
+}

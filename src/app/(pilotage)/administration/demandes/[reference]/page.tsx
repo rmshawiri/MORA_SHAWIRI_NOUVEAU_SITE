@@ -3,19 +3,23 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 
 import AdminPage from '@/components/admin/AdminPage';
+import { EmailStatusBadge } from '@/components/admin/AffiliationBadges';
 import AffiliationTrace from '@/components/admin/AffiliationTrace';
 import ConfirmForm from '@/components/admin/ConfirmForm';
-import QuoteDraftForm from '@/components/admin/QuoteDraftForm';
+import QuoteEditor from '@/components/admin/QuoteEditor';
 import RelationNoteForm from '@/components/admin/RelationNoteForm';
 import RelationSelectForm from '@/components/admin/RelationSelectForm';
 import { listAdministrators } from '@/lib/admin/administrators';
 import { displayIdentity } from '@/lib/auth/identifiers';
+import { todayInComoros } from '@/lib/client/relation-rules';
+import { ORDER_STATUS_LABELS } from '@/lib/commerce/labels';
 import { requireModule } from '@/lib/rbac/guards';
 import {
   assignQuoteRequest,
   changeQuoteRequestStatus,
   deleteRelationNote,
   respondToQuote,
+  retryQuoteEmail,
   sendQuote,
 } from '@/lib/relation/actions';
 import {
@@ -29,7 +33,9 @@ import {
   QUOTE_STATUS_LABELS,
   QUOTE_TRANSITIONS,
 } from '@/lib/relation/admin';
-import type { Json, QuoteStatus } from '@/lib/supabase/types';
+import { draftLines, loadQuoteWorkspace, requestedQuantity, suggestedLines } from '@/lib/relation/quote-admin';
+import type { Json, QuoteRow, QuoteStatus } from '@/lib/supabase/types';
+import type { QuoteItemRow } from '@/lib/supabase/types-commercial';
 
 export const metadata: Metadata = {
   title: 'Demande',
@@ -66,7 +72,8 @@ export default async function DemandePage({
 }) {
   const context = await requireModule('demandes');
   const { reference } = await params;
-  const { affiliation: affiliationNotice } = await searchParams;
+  const { affiliation: affiliationNotice, edition } = await searchParams;
+  const editing = edition === 'brouillon';
 
   const detail = await findQuoteRequest(decodeURIComponent(reference));
 
@@ -79,11 +86,24 @@ export default async function DemandePage({
   const canManage = context.can('quotes.manage');
   const canUpdate = context.can('quotes.update');
   const canCreateQuote = context.can('quotes.create');
+  const canUpdateQuote = context.can('quotes.update');
 
   const administrators = canUpdate ? await listAdministrators() : [];
   const nextStatuses = offeredQuoteRequestStatuses(request.status);
   const draft = quotes.find((quote) => quote.status === 'BROUILLON') ?? null;
   const details = readDetails(request.details);
+  const workspace = await loadQuoteWorkspace(request, quotes);
+  const today = todayInComoros();
+  const quantityAsked = requestedQuantity(request.details);
+  // Une nouvelle version peut remplacer un devis émis sans réponse positive.
+  const replaceable = quotes
+    .filter((quote) => quote.reference && ['ENVOYE', 'REFUSE', 'EXPIRE'].includes(quote.status))
+    .map((quote) => ({
+      id: quote.id,
+      reference: quote.reference!,
+      label: `${QUOTE_STATUS_LABELS[quote.status].toLowerCase()}, ${formatAmount(quote.amount, quote.currency)}`,
+      pending: quote.status === 'ENVOYE',
+    }));
 
   return (
     <AdminPage
@@ -197,7 +217,7 @@ export default async function DemandePage({
               label: QUOTE_REQUEST_STATUS_LABELS[status],
             }))}
             submitLabel="Enregistrer le statut"
-            hint="« Devis envoyé » ne se choisit pas ici : ce statut s’obtient en émettant un devis."
+            hint="« Devis envoyé » s’obtient en émettant un devis ; « Acceptée » suit l’acceptation du devis. « Terminée » signifie que la prestation demandée a été réalisée et livrée."
           />
         ) : (
           <div className="admin-notice">
@@ -208,6 +228,23 @@ export default async function DemandePage({
             </p>
           </div>
         )}
+
+        {workspace.orders.length > 0 ? (
+          <div className="admin-notice">
+            {workspace.orders.map((order) => (
+              <p key={order.reference}>
+                Commande issue de cette demande :{' '}
+                <Link href={`/administration/commandes/${order.reference}/`}>
+                  <code>{order.reference}</code>
+                </Link>{' '}
+                — {ORDER_STATUS_LABELS[order.status]}.{' '}
+                {order.status === 'TERMINEE' || order.status === 'ANNULEE'
+                  ? ''
+                  : 'La livraison se constate sur la commande : passer la commande à « Terminée » termine aussi cette demande.'}
+              </p>
+            ))}
+          </div>
+        ) : null}
 
         {canUpdate && administrators.length > 0 ? (
           <RelationSelectForm
@@ -228,12 +265,12 @@ export default async function DemandePage({
         ) : null}
       </section>
 
-      <section className="admin-card">
+      <section className="admin-card" id="devis">
         <div className="admin-card__head">
           <h2>Devis</h2>
           <p>
-            Une demande de devis n’est pas un devis. Un devis naît d’un acte explicite, reste en
-            brouillon jusqu’à son émission, et ne consomme un numéro qu’à ce moment-là.
+            Une demande de devis n’est pas un devis. Un devis se prépare en brouillon, se vérifie en aperçu, puis
+            s’émet : il reçoit alors son numéro DVCL, son contenu est figé et le client reçoit un e-mail.
           </p>
         </div>
 
@@ -248,6 +285,7 @@ export default async function DemandePage({
               <thead>
                 <tr>
                   <th scope="col">Référence</th>
+                  <th scope="col">Objet</th>
                   <th scope="col">Montant</th>
                   <th scope="col">Statut</th>
                   <th scope="col">Validité</th>
@@ -264,7 +302,14 @@ export default async function DemandePage({
                       ) : (
                         <span className="admin-field__hint">Sans numéro (brouillon)</span>
                       )}
+                      {quote.replaces_quote_id ? (
+                        <span className="admin-field__hint">
+                          <br />
+                          remplace {quotes.find((entry) => entry.id === quote.replaces_quote_id)?.reference ?? 'une version précédente'}
+                        </span>
+                      ) : null}
                     </th>
+                    <td>{quote.summary.length > 80 ? `${quote.summary.slice(0, 79)}…` : quote.summary}</td>
                     <td>{formatAmount(quote.amount, quote.currency)}</td>
                     <td>
                       {quoteBadge(quote.status)}
@@ -282,14 +327,23 @@ export default async function DemandePage({
                     <td>{formatMoment(quote.sent_at)}</td>
                     <td>
                       {quote.reference ? (
-                        <Link
+                        <a
                           className="btn btn--ghost"
-                          href={`/api/documents/${quote.reference}/`}
+                          href={`/api/documents/${quote.reference}/?affichage=1`}
+                          target="_blank"
+                          rel="noreferrer"
                         >
                           Ouvrir le PDF
-                        </Link>
+                        </a>
                       ) : (
-                        '—'
+                        <a
+                          className="btn btn--ghost"
+                          href={`/api/devis/${quote.id}/apercu/?affichage=1`}
+                          target="_blank"
+                          rel="noreferrer"
+                        >
+                          Aperçu
+                        </a>
                       )}
                     </td>
                   </tr>
@@ -299,22 +353,75 @@ export default async function DemandePage({
           </div>
         )}
 
-        {draft && canManage ? (
-          <div className="admin-card__foot">
-            <h3>Émettre le devis en brouillon</h3>
-            <p>
-              L’émission passe par le Moteur de Documents : elle alloue le numéro sous verrou, crée
-              la pièce <code>DVCL</code>, et fait passer la demande à « Devis envoyé ». Elle exige
-              un second facteur vérifié. Aucun courriel n’est envoyé automatiquement.
-            </p>
-            <ConfirmForm
-              action={sendQuote}
-              fields={{ quoteId: draft.id }}
-              trigger={`Émettre le devis de ${formatAmount(draft.amount, draft.currency)}`}
-              consequence="Le devis recevra un numéro définitif et immuable, et la demande passera à « Devis envoyé ». Cette action ne s’annule pas : un devis émis ne peut plus qu’être accepté, refusé, expiré ou annulé."
-              confirmLabel="Émettre le devis"
-              variant="gold"
-            />
+        {draft ? (
+          <div className="admin-card__foot" id="devis-brouillon">
+            <h3>Brouillon en cours — {formatAmount(draft.amount, draft.currency)}</h3>
+
+            {editing && (canUpdateQuote || canCreateQuote) ? (
+              <QuoteEditor
+                reference={request.reference}
+                currency={draft.currency}
+                initial={{
+                  quoteId: draft.id,
+                  summary: draft.summary,
+                  notes: draft.notes ?? '',
+                  validUntil: draft.valid_until ?? '',
+                  replaces: draft.replaces_quote_id ?? '',
+                  lines: draftLines(workspace.itemsByQuote.get(draft.id) ?? [], draft),
+                }}
+                replaceable={replaceable}
+                today={today}
+                onCancelHref={`/administration/demandes/${request.reference}/#devis-brouillon`}
+              />
+            ) : (
+              <>
+                <QuoteLinesTable items={workspace.itemsByQuote.get(draft.id) ?? []} quote={draft} />
+                {draft.notes ? (
+                  <p className="admin-field__hint">
+                    <strong>Observations :</strong> {draft.notes}
+                  </p>
+                ) : null}
+                <div className="admin-actions">
+                  <a
+                    className="btn btn--ghost"
+                    href={`/api/devis/${draft.id}/apercu/?affichage=1`}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    Aperçu du devis (PDF)
+                  </a>
+                  {canUpdateQuote || canCreateQuote ? (
+                    <Link
+                      className="btn btn--ghost"
+                      href={`/administration/demandes/${request.reference}/?edition=brouillon#devis-brouillon`}
+                    >
+                      Modifier le brouillon
+                    </Link>
+                  ) : null}
+                </div>
+              </>
+            )}
+
+            {canManage && !editing ? (
+              <div className="admin-card__foot">
+                <h3>Émettre et envoyer le devis</h3>
+                <p>
+                  L’émission passe par le Moteur de Documents : elle alloue le numéro DVCL, fige le contenu du
+                  devis tel que l’aperçu le montre, et fait passer la demande à « Devis envoyé ».{' '}
+                  {lead?.email
+                    ? `Un e-mail prévient ensuite ${lead.email} que son devis est disponible, sans lien public vers le PDF.`
+                    : 'Aucune adresse e-mail n’est connue : aucun e-mail ne partira.'}
+                </p>
+                <ConfirmForm
+                  action={sendQuote}
+                  fields={{ quoteId: draft.id }}
+                  trigger={`Émettre et envoyer le devis de ${formatAmount(draft.amount, draft.currency)}`}
+                  consequence="Le devis recevra un numéro définitif, son contenu sera figé, la demande passera à « Devis envoyé » et le client recevra un e-mail. Cette action ne s’annule pas : une correction se fera par une nouvelle version."
+                  confirmLabel="Émettre et envoyer"
+                  variant="gold"
+                />
+              </div>
+            ) : null}
           </div>
         ) : null}
 
@@ -334,19 +441,107 @@ export default async function DemandePage({
                     label: QUOTE_STATUS_LABELS[status],
                   }))}
                   submitLabel="Enregistrer la réponse"
-                  hint="« Expiré » est une décision : aucune tâche ne l’applique d’office, faute de durée de validité officielle."
+                  hint="« Accepté » fait passer la demande à « Acceptée ». « Expiré » est une décision : aucune tâche ne l’applique d’office, faute de durée de validité officielle."
                 />
               </div>
             ) : null,
           )}
 
         {!draft && canCreateQuote && request.status !== 'ANNULEE' ? (
-          <div className="admin-card__foot">
-            <h3>Créer un devis</h3>
-            <QuoteDraftForm reference={request.reference} currency="KMF" />
+          <div className="admin-card__foot" id="devis-nouveau">
+            <h3>Préparer un devis</h3>
+            <dl className="admin-meta quote-editor__context">
+              <div>
+                <dt>Client</dt>
+                <dd>
+                  {lead?.full_name ?? '—'}
+                  {request.organisation ? ` — ${request.organisation}` : ''}
+                </dd>
+              </div>
+              <div>
+                <dt>Adresse e-mail</dt>
+                <dd>{lead?.email ?? '—'}</dd>
+              </div>
+              <div>
+                <dt>Demande d’origine</dt>
+                <dd>
+                  {request.reference} — {request.subject}
+                </dd>
+              </div>
+              <div>
+                <dt>Offre demandée</dt>
+                <dd>
+                  {workspace.offer
+                    ? `${workspace.offer.title}${workspace.offer.price !== null ? ` — prix du catalogue : ${formatAmount(String(workspace.offer.price), 'KMF')}${workspace.offer.priceLabel ? ` (${workspace.offer.priceLabel})` : ''}` : ' — sur devis'}`
+                    : (request.offer_title ?? 'Aucune offre précise')}
+                  {quantityAsked ? ` · quantité demandée : ${quantityAsked}` : ''}
+                </dd>
+              </div>
+            </dl>
+            <QuoteEditor
+              reference={request.reference}
+              currency="KMF"
+              initial={{
+                quoteId: null,
+                summary: '',
+                notes: '',
+                validUntil: '',
+                replaces: replaceable.find((entry) => entry.pending)?.id ?? '',
+                lines: suggestedLines(request, workspace.offer),
+              }}
+              replaceable={replaceable}
+              today={today}
+            />
+          </div>
+        ) : null}
+
+        {workspace.emails.length > 0 ? (
+          <div className="admin-card__foot" id="devis-emails">
+            <h3>E-mails</h3>
+            <div className="admin-table-wrap">
+              <table className="admin-table">
+                <caption className="sr-only">E-mails envoyés pour les devis de cette demande</caption>
+                <thead>
+                  <tr>
+                    <th scope="col">Objet</th>
+                    <th scope="col">Destinataire</th>
+                    <th scope="col">Résultat</th>
+                    <th scope="col">Dernière tentative</th>
+                    <th scope="col">Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {workspace.emails.map((email) => (
+                    <tr key={email.id}>
+                      <th scope="row">{email.subject}</th>
+                      <td>{email.recipient}</td>
+                      <td>
+                        <EmailStatusBadge status={email.status} />
+                        {email.last_error ? <span className="admin-field__hint"> {email.last_error}</span> : null}
+                      </td>
+                      <td>{formatMoment(email.last_attempt_at ?? email.created_at)}</td>
+                      <td>
+                        {email.status === 'ECHEC' && canManage ? (
+                          <ConfirmForm
+                            action={retryQuoteEmail}
+                            fields={{ email: email.id }}
+                            trigger="Renvoyer"
+                            consequence="Le même e-mail est renvoyé, à l’identique, au même destinataire."
+                            confirmLabel="Renvoyer l’e-mail"
+                          />
+                        ) : (
+                          '—'
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
         ) : null}
       </section>
+
 
       <section className="admin-card">
         <div className="admin-card__head">
@@ -448,6 +643,79 @@ function readDetails(value: Json): { label: string; value: string }[] {
   }
 
   return rows;
+}
+
+/** Lignes d'un brouillon, en lecture : ce que l'aperçu imprimera. */
+function QuoteLinesTable({ items, quote }: { items: readonly QuoteItemRow[]; quote: QuoteRow }) {
+  const rows =
+    items.length > 0
+      ? items.map((item) => ({
+          key: item.id,
+          designation: item.designation,
+          description: item.description,
+          quantity: String(Number(item.quantity)).replace('.', ','),
+          unit: formatAmount(String(item.unit_price), quote.currency),
+          discount: Number(item.discount_amount) > 0 ? `– ${formatAmount(String(item.discount_amount), quote.currency)}` : '—',
+          total: formatAmount(String(item.line_total), quote.currency),
+        }))
+      : [
+          {
+            key: quote.id,
+            designation: quote.summary,
+            description: null,
+            quantity: '1',
+            unit: formatAmount(quote.amount, quote.currency),
+            discount: '—',
+            total: formatAmount(quote.amount, quote.currency),
+          },
+        ];
+
+  return (
+    <>
+      <p className="admin-field__hint">
+        <strong>Objet :</strong> {quote.summary}
+        {quote.valid_until ? ` · valable jusqu’au ${formatDay(quote.valid_until)}` : ' · sans date d’expiration'}
+      </p>
+      <div className="admin-table-wrap">
+        <table className="admin-table">
+          <caption className="sr-only">Lignes du brouillon de devis</caption>
+          <thead>
+            <tr>
+              <th scope="col">Désignation</th>
+              <th scope="col">Qté</th>
+              <th scope="col">Prix unitaire</th>
+              <th scope="col">Remise</th>
+              <th scope="col">Montant</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row) => (
+              <tr key={row.key}>
+                <th scope="row">
+                  {row.designation}
+                  {row.description ? <span className="admin-field__hint">{row.description}</span> : null}
+                </th>
+                <td>{row.quantity}</td>
+                <td>{row.unit}</td>
+                <td>{row.discount}</td>
+                <td>{row.total}</td>
+              </tr>
+            ))}
+          </tbody>
+          <tfoot>
+            <tr>
+              <th scope="row" colSpan={4}>
+                Total
+              </th>
+              <td>
+                <strong>{formatAmount(quote.amount, quote.currency)}</strong>
+              </td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+    </>
+  );
 }
 
 function quoteBadge(status: QuoteStatus) {

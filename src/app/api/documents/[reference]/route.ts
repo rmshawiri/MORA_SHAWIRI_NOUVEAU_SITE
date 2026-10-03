@@ -35,6 +35,7 @@
 import { NextResponse } from 'next/server';
 
 import { getAffiliateDocumentPdf, isAffiliateDocumentType } from '@/lib/documents/affiliate-documents';
+import { getCommercialDocumentPdf, isCommercialType } from '@/lib/documents/commercial-documents';
 import { getInvoicePdf } from '@/lib/documents/invoices';
 import { getDocumentByReference, renderDocument } from '@/lib/documents/service';
 import { documentFileName, parseReference } from '@/lib/domain/documents';
@@ -147,6 +148,27 @@ export async function GET(
   const type = parseReference(reference)?.type;
   if (type && isAffiliateDocumentType(type)) {
     const piece = await getAffiliateDocumentPdf(reference);
+    if (!piece) return refuse();
+
+    await recordAuditEvent({
+      action: 'documents.telechargement',
+      resourceType: 'document',
+      resourceId: reference,
+      result: 'SUCCES',
+      metadata: { type, source: piece.source },
+    });
+
+    return pdfResponse(piece.bytes, piece.fileName, piece.fileName, inline);
+  }
+
+  /*
+   * Devis (DVCL) et document de commande (CMCL) — corrections post-4I : rendus
+   * depuis leur instantané figé, ou servis depuis leur archive vérifiée. Sans
+   * instantané, il n'y a pas encore de pièce à remettre : aucun repli sur la
+   * fiche technique de 4D.
+   */
+  if (type && isCommercialType(type)) {
+    const piece = await getCommercialDocumentPdf(reference);
     if (!piece) return refuse();
 
     await recordAuditEvent({

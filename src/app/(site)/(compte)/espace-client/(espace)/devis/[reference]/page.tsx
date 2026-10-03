@@ -4,6 +4,7 @@ import { notFound } from 'next/navigation';
 
 import { SpaceCard } from '@/components/affiliation/SpaceUi';
 import ClientConfirmAction from '@/components/client/ClientConfirmAction';
+import OfficialDocumentActions from '@/components/documents/OfficialDocumentActions';
 import { formatClientDate } from '@/lib/client/labels';
 import { awaitsDecision, myQuote, todayInComoros } from '@/lib/client/relation';
 import { respondToMyQuote } from '@/lib/client/relation-actions';
@@ -39,7 +40,7 @@ export default async function MonDevisPage({
 
   const detail = await myQuote(space, decodeURIComponent(reference).toUpperCase());
   if (!detail) notFound();
-  const { quote, request, serviceTitle } = detail;
+  const { quote, request, serviceTitle, lines, documentStatus } = detail;
   const today = todayInComoros();
   const open = awaitsDecision(quote, today);
   const lapsed = quote.status === 'ENVOYE' && !open;
@@ -93,7 +94,69 @@ export default async function MonDevisPage({
 
       <SpaceCard title="Contenu du devis">
         <p className="espace-longtext">{quote.summary}</p>
+        {lines.length > 0 ? (
+          <div className="espace-table-wrap">
+            <table className="espace-table">
+              <caption className="sr-only">Lignes du devis</caption>
+              <thead>
+                <tr>
+                  <th scope="col">Prestation</th>
+                  <th scope="col">Quantité</th>
+                  <th scope="col">Prix unitaire</th>
+                  <th scope="col">Montant</th>
+                </tr>
+              </thead>
+              <tbody>
+                {lines.map((line) => (
+                  <tr key={line.id}>
+                    <th scope="row">
+                      {line.designation}
+                      {line.description ? <span className="espace-table__sub">{line.description}</span> : null}
+                    </th>
+                    <td>{String(Number(line.quantity)).replace('.', ',')}</td>
+                    <td>
+                      {formatAmount(line.unit_price, quote.currency)}
+                      {Number(line.discount_amount) > 0 ? (
+                        <span className="espace-table__sub">remise {formatAmount(line.discount_amount, quote.currency)}</span>
+                      ) : null}
+                    </td>
+                    <td>{formatAmount(line.line_total, quote.currency)}</td>
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot>
+                <tr>
+                  <th scope="row" colSpan={3}>
+                    Total
+                  </th>
+                  <td>
+                    <strong>{formatAmount(quote.amount, quote.currency)}</strong>
+                  </td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        ) : null}
+        {quote.notes ? (
+          <>
+            <h3 className="espace-subtitle">Observations</h3>
+            <p className="espace-longtext">{quote.notes}</p>
+          </>
+        ) : null}
       </SpaceCard>
+
+      {documentStatus === 'EMIS' || documentStatus === 'REMPLACE' ? (
+        <SpaceCard
+          title="Le devis au format PDF"
+          intro={
+            documentStatus === 'REMPLACE'
+              ? 'Ce devis a été remplacé par une version plus récente ; le PDF reste consultable et l’indique.'
+              : 'Le document officiel, tel qu’il a été émis. Il reste aussi disponible dans Mes documents.'
+          }
+        >
+          <OfficialDocumentActions reference={quote.reference} title={`Devis ${quote.reference}`} space="espace" ownerOnly />
+        </SpaceCard>
+      ) : null}
 
       {open ? (
         <SpaceCard

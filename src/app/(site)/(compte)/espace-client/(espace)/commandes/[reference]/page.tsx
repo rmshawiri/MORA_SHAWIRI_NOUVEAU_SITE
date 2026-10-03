@@ -3,6 +3,8 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 
 import DocumentShareButton from "@/components/documents/DocumentShareButton";
+import OfficialDocumentActions from "@/components/documents/OfficialDocumentActions";
+import { isDocumentEstablished } from "@/lib/documents/commercial-documents";
 import PaymentDeclarationForm from "@/components/interactive/PaymentDeclarationForm";
 import { SpaceCard } from "@/components/affiliation/SpaceUi";
 import { formatClientDate } from "@/lib/client/labels";
@@ -68,6 +70,8 @@ export default async function MaCommandePage({
   const { order, items, payments, refunds, events, methods, invoiceReference } =
     detail;
   const due = remainingDue(order.total_amount, order.paid_amount);
+  // Remarques 01 : le bon de commande (CMCL), une fois établi par MORA Shawiri.
+  const orderDocument = await isDocumentEstablished(order.document_id);
 
   return (
     <>
@@ -145,6 +149,24 @@ export default async function MaCommandePage({
           </table>
         </div>
       </div>
+
+      {orderDocument ? (
+        <div className="auth-card">
+          <div className="auth-card__head">
+            <h2>Votre bon de commande</h2>
+            <p>
+              Bon de commande <code>{order.reference}</code>, au format PDF. Son
+              contenu est celui du jour de son établissement.
+            </p>
+          </div>
+          <OfficialDocumentActions
+            reference={order.reference}
+            title={`Bon de commande ${order.reference}`}
+            space="espace"
+            ownerOnly
+          />
+        </div>
+      ) : null}
 
       {invoiceReference ? (
         <div className="auth-card">

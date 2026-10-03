@@ -38,6 +38,7 @@
 import { revalidatePath } from 'next/cache';
 
 import type { AdminActionState } from '@/lib/admin/actions';
+import { archiveIssuedCommercialDocument } from '@/lib/documents/commercial-documents';
 import { archiveIssuedInvoice } from '@/lib/documents/invoices';
 import { assertPermission, PermissionDenied } from '@/lib/rbac/guards';
 import { getServerSupabaseClient } from '@/lib/supabase/server';
@@ -455,7 +456,46 @@ export async function issueInvoice(
   }
 }
 
+/**
+ * Établit le document officiel d'une commande (remarques 01, A5).
+ *
+ * Le type documentaire est CMCL, celui de la commande depuis 4D : la pièce
+ * existe déjà, avec la référence de la commande. L'acte fige son contenu
+ * (lignes, totaux, règlement constaté) ; aucun numéro n'est consommé.
+ * Permission : celle d'émission du type CMCL (`orders.update`), relue en base.
+ */
+export async function issueOrderDocument(
+  _previous: AdminActionState,
+  formData: FormData,
+): Promise<AdminActionState> {
+  try {
+    await assertPermission('orders.update', 'commerce.commande.document');
+
+    const orderId = field(formData, 'commande');
+    if (!orderId) return ko(MESSAGES.unknownOrder);
+
+    const supabase = await getServerSupabaseClient();
+    if (!supabase) return ko(MESSAGES.noSupabase);
+
+    const { data, error } = await supabase.rpc('issue_order_document', { p_order_id: orderId });
+    if (error) {
+      if (error.code === '23514') return ko(error.message);
+      return ko(describeDatabaseError(error));
+    }
+    if (!data) return ko(MESSAGES.unexpected);
+
+    await archiveIssuedCommercialDocument(data.reference);
+
+    refresh();
+    return ok(`Le document de commande ${data.reference} est établi. Le client le retrouve dans Mes documents.`);
+  } catch (error) {
+    if (error instanceof PermissionDenied) return ko(MESSAGES.denied);
+    return ko(MESSAGES.unexpected);
+  }
+}
+
 /* ===================================================== REMBOURSEMENTS === */
+
 
 /** Enregistre une décision de remboursement. N'affecte encore aucun montant. */
 export async function recordRefund(

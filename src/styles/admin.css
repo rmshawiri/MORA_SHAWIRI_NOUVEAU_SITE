@@ -1278,3 +1278,182 @@
 .admin-offer-aff--compact .admin-notice {
   flex-basis: 100%;
 }
+
+/* ------------------------------------------- Éditeur de devis (remarques 01)
+   Un devis se prépare en lignes, comme il s'imprime. Sur ordinateur : une
+   grille alignée sur l'en-tête. Sous 860 pixels : chaque ligne devient une
+   petite fiche, plutôt qu'un tableau à faire défiler. */
+.quote-editor__context {
+  margin-bottom: var(--sp-4);
+}
+
+.quote-lines {
+  margin: var(--sp-4) 0 0;
+  padding: 0;
+  border: 0;
+  min-width: 0;
+}
+
+.quote-lines__head,
+.quote-line {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 84px 124px 112px 124px 132px;
+  gap: var(--sp-2) var(--sp-3);
+  align-items: start;
+}
+
+.quote-lines__head {
+  margin-top: var(--sp-3);
+  padding: 0 var(--sp-3) var(--sp-1);
+  font-size: var(--text-caption);
+  font-weight: 600;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+}
+
+.quote-lines__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.quote-line {
+  padding: var(--sp-3);
+  border: 1px solid var(--border);
+  border-radius: var(--r-card);
+  background: var(--white);
+}
+
+.quote-line + .quote-line {
+  margin-top: var(--sp-2);
+}
+
+.quote-line__main {
+  display: grid;
+  gap: var(--sp-2);
+  min-width: 0;
+}
+
+.quote-line__field {
+  display: block;
+  min-width: 0;
+}
+
+/* Sur ordinateur, l'en-tête de la grille nomme les colonnes : les libellés
+   restent présents pour les lecteurs d'écran. */
+.quote-line__label {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+.quote-line__desc {
+  font-size: var(--text-caption);
+}
+
+.quote-line__num .admin-input {
+  text-align: right;
+}
+
+.quote-line__total {
+  margin: 0;
+  min-height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  font-size: var(--text-small);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.quote-line__tools {
+  display: flex;
+  gap: 4px;
+  justify-content: flex-end;
+}
+
+.quote-line__tool {
+  min-height: 40px;
+  padding-inline: 10px;
+}
+
+.quote-lines__foot {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: var(--sp-3);
+  margin-top: var(--sp-3);
+}
+
+.quote-lines__totals {
+  margin: 0;
+  min-width: min(100%, 280px);
+  font-size: var(--text-small);
+  font-variant-numeric: tabular-nums;
+}
+
+.quote-lines__totals div {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--sp-4);
+  padding: 4px 0;
+}
+
+.quote-lines__totals dd {
+  margin: 0;
+}
+
+.quote-lines__grand {
+  border-top: 2px solid var(--mora-blue);
+  font-weight: 700;
+  color: var(--mora-blue);
+}
+
+.quote-lines__check {
+  color: var(--danger, #b42318);
+}
+
+@media (max-width: 860px) {
+  .quote-lines__head {
+    display: none;
+  }
+
+  .quote-line {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .quote-line__main {
+    grid-column: 1 / -1;
+  }
+
+  .quote-line__label {
+    position: static;
+    width: auto;
+    height: auto;
+    overflow: visible;
+    clip: auto;
+    display: block;
+    font-size: var(--text-caption);
+    font-weight: 600;
+    color: var(--text-secondary);
+    margin-bottom: 2px;
+    white-space: normal;
+  }
+
+  .quote-line__total {
+    grid-column: 1 / 2;
+    flex-direction: column;
+    align-items: flex-start;
+    justify-content: flex-start;
+  }
+
+  .quote-line__tools {
+    grid-column: 2 / -1;
+    align-self: end;
+  }
+}

@@ -15,6 +15,7 @@
 
 import type { AffiliationFunctions, AffiliationTables } from './types-affiliation';
 import type { ClientFunctions, ClientTables } from './types-client';
+import type { CommercialFunctions, CommercialTables } from './types-commercial';
 
 export type Json = string | number | boolean | null | { [key: string]: Json } | Json[];
 
@@ -675,6 +676,10 @@ export type QuoteRow = {
   responded_by?: string | null;
   /** 4I-3 : motif facultatif d'un refus par le client. */
   client_response_reason?: string | null;
+  /** Remarques 01 : observations imprimées sur le devis. */
+  notes?: string | null;
+  /** Remarques 01 : version précédente que ce devis remplace. */
+  replaces_quote_id?: string | null;
   created_at: string;
   updated_at: string;
   created_by: string | null;
@@ -1575,10 +1580,12 @@ export type Database = {
       >;
       order_events: Table<OrderEventRow, never, never, OrderEventRelationships>;
     } & AffiliationTables &
-      ClientTables;
+      ClientTables &
+      CommercialTables;
     Views: Record<never, never>;
     Functions: AffiliationFunctions &
-      ClientFunctions & {
+      ClientFunctions &
+      CommercialFunctions & {
       current_permissions: {
         Args: Record<string, never>;
         Returns: string[];

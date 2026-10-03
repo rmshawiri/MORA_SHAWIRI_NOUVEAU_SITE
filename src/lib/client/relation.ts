@@ -49,6 +49,20 @@ export type MyQuote = {
   responded_by: string | null;
   client_response_reason: string | null;
   service_id: string | null;
+  /** Remarques 01 : observations imprimées sur le devis. */
+  notes: string | null;
+  document_id: string | null;
+};
+
+/** Remarques 01 : une ligne du devis, telle que le client la lit. */
+export type MyQuoteLine = {
+  id: string;
+  designation: string;
+  description: string | null;
+  quantity: number | string;
+  unit_price: number | string;
+  discount_amount: number | string;
+  line_total: number | string;
 };
 
 export type MyAppointment = {
@@ -72,7 +86,7 @@ export type MyAppointment = {
 
 const REQUEST_COLUMNS = 'id, reference, subject, offer_title, budget_label, organisation, message, status, created_at, closed_at';
 const QUOTE_COLUMNS =
-  'id, quote_request_id, reference, amount, currency, summary, status, valid_until, sent_at, responded_at, responded_by, client_response_reason, service_id';
+  'id, quote_request_id, reference, amount, currency, summary, status, valid_until, sent_at, responded_at, responded_by, client_response_reason, service_id, notes, document_id';
 const APPOINTMENT_COLUMNS =
   'id, reference, subject, channel, channel_label, requested_date, requested_slot, scheduled_at, scheduled_end, message, status, cancel_reason, cancelled_by, cancelled_at, confirmed_at, created_at';
 
@@ -146,10 +160,32 @@ export async function myQuote(space: Ready, reference: string) {
     .eq('user_id', space.context.userId)
     .maybeSingle();
   if (!request) return null;
-  const { data: service } = row.service_id
-    ? await space.supabase.from('services').select('title').eq('id', row.service_id).maybeSingle()
-    : { data: null };
-  return { quote: row, request: request as MyRequest, serviceTitle: (service as { title?: string } | null)?.title ?? null };
+  const [{ data: service }, { data: lines }, { data: document }] = await Promise.all([
+    row.service_id
+      ? space.supabase.from('services').select('title').eq('id', row.service_id).maybeSingle()
+      : Promise.resolve({ data: null }),
+    space.supabase
+      .from('quote_items')
+      .select('id, designation, description, quantity, unit_price, discount_amount, line_total')
+      .eq('quote_id', row.id)
+      .order('position', { ascending: true }),
+    // La pièce DVCL, si le compte en est le titulaire (RLS + filtre explicite).
+    row.document_id
+      ? space.supabase
+          .from('documents')
+          .select('status')
+          .eq('id', row.document_id)
+          .eq('owner_id', space.context.userId)
+          .maybeSingle()
+      : Promise.resolve({ data: null }),
+  ]);
+  return {
+    quote: row,
+    request: request as MyRequest,
+    serviceTitle: (service as { title?: string } | null)?.title ?? null,
+    lines: (lines ?? []) as MyQuoteLine[],
+    documentStatus: ((document as { status?: string } | null)?.status ?? null) as 'EMIS' | 'REMPLACE' | 'ANNULE' | null,
+  };
 }
 
 export async function myAppointments(space: Ready): Promise<{ appointments: MyAppointment[]; failed: boolean }> {
