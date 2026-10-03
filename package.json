@@ -27,6 +27,7 @@
     "contenus:verify": "node scripts/run-with-client-sequence.mjs scripts/verify-contenus.mjs",
     "client:verify": "node scripts/run-with-client-sequence.mjs scripts/verify-client.mjs",
     "notifications:verify": "node scripts/run-with-client-sequence.mjs scripts/verify-notifications.mjs",
+    "notifications:branchements": "node scripts/run-with-client-sequence.mjs scripts/verify-notifications-branchements.mjs",
     "client:sequence:restaurer": "node scripts/run-with-client-sequence.mjs --restaurer",
     "pdf:samples": "tsx scripts/render-invoice-samples.ts"
   },
