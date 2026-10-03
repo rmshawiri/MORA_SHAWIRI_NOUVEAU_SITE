@@ -10,6 +10,7 @@ import {
   type MailRow,
 } from '@/lib/emails/templates';
 import { attachReferral } from '@/lib/affiliation/attach';
+import { getPublicCatalogue } from '@/lib/catalogue/public';
 import { clientKey, rateLimit } from '@/lib/rate-limit';
 import {
   persistAppointmentRequest,
@@ -114,6 +115,8 @@ const DETAIL_VALUE_MAX = 400;
  */
 const PERSIST_LIMITS = {
   offreSlug: 80,
+  /** Remarques 01 : quantité commandée d'une offre à prix défini. */
+  quantite: 3,
   rdvDateIso: 10,
   rdvCreneau: 80,
   rdvFormat: 80,
@@ -158,6 +161,36 @@ function readDetails(raw: unknown): MailRow[] {
   return rows;
 }
 
+/**
+ * Libellés réservés au serveur. Une offre à prix défini reçoit ses lignes de
+ * récapitulatif d'ici, calculées sur le catalogue en base ; une charge utile
+ * qui les forgerait les perd.
+ */
+const PRICED_LABELS = new Set(['Formule', 'Quantité', 'Prix unitaire affiché', 'Montant indicatif']);
+
+const NBSP = String.fromCharCode(0xa0);
+const kmf = (value: number) => `${Math.round(value).toString().replace(/\B(?=(\d{3})+(?!\d))/g, NBSP)}${NBSP}KMF`;
+
+/**
+ * Parcours « prix défini » (remarques 01, A6). Le prix n'est jamais lu dans la
+ * requête : il est relu dans le catalogue publié. Une offre sans prix, ou
+ * inconnue, ne donne rien — la demande reste une demande de devis ordinaire.
+ */
+async function pricedSummary(offerSlug: string, rawQuantity: string): Promise<MailRow[] | null> {
+  if (!offerSlug) return null;
+  const { offers } = await getPublicCatalogue();
+  const offer = offers.find((entry) => entry.id === offerSlug);
+  if (!offer?.priceAmount) return null;
+  const parsed = Number.parseInt(rawQuantity, 10);
+  const quantity = Number.isInteger(parsed) && parsed >= 1 && parsed <= 99 ? parsed : 1;
+  return [
+    { label: 'Formule', value: 'Offre à prix défini' },
+    { label: 'Quantité', value: String(quantity) },
+    { label: 'Prix unitaire affiché', value: `${offer.price}${offer.priceNote ? ` (${offer.priceNote})` : ''}` },
+    { label: 'Montant indicatif', value: kmf(offer.priceAmount * quantity) },
+  ];
+}
+
 /** Empreinte d'une demande, utilisée pour l'idempotence. Aucune donnée en clair. */
 function fingerprint(key: string, fields: Record<Field, string>): string {
   return createHash('sha256')
@@ -185,8 +218,8 @@ function readPersistField(raw: Record<string, unknown>, field: keyof typeof PERS
  * vient du formulaire lui-même. Aucune attribution n'est devinée — c'est aussi
  * ce qui distingue cette colonne du suivi d'affiliation, hors périmètre.
  */
-function originOf(kind: MailRequest['kind'], offerSlug: string): string {
-  if (offerSlug) return 'boutique';
+function originOf(kind: MailRequest['kind'], offerSlug: string, priced = false): string {
+  if (offerSlug) return priced ? 'boutique-prix' : 'boutique';
   return kind === 'rendez-vous' ? 'rendez-vous' : 'contact';
 }
 
@@ -245,8 +278,6 @@ export async function POST(request: Request) {
     return NextResponse.json({ ok: true, duplicate: true });
   }
 
-  const details = readDetails(raw.details);
-
   // ------------------------------------------------------------------ 4F ---
   // La base d'abord. Un échec SMTP ne doit plus perdre la demande.
   const offerSlug = (() => {
@@ -254,12 +285,19 @@ export async function POST(request: Request) {
     return SLUG_PATTERN.test(value) ? value : '';
   })();
 
+  // Remarques 01 : récapitulatif d'une offre à prix défini, calculé ici.
+  const priced = kind === 'devis' ? await pricedSummary(offerSlug, readPersistField(raw, 'quantite')) : null;
+  const details = [
+    ...readDetails(raw.details).filter((row) => !PRICED_LABELS.has(row.label)),
+    ...(priced ?? []),
+  ].slice(0, MAX_DETAILS);
+
   const rdvDateIso = (() => {
     const value = readPersistField(raw, 'rdvDateIso');
     return ISO_DATE_PATTERN.test(value) ? value : '';
   })();
 
-  const source = originOf(kind, offerSlug);
+  const source = originOf(kind, offerSlug, Boolean(priced));
 
   let persisted: PersistOutcome;
 

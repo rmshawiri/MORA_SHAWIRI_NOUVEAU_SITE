@@ -1797,3 +1797,13 @@ textarea.rdv-input { min-height: 132px; resize: vertical; }
 }
 .header-account__item--button:disabled { cursor: progress; opacity: .7; }
 .header-actions form { display: contents; }
+
+/* Montant indicatif d'une offre à prix défini (remarques 01) — même gabarit
+   qu'un champ, en lecture seule. Sélecteur nouveau, aucune règle modifiée. */
+.form__estimate {
+  display: flex; align-items: center;
+  width: 100%; min-height: 48px; padding: 13px 16px;
+  background: var(--gray-light); color: var(--mora-blue-deep);
+  border: 1.5px dashed var(--border); border-radius: var(--r-btn);
+  font-family: var(--font-display);
+}

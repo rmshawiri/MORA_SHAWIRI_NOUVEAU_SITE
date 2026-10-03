@@ -271,6 +271,10 @@ export type OfferContext = {
   id: string;
   title: string;
   requestSubject: string;
+  /** Remarques 01 : prix public défini (KMF), ou `null` pour une offre sur devis. */
+  priceAmount: number | null;
+  priceLabel: string;
+  priceNote: string;
 };
 
 export function toOfferContexts(offers: readonly Offer[]): OfferContext[] {
@@ -278,5 +282,8 @@ export function toOfferContexts(offers: readonly Offer[]): OfferContext[] {
     id: offer.id,
     title: offer.title,
     requestSubject: offer.requestSubject,
+    priceAmount: offer.priceAmount ?? null,
+    priceLabel: offer.price,
+    priceNote: offer.priceNote,
   }));
 }

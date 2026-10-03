@@ -1,4 +1,5 @@
 import ContactForm from '@/components/interactive/ContactForm';
+import ContactHeading from '@/components/interactive/ContactHeading';
 import ContactItem from '@/components/sections/ContactItem';
 import CtaBand from '@/components/sections/CtaBand';
 import PageHero from '@/components/sections/PageHero';
@@ -55,12 +56,7 @@ export default async function ContactPage() {
           <div className="split" style={{ alignItems: 'start' }}>
             <div className="card reveal" style={{ padding: 'clamp(24px,3vw,44px)' }}>
               <p className="eyebrow">Formulaire</p>
-              <h2 style={{ fontSize: 'var(--text-h3)' }}>Demander un devis gratuit</h2>
-              <p style={{ marginBottom: 8 }}>
-                Votre demande nous parvient directement, et vous en recevez un accusé de réception
-                par e-mail. Vous pourrez ensuite, si vous le souhaitez, en envoyer une copie sur
-                WhatsApp.
-              </p>
+              <ContactHeading offers={offerContexts} />
               <ContactForm offers={offerContexts} />
             </div>
 

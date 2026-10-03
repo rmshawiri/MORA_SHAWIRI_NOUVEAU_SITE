@@ -148,7 +148,7 @@ export default async function DemandePage({
           <dd>{request.organisation ?? 'À titre personnel'}</dd>
 
           <dt>Origine</dt>
-          <dd>{request.source ?? '—'}</dd>
+          <dd>{SOURCE_LABELS[request.source ?? ''] ?? request.source ?? '—'}</dd>
         </dl>
 
         <h3>Message</h3>
@@ -717,6 +717,14 @@ function QuoteLinesTable({ items, quote }: { items: readonly QuoteItemRow[]; quo
     </>
   );
 }
+
+/** Origine lisible d'une demande ; une valeur inconnue s'affiche telle quelle. */
+const SOURCE_LABELS: Record<string, string> = {
+  boutique: 'Boutique — offre sur devis',
+  'boutique-prix': 'Boutique — offre à prix défini',
+  contact: 'Formulaire de contact',
+  'rendez-vous': 'Prise de rendez-vous',
+};
 
 function quoteBadge(status: QuoteStatus) {
   const className =

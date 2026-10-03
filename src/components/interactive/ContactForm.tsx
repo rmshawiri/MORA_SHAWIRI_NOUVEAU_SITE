@@ -59,6 +59,13 @@ const SERVER_MESSAGES: Record<string, string> = {
   invalid_email: 'L’adresse e-mail saisie n’a pas été acceptée. Vérifiez-la puis réessayez.',
 };
 
+const NBSP = String.fromCharCode(0xa0);
+/** `45 000 KMF` — montant indicatif affiché pendant la saisie. */
+const kmf = (value: number) => `${Math.round(value).toString().replace(/\B(?=(\d{3})+(?!\d))/g, NBSP)}${NBSP}KMF`;
+
+/** Quantité commandée : un entier de 1 à 99 (même borne que le serveur). */
+const QUANTITIES = Array.from({ length: 99 }, (_, index) => String(index + 1));
+
 const GENERIC_ERROR =
   'Votre demande n’a pas pu être envoyée. Vos informations sont conservées ci-dessous : réessayez, ou écrivez-nous sur WhatsApp.';
 
@@ -106,6 +113,18 @@ export default function ContactForm({ offers }: ContactFormProps) {
   /** Besoin effectif : le choix du visiteur, sinon celui de l'offre consultée. */
   const subject = values.sujet || offer?.requestSubject || CONTACT_SUBJECTS[0]!.value;
 
+  /**
+   * Remarques 01 (A6) — offre à prix défini. Le visiteur connaît le prix : il
+   * choisit une quantité, voit le montant indicatif, et n'a pas de budget à
+   * estimer. La demande suit ensuite exactement le même chemin qu'une
+   * demande de devis (même route, même workflow d'administration) ; le prix
+   * est relu côté serveur dans le catalogue publié, jamais pris d'ici.
+   * Aucun paiement n'est demandé ni enregistré à cette étape.
+   */
+  const pricedOffer = offer?.priceAmount ? offer : null;
+  const [quantity, setQuantity] = useState('1');
+  const estimate = pricedOffer ? pricedOffer.priceAmount! * Number(quantity) : null;
+
   // La confirmation est un changement d'état majeur : elle prend le focus.
   useEffect(() => {
     if (status === 'sent') confirmationRef.current?.focus();
@@ -132,7 +151,7 @@ export default function ContactForm({ offers }: ContactFormProps) {
       found.email = 'Cette adresse e-mail semble incomplète. Exemple : nom@domaine.com';
     }
     if (!chosenSubject.trim()) found.sujet = 'Choisissez le besoin qui se rapproche le plus du vôtre.';
-    if (!candidate.message.trim()) found.message = 'Décrivez votre projet en quelques lignes.';
+    if (!candidate.message.trim() && !pricedOffer) found.message = 'Décrivez votre projet en quelques lignes.';
     return found;
   };
 
@@ -160,7 +179,9 @@ export default function ContactForm({ offers }: ContactFormProps) {
       sujet: subject,
       budget: values.budget,
       offre: offer?.title ?? '',
-      message: values.message.trim(),
+      message:
+        values.message.trim() ||
+        (pricedOffer ? `Commande de l’offre « ${pricedOffer.title} » — quantité : ${quantity}.` : ''),
       website: honeypot,
       /**
        * Phase 4F. Le slug de l'offre consultée, pour que la demande
@@ -173,6 +194,8 @@ export default function ContactForm({ offers }: ContactFormProps) {
        * réellement publiée, et ignorée sinon.
        */
       offreSlug: offer?.id ?? '',
+      /** Remarques 01 : quantité d'une offre à prix défini, bornée côté serveur. */
+      ...(pricedOffer ? { quantite: quantity } : {}),
     };
 
     try {
@@ -209,11 +232,17 @@ export default function ContactForm({ offers }: ContactFormProps) {
   if (status === 'sent' && sent) {
     const recap: { key: string; value: string }[] = [
       ...(offer ? [{ key: 'Offre concernée', value: offer.title }] : []),
+      ...(pricedOffer && estimate !== null
+        ? [
+            { key: 'Quantité', value: quantity },
+            { key: 'Montant indicatif', value: `${kmf(estimate)} (${pricedOffer.priceLabel}${pricedOffer.priceNote ? ` ${pricedOffer.priceNote.toLowerCase()}` : ''})` },
+          ]
+        : []),
       { key: 'Besoin', value: subjectLabel(sent.sujet) },
       ...(sent.budget ? [{ key: 'Budget indicatif', value: budgetLabel(sent.budget) }] : []),
       { key: 'E-mail', value: sent.email.trim() },
       ...(sent.telephone.trim() ? [{ key: 'Téléphone', value: sent.telephone.trim() }] : []),
-      { key: 'Votre message', value: sent.message.trim() },
+      ...(sent.message.trim() ? [{ key: 'Votre message', value: sent.message.trim() }] : []),
     ];
 
     const copyMessage = [
@@ -234,11 +263,14 @@ export default function ContactForm({ offers }: ContactFormProps) {
           <span className="rdv-done__icon" aria-hidden="true">
             <Check size={16} strokeWidth={3} />
           </span>
-          <h3>Votre demande a bien été envoyée</h3>
+          <h3>{pricedOffer ? 'Votre commande a bien été transmise' : 'Votre demande a bien été envoyée'}</h3>
         </div>
         <p className="rdv-done__lead">
           Elle vient d’arriver chez MORA Shawiri, et un accusé de réception part vers{' '}
-          <strong>{sent.email.trim()}</strong>. Notre équipe l’examine et revient vers vous.
+          <strong>{sent.email.trim()}</strong>.{' '}
+          {pricedOffer
+            ? 'Notre équipe la confirme et vous adresse le devis au prix affiché : la prestation démarre après votre accord. Aucun paiement n’a été demandé.'
+            : 'Notre équipe l’examine et revient vers vous.'}
         </p>
 
         <ul className="rdv-recap">
@@ -275,10 +307,39 @@ export default function ContactForm({ offers }: ContactFormProps) {
 
   return (
     <form className="form" onSubmit={handleSubmit} noValidate>
-      {offer && (
+      {offer && !pricedOffer && (
         <p className="form__context">
           Votre demande concerne&nbsp;: <strong>{offer.title}</strong>
         </p>
+      )}
+
+      {pricedOffer && (
+        <>
+          <p className="form__context">
+            Vous commandez&nbsp;: <strong>{pricedOffer.title}</strong> — prix affiché{' '}
+            <strong>{pricedOffer.priceLabel}</strong>
+            {pricedOffer.priceNote ? ` (${pricedOffer.priceNote.toLowerCase()})` : ''}.
+          </p>
+          <div className="form__row">
+            <div className="field">
+              <label htmlFor="quantite">Quantité</label>
+              <select id="quantite" name="quantite" value={quantity} onChange={(event) => setQuantity(event.target.value)}>
+                {QUANTITIES.map((value) => (
+                  <option key={value} value={value}>
+                    {value}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="field">
+              <label htmlFor="montant-indicatif">Montant indicatif</label>
+              <output id="montant-indicatif" htmlFor="quantite" className="form__estimate" aria-live="polite">
+                <strong>{estimate !== null ? kmf(estimate) : '—'}</strong>
+              </output>
+              <p className="field__hint">Prix affiché × quantité. Confirmé par MORA Shawiri ; rien n’est payé à cette étape.</p>
+            </div>
+          </div>
+        </>
       )}
 
       {status === 'error' && (
@@ -400,6 +461,7 @@ export default function ContactForm({ offers }: ContactFormProps) {
             </p>
           )}
         </div>
+        {!pricedOffer && (
         <div className="field">
           <label htmlFor="budget">Budget indicatif</label>
           <select
@@ -415,19 +477,30 @@ export default function ContactForm({ offers }: ContactFormProps) {
             ))}
           </select>
         </div>
+        )}
       </div>
 
       <div className="field">
         <label htmlFor="message">
-          Votre projet en quelques lignes{' '}
-          <span className="req" aria-hidden="true">
-            *
-          </span>
+          {pricedOffer ? (
+            'Précisions pour votre commande'
+          ) : (
+            <>
+              Votre projet en quelques lignes{' '}
+              <span className="req" aria-hidden="true">
+                *
+              </span>
+            </>
+          )}
         </label>
         <textarea
           id="message"
           name="message"
-          placeholder="Votre activité, votre objectif, votre échéance si vous en avez une."
+          placeholder={
+            pricedOffer
+              ? 'Facultatif : vos délais, les éléments que vous fournirez, toute précision utile.'
+              : 'Votre activité, votre objectif, votre échéance si vous en avez une.'
+          }
           value={values.message}
           onChange={(event) => update('message', event.target.value)}
           aria-invalid={errors.message ? true : undefined}
@@ -442,7 +515,9 @@ export default function ContactForm({ offers }: ContactFormProps) {
           </p>
         ) : (
           <p className="field__hint" id="message-hint">
-            Plus votre description est précise, plus notre devis sera juste.
+            {pricedOffer
+              ? 'Le prix est celui affiché sur l’offre ; vos précisions nous aident à préparer votre commande.'
+              : 'Plus votre description est précise, plus notre devis sera juste.'}
           </p>
         )}
       </div>
@@ -468,7 +543,7 @@ export default function ContactForm({ offers }: ContactFormProps) {
           </>
         ) : (
           <>
-            {status === 'error' ? 'Réessayer l’envoi' : 'Envoyer ma demande'} <ArrowRight />
+            {status === 'error' ? 'Réessayer l’envoi' : pricedOffer ? 'Commander cette offre' : 'Envoyer ma demande'} <ArrowRight />
           </>
         )}
       </button>
