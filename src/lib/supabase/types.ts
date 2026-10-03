@@ -16,6 +16,7 @@
 import type { AffiliationFunctions, AffiliationTables } from './types-affiliation';
 import type { ClientFunctions, ClientTables } from './types-client';
 import type { CommercialFunctions, CommercialTables } from './types-commercial';
+import type { NotificationFunctions, NotificationTables } from './types-notifications';
 
 export type Json = string | number | boolean | null | { [key: string]: Json } | Json[];
 
@@ -1581,11 +1582,13 @@ export type Database = {
       order_events: Table<OrderEventRow, never, never, OrderEventRelationships>;
     } & AffiliationTables &
       ClientTables &
-      CommercialTables;
+      CommercialTables &
+      NotificationTables;
     Views: Record<never, never>;
     Functions: AffiliationFunctions &
       ClientFunctions &
-      CommercialFunctions & {
+      CommercialFunctions &
+      NotificationFunctions & {
       current_permissions: {
         Args: Record<string, never>;
         Returns: string[];

@@ -26,6 +26,7 @@
     "catalogue:verify": "node scripts/run-with-client-sequence.mjs scripts/verify-catalogue.mjs",
     "contenus:verify": "node scripts/run-with-client-sequence.mjs scripts/verify-contenus.mjs",
     "client:verify": "node scripts/run-with-client-sequence.mjs scripts/verify-client.mjs",
+    "notifications:verify": "node scripts/run-with-client-sequence.mjs scripts/verify-notifications.mjs",
     "client:sequence:restaurer": "node scripts/run-with-client-sequence.mjs --restaurer",
     "pdf:samples": "tsx scripts/render-invoice-samples.ts"
   },
