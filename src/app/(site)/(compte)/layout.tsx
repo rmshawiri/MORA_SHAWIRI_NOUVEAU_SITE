@@ -1,5 +1,7 @@
 import type { ReactNode } from 'react';
 
+import ReloadOnRestore from '@/components/auth/ReloadOnRestore';
+
 import '@/styles/espace.css';
 import '@/styles/auth.css';
 
@@ -39,5 +41,10 @@ import '@/styles/auth.css';
 export const dynamic = 'force-dynamic';
 
 export default function CompteLayout({ children }: { children: ReactNode }) {
-  return <div className="espace">{children}</div>;
+  return (
+    <>
+      <ReloadOnRestore />
+      <div className="espace">{children}</div>
+    </>
+  );
 }

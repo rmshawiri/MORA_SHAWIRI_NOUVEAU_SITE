@@ -33,6 +33,7 @@ import 'server-only';
  * plan § 4.8 et phase 4D.
  */
 
+import { site } from '@/lib/site';
 import { getServerSupabaseClient } from '@/lib/supabase/server';
 import type { DocumentRow, DocumentTypeRow } from '@/lib/supabase/types';
 
@@ -205,7 +206,7 @@ export function renderDocument(
     statusNotice: STATUS_NOTICES[document.status] ?? null,
     fields,
     footer:
-      'MORA Shawiri — Moroni, Union des Comores. Document émis par le Moteur de Documents. ' +
+      `${site.name} — ${site.addressLabel}. Document émis par le Moteur de Documents. ` +
       'La référence officielle portée en haut de page est l’identifiant unique et stable de cette pièce.',
   });
 

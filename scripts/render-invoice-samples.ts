@@ -26,7 +26,7 @@ mkdirSync(out, { recursive: true });
 const issuer = {
   name: 'MORA Shawiri',
   slogan: 'Le Choix Optimal pour votre performance',
-  address: 'Moroni — Union des Comores',
+  address: 'Moroni Oasis, route les puffins',
   phone: '+269 430 63 06',
   email: 'contact@morashawiri.com',
 };

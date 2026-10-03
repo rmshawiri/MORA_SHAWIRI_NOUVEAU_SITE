@@ -1787,3 +1787,13 @@ textarea.rdv-input { min-height: 132px; resize: vertical; }
   body { font-size: 11pt; }
   a { color: #000; text-decoration: underline; }
 }
+
+/* Déconnexion depuis le menu du compte (remarques 01) — sélecteurs nouveaux,
+   aucune règle existante modifiée. Le bouton a l'apparence des liens du menu. */
+.header-account__form { display: contents; }
+.header-account__item--button {
+  width: 100%; text-align: left;
+  background: none; border: 0; cursor: pointer;
+}
+.header-account__item--button:disabled { cursor: progress; opacity: .7; }
+.header-actions form { display: contents; }

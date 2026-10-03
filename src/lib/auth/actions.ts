@@ -224,7 +224,7 @@ export async function signInAction(
  * comportement attendu d'un « me déconnecter » sur un poste partagé, et le
  * § 54 le recommande explicitement pour les comptes d'administration.
  */
-export async function signOutAction(): Promise<void> {
+export async function signOutAction(formData?: FormData): Promise<void> {
   const supabase = await getServerSupabaseClient();
 
   if (supabase) {
@@ -232,7 +232,9 @@ export async function signOutAction(): Promise<void> {
     await supabase.auth.signOut({ scope: 'global' });
   }
 
-  redirect(AUTH_ROUTES.signIn);
+  // Raccourci du menu du compte (remarques 01) : retour au site public. La
+  // valeur est lue dans une liste fermée — jamais une adresse reçue.
+  redirect(formData?.get('destination') === 'accueil' ? '/' : AUTH_ROUTES.signIn);
 }
 
 /* ========================================================================== */

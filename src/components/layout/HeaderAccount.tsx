@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 
+import SignOutButton from '@/components/auth/SignOutButton';
 import { UserCircle } from '@/components/ui/Icon';
 import { AUTH_ROUTES } from '@/lib/auth/routes';
 
@@ -135,9 +136,13 @@ function useSessionCookie(): boolean {
 function MobileAccount({ connected }: { connected: boolean }) {
   if (connected) {
     return (
-      <Link className="btn btn--light" href={AUTH_ROUTES.clientArea}>
-        Mon espace
-      </Link>
+      <>
+        <Link className="btn btn--light" href={AUTH_ROUTES.clientArea}>
+          Mon espace
+        </Link>
+        {/* Raccourci de déconnexion (remarques 01) : ferme toute la session. */}
+        <SignOutButton label="Me déconnecter" variant="light" destination="accueil" />
+      </>
     );
   }
 
@@ -225,9 +230,12 @@ function DesktopAccount({ connected }: { connected: boolean }) {
         onClick={close}
       >
         {connected ? (
-          <Link className="header-account__item" href={AUTH_ROUTES.clientArea} role="menuitem">
-            Mon espace
-          </Link>
+          <>
+            <Link className="header-account__item" href={AUTH_ROUTES.clientArea} role="menuitem">
+              Mon espace
+            </Link>
+            <SignOutButton label="Me déconnecter" variant="item" destination="accueil" />
+          </>
         ) : (
           <>
             <Link className="header-account__item" href={AUTH_ROUTES.signIn} role="menuitem">

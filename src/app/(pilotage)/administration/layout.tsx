@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import type { ReactNode } from 'react';
 
 import AdminShell from '@/components/admin/AdminShell';
+import ReloadOnRestore from '@/components/auth/ReloadOnRestore';
 import { requireAdminContext } from '@/lib/rbac/guards';
 import { allows } from '@/lib/rbac/effective';
 import { ADMIN_ROOT, visibleModules } from '@/lib/rbac/modules';
@@ -55,5 +56,10 @@ export default async function AdministrationLayout({ children }: { children: Rea
   const { access } = await requireAdminContext(ADMIN_ROOT);
   const modules = visibleModules(access.permissions, allows);
 
-  return <AdminShell modules={modules}>{children}</AdminShell>;
+  return (
+    <AdminShell modules={modules}>
+      <ReloadOnRestore />
+      {children}
+    </AdminShell>
+  );
 }

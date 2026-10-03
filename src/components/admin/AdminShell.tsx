@@ -6,6 +6,7 @@ import { usePathname } from 'next/navigation';
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 
 import AdminNav from '@/components/admin/AdminNav';
+import SignOutButton from '@/components/auth/SignOutButton';
 import type { AdminModule } from '@/lib/rbac/modules';
 
 /**
@@ -129,6 +130,13 @@ export default function AdminShell({
           </div>
 
           <AdminNav modules={modules} />
+
+          {/* Remarques 01 : la déconnexion à portée de main, sous le menu —
+              en permanence sur ordinateur, dans le tiroir sur téléphone. La
+              même action que partout : toute la session est révoquée. */}
+          <div className="admin-aside__foot">
+            <SignOutButton label="Me déconnecter" variant="admin" />
+          </div>
         </div>
 
         {/* Cible du lien d'évitement posé par le gabarit racine. Le site

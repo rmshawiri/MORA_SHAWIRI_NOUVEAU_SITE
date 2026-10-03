@@ -276,7 +276,8 @@
   border-radius: var(--r-card);
   box-shadow: var(--shadow-sm);
   padding: var(--sp-3);
-  max-height: calc(100dvh - var(--admin-gutter) * 2 - 56px);
+  /* 56px pour la marque, 50px pour « Me déconnecter » (remarques 01). */
+  max-height: calc(100dvh - var(--admin-gutter) * 2 - 56px - 50px);
   overflow-y: auto;
   overscroll-behavior: contain;
 }
@@ -1455,5 +1456,48 @@
   .quote-line__tools {
     grid-column: 2 / -1;
     align-self: end;
+  }
+}
+
+/* Déconnexion sous le menu (remarques 01). Discrète, mais toujours visible :
+   la barre latérale la garde en bas du menu, le tiroir mobile aussi. */
+.admin-aside__foot {
+  margin-top: var(--sp-2);
+}
+
+.admin-signout {
+  width: 100%;
+  min-height: 40px;
+  padding: 8px var(--sp-3);
+  font-family: var(--font-display);
+  font-size: var(--text-small);
+  font-weight: 600;
+  color: var(--mora-blue-deep);
+  background: var(--white);
+  border: 1px solid var(--border);
+  border-radius: var(--r-btn);
+  box-shadow: var(--shadow-sm);
+  cursor: pointer;
+  transition: border-color var(--t-quick), color var(--t-quick);
+}
+
+.admin-signout:hover {
+  border-color: var(--mora-blue);
+  color: var(--mora-blue);
+}
+
+.admin-signout:focus-visible {
+  outline: 2px solid var(--mora-blue);
+  outline-offset: 2px;
+}
+
+.admin-signout:disabled {
+  cursor: progress;
+  opacity: .7;
+}
+
+@media (max-width: 1080px) {
+  .admin-signout {
+    min-height: 44px;
   }
 }

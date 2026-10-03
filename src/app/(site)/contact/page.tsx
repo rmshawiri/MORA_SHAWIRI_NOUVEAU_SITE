@@ -82,7 +82,7 @@ export default async function ContactPage() {
                 />
                 <ContactItem
                   icon={<MapPin />}
-                  title="Moroni, Union des Comores"
+                  title={site.addressLabel}
                   text="Rendez-vous sur place ou en visioconférence, sur les trois îles"
                 />
                 <ContactItem

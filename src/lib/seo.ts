@@ -63,6 +63,7 @@ export function organizationSchema() {
     priceRange: 'Sur devis',
     address: {
       '@type': 'PostalAddress',
+      streetAddress: site.streetAddress,
       addressLocality: site.locality,
       addressRegion: site.region,
       addressCountry: site.country,
