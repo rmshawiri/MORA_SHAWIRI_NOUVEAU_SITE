@@ -373,7 +373,10 @@ async function administration(ctx) {
   const revoked = await signIn(target, state.adminRevoked.email);
 
   const rootIds = await visibleIds(root, 'ADMINISTRATION');
-  check('SUPER_ADMIN voit sa notification d’administration', rootIds.size === 1);
+  // Depuis 4J-2, la création des comptes CLIENT de contrôle notifie aussi le
+  // SUPER_ADMIN (« Nouveau client ») : on ne compte que le type contrôlé ici.
+  const rootPayment = (rows ?? []).find((row) => row.recipient_id === state.root.userId);
+  check('SUPER_ADMIN voit sa notification d’administration', rootIds.has(rootPayment?.id));
   check('SUPER_ADMIN n’a aucune boîte client', (await visibleIds(root, 'CLIENT')).size === 0);
   check('ADMIN avec permission voit la sienne', (await visibleIds(pay, 'ADMINISTRATION')).has(own));
   const noIds = await visibleIds(no, 'ADMINISTRATION');
@@ -400,7 +403,8 @@ async function administration(ctx) {
   const resolved = await admin.rpc('notifications_resolve', { p_types: ['admin.paiement.a_verifier'], p_entity_type: 'payment', p_entity_id: paymentId });
   check('résolution : toutes les copies « à traiter » du paiement sont traitées', resolved.data === (rows ?? []).length, JSON.stringify(resolved));
   const rootCounts = await counts(root, 'ADMINISTRATION');
-  check('SUPER_ADMIN : toujours 1 non lue, plus rien à traiter', rootCounts.unread === 1 && rootCounts.pending === 0, JSON.stringify(rootCounts));
+  check('SUPER_ADMIN : la notification traitée reste non lue, plus rien à traiter',
+    rootCounts.pending === 0 && rootCounts.unread >= 1 && (await rowOf(admin, rootPayment?.id))?.read_at === null, JSON.stringify(rootCounts));
 
   state.realAdminTouched = state.realAdminIds.filter((id) => recipients.has(id)).length;
   log.skip(`diffusion : ${state.realAdminTouched} vrai(s) administrateur(s) atteint(s) le temps du contrôle — supprimé au démontage`);
