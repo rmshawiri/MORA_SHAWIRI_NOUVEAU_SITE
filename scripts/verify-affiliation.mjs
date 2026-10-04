@@ -52,6 +52,17 @@ function check(label, condition, detail = '') {
   }
 }
 
+/**
+ * 4J-2 : notifications d'un type sur une ressource, pour un destinataire.
+ * Les commissions réelles ne naissent que de cette chaîne complète ; c'est
+ * donc ici que leurs notifications sont contrôlées.
+ */
+async function notificationsOf(admin, type, entityId, recipientId) {
+  const { data } = await admin.from('notifications').select('params, level, read_at, resolved_at')
+    .eq('type_code', type).eq('entity_id', entityId).eq('recipient_id', recipientId);
+  return data ?? [];
+}
+
 const refused = (result) =>
   Boolean(result.error) || (Array.isArray(result.data) && result.data.length === 0);
 const empty = (result) => Boolean(result.error) || (result.data ?? []).length === 0;
@@ -67,7 +78,7 @@ const TABLES = [
   'affiliate_applications', 'affiliate_application_events', 'email_outbox',
   'affiliate_payout_accounts', 'affiliate_campaigns', 'affiliate_codes',
   'affiliate_attributions', 'affiliate_prospects', 'affiliate_code_uses', 'orders', 'quote_requests', 'leads',
-  'affiliate_commissions', 'affiliate_commission_adjustments', 'notification_events', 'payments', 'refunds', 'services',
+  'affiliate_commissions', 'affiliate_commission_adjustments', 'notification_events', 'notifications', 'notification_failures', 'payments', 'refunds', 'services',
   'affiliate_payouts', 'affiliate_payout_items', 'documents',
   // Correctif de clôture 4H.
   'products', 'categories', 'offer_affiliation_history',
@@ -1030,6 +1041,9 @@ async function checkCommissions(target, accessToken, admin, sessions, state) {
   check('une ligne sans offre du catalogue ne rapporte rien', lines[2]?.reason === 'OFFRE_ABSENTE' && Number(lines[2]?.amount) === 0);
   check('l’assiette ne compte que les lignes éligibles (300 000 KMF)', Number(c1.base_amount) === 300000, c1.base_amount);
   check('elle ne contient aucune donnée du client', !/customer|phone|Contrôle commission|@/.test(JSON.stringify(c1)));
+  const recorded = await notificationsOf(admin, 'affilie.commission.enregistree', c1.id, state.userB.userId);
+  check('4J : commission enregistrée — une notification pour l’affilié, référence seule, aucun montant',
+    recorded.length === 1 && JSON.stringify(recorded[0].params) === JSON.stringify({ reference: c1.reference }), JSON.stringify(recorded));
 
   // Lecture : l'affilié la sienne, personne d'autre sans permission.
   check('l’affilié B lit sa commission', ((await sessions.affB.from('affiliate_commissions').select('id').eq('id', c1.id)).data ?? []).length === 1);
@@ -1051,6 +1065,10 @@ async function checkCommissions(target, accessToken, admin, sessions, state) {
   const { data: notes } = await admin.from('notification_events').select('event_type, recipient_id').eq('entity_id', c1.id);
   check('un événement de notification est préparé pour l’affilié (4J)',
     (notes ?? []).some((n) => n.event_type === 'affiliation.commission.acquise' && n.recipient_id === state.userB.userId), JSON.stringify(notes));
+  const { data: consumed } = await admin.from('notification_events').select('status').eq('entity_id', c1.id).eq('event_type', 'affiliation.commission.acquise');
+  check('4J : l’événement de file est consommé (TRAITE)', (consumed ?? []).length === 1 && consumed[0].status === 'TRAITE', JSON.stringify(consumed));
+  check('4J : commission acquise — une notification pour l’affilié',
+    (await notificationsOf(admin, 'affilie.commission.acquise', c1.id, state.userB.userId)).length === 1);
   check('une commission acquise est figée, même pour la clé de service',
     refused(await admin.from('affiliate_commissions').update({ amount: 1 }).eq('id', c1.id).select()));
 
@@ -1063,6 +1081,9 @@ async function checkCommissions(target, accessToken, admin, sessions, state) {
   check('G : un ajustement de −4 800 KMF ramène la commission au montant conservé (19 200 KMF)',
     (adj ?? []).length === 1 && Number(adj[0].amount) === -4800 && adj[0].kind === 'REMBOURSEMENT', JSON.stringify(adj));
   check('la commission initiale n’est pas réécrite', Number((await commissionOf(o1.id))?.amount) === 24000);
+  const adjusted = await notificationsOf(admin, 'affilie.commission.ajustee', c1.id, state.userB.userId);
+  check('4J : commission ajustée — une notification (Attention), sans le montant de l’ajustement',
+    adjusted.length === 1 && adjusted[0].level === 'ATTENTION' && !('ajustement' in (adjusted[0].params ?? {})), JSON.stringify(adjusted));
   const totals = await sessions.affB.rpc('affiliate_commission_totals', { p_affiliate_id: state.affB.id });
   check('les totaux de l’affilié déduisent l’ajustement', Number(totals.data?.[0]?.acquired) === 19200, JSON.stringify(totals.data ?? totals.error?.message));
   check('un affilié ne lit pas les totaux d’un autre', Boolean((await sessions.affA.rpc('affiliate_commission_totals', { p_affiliate_id: state.affB.id })).error));
@@ -1102,6 +1123,9 @@ async function checkCommissions(target, accessToken, admin, sessions, state) {
   const validated = await validate(sessions.commissaire);
   check('commissions.validate acquiert la commission',
     validated.data?.status === 'ACQUISE' && validated.data?.acquired_by === state.commissaire.userId, validated.error?.message);
+  check('4J : validation manuelle — une seule notification « validée », aucune « acquise » pour la même transition',
+    (await notificationsOf(admin, 'affilie.commission.validee', c2.id, state.userB.userId)).length === 1
+      && (await notificationsOf(admin, 'affilie.commission.acquise', c2.id, state.userB.userId)).length === 0);
   await admin.from('affiliates').update({ acquisition_trigger: null }).eq('id', state.affB.id);
 
   // 6. Aucune rétroactivité : une nouvelle version de règle n'atteint pas une affaire antérieure.
@@ -1137,6 +1161,9 @@ async function checkCommissions(target, accessToken, admin, sessions, state) {
   const cancelled = await sessions.commissaire.rpc('cancel_commission', { p_commission_id: c2.id, p_reason: 'Erreur de saisie — contrôle' });
   check('commissions.manage annule une commission acquise, non versée',
     !cancelled.error && (await admin.from('affiliate_commissions').select('status').eq('id', c2.id).single()).data?.status === 'ANNULEE', cancelled.error?.message);
+  check('4J : commission annulée — une notification (Attention), pour chaque commission annulée',
+    (await notificationsOf(admin, 'affilie.commission.annulee', c2.id, state.userB.userId)).length === 1
+      && (!c3 || (await notificationsOf(admin, 'affilie.commission.annulee', c3.id, state.userB.userId)).length === 1));
 
   const { data: types } = await admin.from('affiliate_events').select('event_type').eq('affiliate_id', state.affB.id);
   const seen = new Set((types ?? []).map((t) => t.event_type));
@@ -1239,6 +1266,9 @@ async function checkPayouts(target, accessToken, admin, sessions, state) {
     JSON.stringify(snap?.content?.lines?.length));
   const { data: notif } = await admin.from('notification_events').select('event_type').eq('entity_id', payout?.id);
   check('un événement de notification est préparé', (notif ?? []).some((n) => n.event_type === 'affiliation.versement.confirme'));
+  const paid = await notificationsOf(admin, 'affilie.versement.confirme', payout?.id, state.userB.userId);
+  check('4J : versement confirmé — une notification pour l’affilié, sans montant',
+    paid.length === 1 && !('montant' in (paid[0].params ?? {})), JSON.stringify(paid));
 
   // Un versement confirmé est définitif.
   check('un versement confirmé ne se réécrit pas, même par la clé de service',
@@ -1272,6 +1302,8 @@ async function checkPayouts(target, accessToken, admin, sessions, state) {
   check('une commission versée puis annulée produit « annulation après versement » (−20 000 KMF)',
     !late.error && lateAdj?.length === 1 && lateAdj[0].kind === 'ANNULATION_APRES_VERSEMENT' && Number(lateAdj[0].amount) === -20000,
     late.error?.message ?? JSON.stringify(lateAdj));
+  check('4J : annulation après versement — une notification « annulée », pas deux',
+    (await notificationsOf(admin, 'affilie.commission.annulee', c1.id, state.userB.userId)).length === 1);
   const { data: unchanged } = await admin.from('affiliate_payouts').select('status, total_amount').eq('id', payout.id).single();
   check('le versement passé reste intact', unchanged?.status === 'CONFIRME' && Number(unchanged.total_amount) === 20000);
   check('la commission versée garde son statut', (await statusOf(c1.id))?.status === 'VERSEE');
@@ -1308,6 +1340,9 @@ async function checkDocuments(target, accessToken, admin, sessions, state) {
   check('l’affilié n’émet pas sa propre fiche', Boolean((await issue(sessions.affB)).error));
   const first = await issue(sessions.documentiste);
   check('affiliate_documents.issue émet la fiche, numérotée MORA-FIAF', /^MORA-FIAF-[A-Z]+\d{4}$/.test(first.data?.reference ?? ''), first.error?.message);
+  const sheet = await notificationsOf(admin, 'affilie.fiche.mise_a_jour', affId, state.userB.userId);
+  check('4J : fiche émise — l’affilié est notifié une fois, avec la référence FIAF',
+    sheet.length === 1 && sheet[0].params?.reference === first.data?.reference, JSON.stringify(sheet));
   const { data: snap1 } = await admin.from('document_snapshots').select('content, content_sha256').eq('document_id', first.data?.id).single();
   check('son instantané fige identité, conditions, règles et codes',
     snap1?.content?.type === 'FIAF' && snap1.content.preview === false && snap1.content.reference === first.data?.reference

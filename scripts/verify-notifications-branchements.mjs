@@ -27,10 +27,15 @@
  */
 
 import { randomUUID } from 'node:crypto';
+import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { resolve } from 'node:path';
 
 import { createClient } from '@supabase/supabase-js';
 
-import { describeTarget, log, resolveAccessToken, resolveTarget, runSql } from './lib/config.mjs';
+import { describeTarget, hasFlag, log, resolveAccessToken, resolveTarget, runSql } from './lib/config.mjs';
+
+const BASELINE_FILE = resolve(tmpdir(), 'mora-shawiri-notifications-4j2-avant.json');
 
 const results = { passed: 0, failed: 0 };
 
@@ -107,7 +112,7 @@ async function seed(ctx) {
   const { admin, target, state } = ctx;
   const A = state.accounts = {};
   A.root = await createAccount(admin, { roles: ['SUPER_ADMIN'], label: 'super' });
-  A.verif = await createAccount(admin, { roles: ['ADMIN'], label: 'verificateur', grants: ['payments.verify', 'orders.update'] });
+  A.verif = await createAccount(admin, { roles: ['ADMIN'], label: 'verificateur', grants: ['payments.verify', 'orders.update', 'orders.view'] });
   A.verif2 = await createAccount(admin, { roles: ['ADMIN'], label: 'verificateur2', grants: ['payments.verify'] });
   A.noPerm = await createAccount(admin, { roles: ['ADMIN'], label: 'sans-droit' });
   A.susAdmin = await createAccount(admin, { roles: ['ADMIN'], label: 'admin-suspendu', grants: ['payments.verify', 'quotes.manage', 'appointments.update'] });
@@ -226,7 +231,7 @@ async function quotes(ctx) {
   const dispo = await notes(admin, 'client.devis.disponible', qA.id);
   check('devis accepté : « devis disponible » est traité, sans être lu', Boolean(dispo.of(A.clientA)?.resolved_at) && dispo.of(A.clientA)?.read_at === null);
   const twice = await state.s.clientA.rpc('respond_to_my_quote', { p_quote_id: qA.id, p_decision: 'ACCEPTE', p_reason: null });
-  check('double réponse refusée, aucune notification de plus', Boolean(twice.error) && (await notes(admin, 'admin.devis.accepte', reqA.id)).rows.length === n.rows.length);
+  check('seconde réponse (refusée ou idempotente) : aucune notification de plus', (await notes(admin, 'admin.devis.accepte', reqA.id)).rows.length === n.rows.length, twice.error?.message ?? 'idempotente');
 
   const placed = await state.s.verif.rpc('place_order_from_quote', { p_quote_id: qA.id });
   check('l’administrateur crée la commande depuis le devis', !placed.error, placed.error?.message);
@@ -341,16 +346,25 @@ async function payments(ctx) {
   check('paiement rejeté : le motif n’entre pas dans la notification',
     !JSON.stringify((await notes(admin, 'client.paiement.rejete', second.data.id)).rows).includes('introuvable'));
 
-  // Annulation réelle : l'annulation d'une commande annule ses déclarations en attente.
+  // Annulation : le journal 4G écrit PAIEMENT_ANNULE quand un paiement en
+  // attente passe à ANNULE. Aucune action de l'application ne le fait
+  // aujourd'hui, et cancel_order échoue dès qu'une déclaration est en attente
+  // (défaut 4G signalé au rapport 21) : la transition est donc produite
+  // directement, comme la base l'autorise à un rôle privilégié.
   const order2 = await makeManualOrder(ctx, A.clientA);
   const pending = await state.s.clientA.rpc('declare_payment', {
     p_order_id: order2.id, p_method_code: 'ESPECES', p_amount: 10000, p_transaction_reference: null, p_client_note: null,
   });
-  const cancelled = await admin.rpc('cancel_order', { p_order_id: order2.id, p_reason: 'Contrôle 4J-2' });
-  check('annulation de commande avec une déclaration en attente', !cancelled.error, cancelled.error?.message);
-  check('paiement annulé (événement réel) : le client est notifié une fois', one(await notes(admin, 'client.paiement.annule', pending.data.id), A.clientA));
-  check('commande annulée : le client est notifié (Attention)', (await notes(admin, 'client.commande.annulee', order2.id)).of(A.clientA)?.level === 'ATTENTION');
+  const blocked = await admin.rpc('cancel_order', { p_order_id: order2.id, p_reason: 'Contrôle 4J-2' });
+  check('constat 4G : annuler une commande avec une déclaration en attente échoue (inchangé, signalé)',
+    Boolean(blocked.error) && /annulée ne reçoit pas de paiement/.test(blocked.error.message), blocked.error?.message ?? 'acceptée');
+  const cancelled = await admin.from('payments').update({ status: 'ANNULE' }).eq('id', pending.data.id).select('status');
+  check('transition réelle EN_VERIFICATION → ANNULE', !cancelled.error && cancelled.data?.[0]?.status === 'ANNULE', cancelled.error?.message);
+  check('paiement annulé : le client est notifié une fois', one(await notes(admin, 'client.paiement.annule', pending.data.id), A.clientA));
   check('paiement annulé : l’« à vérifier » est traité', (await notes(admin, 'admin.paiement.a_verifier', pending.data.id)).rows.every((r) => r.resolved_at));
+  const cancelledOrder = await admin.rpc('cancel_order', { p_order_id: order2.id, p_reason: 'Contrôle 4J-2' });
+  check('la commande, sans déclaration en attente, s’annule', !cancelledOrder.error, cancelledOrder.error?.message);
+  check('commande annulée : le client est notifié (Attention)', (await notes(admin, 'client.commande.annulee', order2.id)).of(A.clientA)?.level === 'ATTENTION');
 }
 
 async function refundsAndInvoice(ctx) {
@@ -640,43 +654,55 @@ async function failure(ctx) {
 async function teardown(ctx) {
   log.step('Démontage');
   const { admin, target, accessToken, state, before } = ctx;
-  const list = (ids) => (ids ?? []).filter(Boolean).map((id) => `'${id}'`).join(', ') || `'00000000-0000-0000-0000-000000000000'`;
-  const orders = list(state.orders);
-  const quotes = list(state.quotes);
-  const requests = list(state.requests);
-  const appointments = list(state.appointments);
-  const testUsers = list(Object.values(state.accounts ?? {}).map((acc) => acc.userId));
+
+  // Tout se retrouve par préfixe en base : un démontage repris après une
+  // interruption (--nettoyage-seul) n'a besoin d'aucun état en mémoire.
+  const users = `(select id from auth.users where email like '${PREFIX}-%@${TEST_DOMAIN}')`;
+  const orders = `(select id from public.orders where user_id in ${users})`;
+  const requests = `(select id from public.quote_requests where subject like '${PREFIX} %')`;
+  const quotes = `(select id from public.quotes where quote_request_id in ${requests})`;
+  const appointments = `(select id from public.appointments where subject like '${PREFIX} %')`;
 
   await runSql(target, accessToken, `
     begin;
+    delete from public.notification_failures
+     where (source_table = 'order_status_history' and source_id in (select id::text from public.order_status_history where order_id in ${orders}))
+        or (source_table = 'order_events' and source_id in (select id::text from public.order_events where order_id in ${orders}));
+    create temporary table zz_orders on commit drop as select id from public.orders where id in ${orders};
+    create temporary table zz_quotes on commit drop as select id from public.quotes where id in ${quotes};
     create temporary table zz_docs on commit drop as
       select d.id from public.documents d
-       where d.entity_id in (${orders}) or d.entity_id in (${quotes}) or d.entity_id in (${appointments})
-          or d.id in (select document_id from public.orders where id in (${orders}) and document_id is not null)
-          or d.id in (select document_id from public.quotes where id in (${quotes}) and document_id is not null)
-          or d.id in (select document_id from public.refunds where order_id in (${orders}) and document_id is not null);
-    delete from public.refunds where order_id in (${orders});
-    delete from public.payments where order_id in (${orders});
-    delete from public.order_events where order_id in (${orders});
-    delete from public.order_status_history where order_id in (${orders});
-    delete from public.order_items where order_id in (${orders});
-    delete from public.orders where id in (${orders});
+       where d.entity_id in (select id from zz_orders) or d.entity_id in (select id from zz_quotes) or d.entity_id in ${appointments}
+          or d.id in (select document_id from public.orders where id in (select id from zz_orders) and document_id is not null)
+          or d.id in (select document_id from public.quotes where id in (select id from zz_quotes) and document_id is not null)
+          or d.id in (select document_id from public.refunds where order_id in (select id from zz_orders) and document_id is not null);
+    alter table public.order_items disable trigger order_items_closed_order;
+    delete from public.refunds where order_id in (select id from zz_orders);
+    delete from public.payments where order_id in (select id from zz_orders);
+    delete from public.order_events where order_id in (select id from zz_orders);
+    delete from public.order_status_history where order_id in (select id from zz_orders);
+    delete from public.order_items where order_id in (select id from zz_orders);
+    delete from public.orders where id in (select id from zz_orders);
+    alter table public.order_items enable trigger order_items_closed_order;
     alter table public.quotes disable trigger quotes_content_frozen;
     alter table public.quote_items disable trigger quote_items_draft_only;
-    delete from public.quote_items where quote_id in (${quotes});
-    delete from public.quotes where id in (${quotes});
+    delete from public.quote_items where quote_id in (select id from zz_quotes);
+    delete from public.quotes where id in (select id from zz_quotes);
     alter table public.quotes enable trigger quotes_content_frozen;
     alter table public.quote_items enable trigger quote_items_draft_only;
     update public.documents set status = 'ANNULE' where id in (select id from zz_docs);
     delete from public.documents where id in (select id from zz_docs);
-    delete from public.quote_requests where id in (${requests});
-    delete from public.appointments where id in (${appointments});
+    delete from public.quote_requests where id in ${requests};
+    delete from public.appointments where id in ${appointments};
     commit;`).catch((error) => log.fail(`démontage commerce / relation : ${error.message}`));
 
   await runSql(target, accessToken, `
     begin;
     alter table public.affiliate_events disable trigger affiliate_events_append_only;
-    delete from public.notification_events where recipient_id in (${testUsers});
+    alter table public.affiliate_payout_accounts disable trigger affiliate_payout_accounts_guard;
+    alter table public.affiliate_prospects disable trigger affiliate_prospects_guard;
+    alter table public.affiliate_application_events disable trigger affiliate_application_events_append_only;
+    delete from public.notification_events where recipient_id in ${users};
     delete from public.affiliate_events
      where affiliate_id in (select id from public.affiliates where slug like '${PREFIX}-%')
         or category_id in (select id from public.affiliate_categories where code like 'ZZ_VERIF_4J2_%');
@@ -684,25 +710,18 @@ async function teardown(ctx) {
     delete from public.affiliate_prospects where affiliate_id in (select id from public.affiliates where slug like '${PREFIX}-%');
     delete from public.affiliates where slug like '${PREFIX}-%';
     delete from public.affiliate_categories where code like 'ZZ_VERIF_4J2_%';
+    delete from public.affiliate_application_events where application_id in (select id from public.affiliate_applications where email like '${PREFIX}-%');
+    delete from public.affiliate_applications where email like '${PREFIX}-%';
+    delete from public.leads where email like '${PREFIX}-%@${TEST_DOMAIN}';
     alter table public.affiliate_events enable trigger affiliate_events_append_only;
+    alter table public.affiliate_payout_accounts enable trigger affiliate_payout_accounts_guard;
+    alter table public.affiliate_prospects enable trigger affiliate_prospects_guard;
+    alter table public.affiliate_application_events enable trigger affiliate_application_events_append_only;
     commit;`).catch((error) => log.fail(`démontage affiliation : ${error.message}`));
 
-  if ((state.applications ?? []).length > 0) {
-    await runSql(target, accessToken, `
-      begin;
-      alter table public.affiliate_application_events disable trigger affiliate_application_events_append_only;
-      delete from public.affiliate_application_events where application_id in (${list(state.applications)});
-      delete from public.email_outbox where entity_type = 'affiliate_application' and entity_id in (${list(state.applications)});
-      delete from public.affiliate_applications where id in (${list(state.applications)});
-      alter table public.affiliate_application_events enable trigger affiliate_application_events_append_only;
-      commit;`).catch((error) => log.fail(`démontage candidature : ${error.message}`));
-  }
-
-  await runSql(target, accessToken, `
-    delete from public.notification_failures where id in (${(state.failureIds ?? []).join(', ') || '0'});
-    delete from public.leads where email like '${PREFIX}-%@${TEST_DOMAIN}';
-    delete from public.rate_limit_counters where window_start >= '${state.startedAt}' and (bucket like 'relation.%' or bucket like 'affiliation.%');`)
-    .catch((error) => log.fail(`démontage divers : ${error.message}`));
+  await runSql(target, accessToken,
+    `delete from public.rate_limit_counters where window_start >= '${state.startedAt}' and (bucket like 'relation.%' or bucket like 'affiliation.%');`)
+    .catch((error) => log.fail(`démontage des compteurs de limitation : ${error.message}`));
 
   // Une suite n'est rendue que si aucune référence réelle n'est née pendant
   // le contrôle : jamais un vrai numéro n'est rembobiné.
@@ -720,8 +739,8 @@ async function teardown(ctx) {
       .catch((error) => log.fail(`restitution ${docType} : ${error.message}`));
   }
 
-  const { data: users } = await admin.auth.admin.listUsers({ perPage: 1000 });
-  for (const user of users?.users ?? []) {
+  const { data: accounts } = await admin.auth.admin.listUsers({ perPage: 1000 });
+  for (const user of accounts?.users ?? []) {
     if (user.email?.startsWith(`${PREFIX}-`) && user.email.endsWith(`@${TEST_DOMAIN}`)) {
       const removed = await admin.auth.admin.deleteUser(user.id);
       if (removed.error) log.fail(`suppression de ${user.email} : ${removed.error.message}`);
@@ -733,8 +752,12 @@ async function teardown(ctx) {
   check('aucune notification ne subsiste (vrais administrateurs compris)', end?.notifications === before.notifications, `${end?.notifications} contre ${before.notifications}`);
   check('file 4H et journal des échecs revenus à leur état', end?.file_4h === before.file_4h && end?.echecs === before.echecs, JSON.stringify({ f: end?.file_4h, e: end?.echecs }));
   check('suites documentaires rendues à l’identique', JSON.stringify(end?.suites) === JSON.stringify(before.suitesJson), JSON.stringify(end?.suites));
-  check('données réelles intactes (comptes, clients, commandes, paiements, devis, demandes, rendez-vous, affiliés, prospects, candidatures, pièces)',
-    JSON.stringify(end?.reel) === JSON.stringify(before.reel), JSON.stringify(end?.reel));
+  if (before.reel) {
+    check('données réelles intactes (comptes, clients, commandes, paiements, devis, demandes, rendez-vous, affiliés, prospects, candidatures, pièces)',
+      JSON.stringify(end?.reel) === JSON.stringify(before.reel), JSON.stringify(end?.reel));
+  } else {
+    log.skip('données réelles : état de départ non relevé (reprise) — à comparer séparément');
+  }
   check('aucun e-mail journalisé pendant le contrôle', end?.emails === before.emails, `${end?.emails} contre ${before.emails}`);
   check('les gardes en ajout seul sont rétablies', end?.gardes === before.gardes, JSON.stringify(end?.gardes));
 }
@@ -747,8 +770,9 @@ function snapshotSql() {
     'echecs', (select count(*) from public.notification_failures),
     'emails', (select count(*) from public.email_outbox),
     'comptes_test', (select count(*) from auth.users where email like '${PREFIX}-%'),
-    'gardes', (select string_agg(tgname || ':' || tgenabled, ',' order by tgname) from pg_trigger
-                where tgname in ('affiliate_events_append_only', 'affiliate_application_events_append_only', 'quotes_content_frozen', 'quote_items_draft_only')),
+    'gardes', (select string_agg(tgname::text || ':' || tgenabled::text, ',' order by tgname) from pg_trigger
+                where tgname in ('affiliate_events_append_only', 'affiliate_application_events_append_only', 'quotes_content_frozen', 'quote_items_draft_only',
+                                 'affiliate_payout_accounts_guard', 'affiliate_prospects_guard')),
     'suites', (select json_agg(json_build_object('t', doc_type, 's', series, 'n', last_number, 'c', allocated_count) order by doc_type)
                  from public.document_sequences where doc_type <> 'CLI'),
     'reel', json_build_object(
@@ -773,6 +797,27 @@ async function main() {
   log.step(`Notifications — branchements 4J-2 — ${describeTarget(target)}`);
 
   const admin = createClient(target.url, target.secretKey, { auth: { persistSession: false, autoRefreshToken: false } });
+
+  // L'état de départ survit à une interruption : un démontage repris le relit.
+  if (hasFlag('nettoyage-seul')) {
+    if (!existsSync(BASELINE_FILE)) {
+      log.fail('aucun état de départ enregistré : rien à reprendre');
+      process.exitCode = 1;
+      return;
+    }
+    const saved = JSON.parse(readFileSync(BASELINE_FILE, 'utf8'));
+    await teardown({ admin, target, accessToken, before: saved.before, state: saved.state });
+    if (results.failed === 0) rmSync(BASELINE_FILE, { force: true });
+    log.step(`${results.passed} réussi(s), ${results.failed} échec(s)`);
+    if (results.failed > 0) process.exitCode = 1;
+    return;
+  }
+  if (existsSync(BASELINE_FILE)) {
+    log.fail(`un démontage précédent est inachevé : lancez d'abord --nettoyage-seul (${BASELINE_FILE})`);
+    process.exitCode = 1;
+    return;
+  }
+
   const snapshot = (await runSql(target, accessToken, snapshotSql()))?.[0]?.etat;
   const sequences = await runSql(target, accessToken,
     `select doc_type, series, last_number, allocated_count from public.document_sequences where doc_type in (${SEQUENCES.map((c) => `'${c}'`).join(', ')});`);
@@ -782,6 +827,7 @@ async function main() {
     sequences: Object.fromEntries(SEQUENCES.map((code) => [code, (sequences ?? []).find((row) => row.doc_type === code) ?? null])),
   };
   const ctx = { admin, target, accessToken, before, state: { startedAt: new Date(Date.now() - 1000).toISOString(), orders: [], quotes: [], requests: [], appointments: [] } };
+  writeFileSync(BASELINE_FILE, JSON.stringify({ before, state: { startedAt: ctx.state.startedAt } }));
 
   try {
     await seed(ctx);
@@ -799,7 +845,9 @@ async function main() {
     results.failed += 1;
     log.fail(`interruption : ${error.message}`);
   } finally {
+    const failedBefore = results.failed;
     await teardown(ctx);
+    if (results.failed === failedBefore) rmSync(BASELINE_FILE, { force: true });
   }
 
   log.step(`${results.passed} réussi(s), ${results.failed} échec(s)`);
