@@ -1368,6 +1368,153 @@ async function checkMethods(sessions) {
 /*  Démontage                                                                 */
 /* ========================================================================== */
 
+/* ========================================================================== */
+/*  Correctif 4G — annulation d'une commande et paiements (rapport 22)        */
+/* ========================================================================== */
+
+async function checkCancellation(target, accessToken, admin, sessions, state) {
+  log.step('Correctif 4G — annulation : sept cas, chemins directs, paiements après annulation');
+  const startedAt = new Date(Date.now() - 1000).toISOString();
+  state.extraOrders = state.extraOrders ?? [];
+  const fresh = async () => {
+    const order = await makeOrder(admin, state.clientA.userId, 10000);
+    state.extraOrders.push(order);
+    return order;
+  };
+  const declare = (order, amount = 10000) => sessions.clientA.rpc('declare_payment', {
+    p_order_id: order.id, p_method_code: 'ESPECES', p_amount: amount,
+  });
+  const cancel = (order, client = sessions.annulateur) => client.rpc('cancel_order', { p_order_id: order.id, p_reason: `${PREFIX} correctif 4G` });
+  const orderStatus = async (order) => (await admin.from('orders').select('status, cancelled_at, cancel_reason').eq('id', order.id).single()).data;
+  const paymentRow = async (id) => (await admin.from('payments').select('status, declared_by, declared_at, transaction_reference').eq('id', id).single()).data;
+  const paid = async () => {
+    const order = await fresh();
+    const declared = await declare(order);
+    await sessions.verificateur.rpc('verify_payment', { p_payment_id: declared.data.id });
+    return { order, paymentId: declared.data.id };
+  };
+
+  // Cas 1 — aucune déclaration.
+  const o1 = await fresh();
+  check('cas 1 : une commande sans déclaration s’annule', !(await cancel(o1)).error && (await orderStatus(o1))?.status === 'ANNULEE');
+
+  // Cas 2 — déclaration en attente : annulée avec la commande, rien d'effacé.
+  const o2 = await fresh();
+  const d2 = await declare(o2);
+  const before2 = await paymentRow(d2.data.id);
+  const c2 = await cancel(o2);
+  check('cas 2 : une commande avec déclaration en attente s’annule', !c2.error, c2.error?.message);
+  const after2 = await paymentRow(d2.data.id);
+  check('cas 2 : la déclaration passe à ANNULE', after2?.status === 'ANNULE', after2?.status);
+  check('cas 2 : déclarant, date de déclaration et référence conservés',
+    after2?.declared_by === state.clientA.userId && after2?.declared_at === before2?.declared_at
+      && after2?.transaction_reference === before2?.transaction_reference);
+  const o2Row = await orderStatus(o2);
+  check('cas 2 : la commande porte son motif et sa date d’annulation', Boolean(o2Row?.cancelled_at) && o2Row?.cancel_reason === `${PREFIX} correctif 4G`);
+  const { data: e2 } = await admin.from('order_events').select('event_type, summary, actor_id').eq('payment_id', d2.data.id).eq('event_type', 'PAIEMENT_ANNULE');
+  check('cas 2 : le journal dit « annulée avec la commande », par l’auteur de l’annulation',
+    e2?.length === 1 && e2[0].summary === 'Déclaration annulée avec la commande' && e2[0].actor_id === state.annulateur.userId, JSON.stringify(e2));
+  const { data: audit2 } = await admin.from('audit_logs').select('action, actor_id').eq('action', 'commerce.paiement.annulation')
+    .eq('actor_id', state.annulateur.userId).gte('created_at', startedAt);
+  check('cas 2 : l’annulation du paiement est au journal d’audit, avec son auteur', (audit2 ?? []).length >= 1);
+  const { count: decl2 } = await admin.from('order_events').select('id', { count: 'exact', head: true }).eq('payment_id', d2.data.id).eq('event_type', 'PAIEMENT_DECLARE');
+  check('cas 2 : la déclaration d’origine reste au journal', decl2 >= 1);
+
+  // Cas 3 — paiement rejeté : l'annulation ne le touche pas.
+  const o3 = await fresh();
+  const d3 = await declare(o3);
+  await sessions.verificateur.rpc('reject_payment', { p_payment_id: d3.data.id, p_reason: `${PREFIX} rejet` });
+  check('cas 3 : une commande au paiement rejeté s’annule', !(await cancel(o3)).error);
+  check('cas 3 : le paiement reste ECHEC', (await paymentRow(d3.data.id))?.status === 'ECHEC');
+
+  // Cas 4 — paiement confirmé, non remboursé : refus.
+  const p4 = await paid();
+  const c4 = await cancel(p4.order);
+  check('cas 4 : une commande payée non remboursée ne s’annule pas', Boolean(c4.error) && /traitez le remboursement/.test(c4.error.message), c4.error?.message);
+  check('cas 4 : la commande et son paiement sont intacts', (await orderStatus(p4.order))?.status !== 'ANNULEE' && (await paymentRow(p4.paymentId))?.status === 'PAYE');
+
+  // Cas 5 — paiement intégralement remboursé : annulation possible.
+  const p5 = await paid();
+  const refund = await sessions.rembourseur.rpc('record_refund', {
+    p_order_id: p5.order.id, p_amount: 10000, p_reason: `${PREFIX} remboursement`, p_payment_id: p5.paymentId, p_method_code: 'ESPECES',
+  });
+  await sessions.rembourseur.rpc('complete_refund', { p_refund_id: refund.data.id });
+  const c5 = await cancel(p5.order);
+  check('cas 5 : une commande remboursée en totalité s’annule', !c5.error, c5.error?.message);
+  check('cas 5 : le paiement reste REMBOURSE', (await paymentRow(p5.paymentId))?.status === 'REMBOURSE');
+
+  // Cas 6 — mise à jour directe (RLS) avec déclaration en attente.
+  const o6 = await fresh();
+  const d6 = await declare(o6);
+  const direct6 = await sessions.annulateur.from('orders').update({ status: 'ANNULEE', cancel_reason: `${PREFIX} direct` }).eq('id', o6.id).select('status');
+  check('cas 6 : la mise à jour directe annule la commande', !direct6.error && direct6.data?.[0]?.status === 'ANNULEE', direct6.error?.message);
+  check('cas 6 : la déclaration n’est plus coincée — close en ANNULE', (await paymentRow(d6.data.id))?.status === 'ANNULE');
+
+  // Cas 7 — mise à jour directe d'une commande payée : refus absolu.
+  const p7 = await paid();
+  const direct7 = await sessions.annulateur.from('orders').update({ status: 'ANNULEE', cancel_reason: `${PREFIX} direct` }).eq('id', p7.order.id).select('status');
+  check('cas 7 : mise à jour directe d’une commande payée — refusée', refused(direct7), direct7.error?.message ?? 'acceptée');
+  check('cas 7 : même la clé de service ne l’annule pas',
+    Boolean((await admin.from('orders').update({ status: 'ANNULEE' }).eq('id', p7.order.id)).error));
+  check('cas 7 : même un rôle privilégié ne l’annule pas',
+    await runSql(target, accessToken, `update public.orders set status = 'ANNULEE' where id = '${p7.order.id}';`).then(() => false, (e) => /traitez le remboursement/.test(e.message)));
+  check('cas 7 : la commande payée reste intacte', (await orderStatus(p7.order))?.status !== 'ANNULEE' && (await paymentRow(p7.paymentId))?.status === 'PAYE');
+
+  // Après annulation : plus d'argent entrant.
+  check('annulée : le client ne déclare plus de paiement', Boolean((await declare(o1)).error));
+  check('annulée : aucune insertion directe de paiement, même par la clé de service',
+    Boolean((await admin.from('payments').insert({ order_id: o1.id, method_code: 'ESPECES', amount: 100, currency: 'KMF', status: 'EN_VERIFICATION', declared_at: new Date().toISOString() })).error));
+  check('annulée : une déclaration close ne se confirme pas', Boolean((await sessions.verificateur.rpc('verify_payment', { p_payment_id: d2.data.id })).error));
+
+  // La garde elle-même, sur une déclaration en attente d'une commande déjà
+  // annulée (état impossible depuis le correctif, reconstruit dans une
+  // transaction qui se termine par une erreur volontaire : rien n'est gardé).
+  const oP = await fresh();
+  const dP = await declare(oP);
+  const probe = await runSql(target, accessToken, `
+    do $probe$
+    declare v_out text := '';
+    begin
+      alter table public.orders disable trigger orders_close_pending_payments;
+      update public.orders set status = 'ANNULEE' where id = '${oP.id}';
+      begin
+        update public.payments set status = 'PAYE' where id = '${dP.data.id}';
+        v_out := v_out || 'PAYE accepté;';
+      exception when others then v_out := v_out || 'PAYE refusé;';
+      end;
+      begin
+        update public.payments set status = 'ECHEC', rejection_reason = 'sonde' where id = '${dP.data.id}';
+        v_out := v_out || 'ECHEC accepté;';
+      exception when others then v_out := v_out || 'ECHEC refusé;';
+      end;
+      raise exception 'SONDE|%', v_out;
+    end;
+    $probe$;`).then(() => '', (e) => e.message);
+  check('garde : sur une commande annulée, une déclaration ne devient pas PAYE', /SONDE\|PAYE refusé;/.test(probe), probe.slice(0, 220));
+  check('garde : sur une commande annulée, la clôture ECHEC reste possible', /ECHEC accepté;/.test(probe), probe.slice(0, 220));
+  const { data: guardOk } = await admin.from('orders').select('status').eq('id', oP.id).single();
+  check('la sonde n’a rien laissé (transaction annulée)', guardOk?.status === 'NOUVELLE' && (await paymentRow(dP.data.id))?.status === 'EN_VERIFICATION');
+  const enabled = await runSql(target, accessToken, `select tgenabled::text as e from pg_trigger where tgname = 'orders_close_pending_payments';`);
+  check('le déclencheur de clôture est actif', enabled?.[0]?.e === 'O');
+
+  // Double annulation, double clic, concurrence : un seul fait.
+  const o8 = await fresh();
+  const d8 = await declare(o8);
+  const burst = await Promise.all([cancel(o8), cancel(o8), cancel(o8)]);
+  check('trois annulations simultanées : aucune erreur', burst.every((r) => !r.error), JSON.stringify(burst.map((r) => r.error?.message)));
+  const { count: hist } = await admin.from('order_status_history').select('id', { count: 'exact', head: true }).eq('order_id', o8.id).eq('to_status', 'ANNULEE');
+  const { count: closed } = await admin.from('order_events').select('id', { count: 'exact', head: true }).eq('payment_id', d8.data.id).eq('event_type', 'PAIEMENT_ANNULE');
+  check('une seule annulation au journal, une seule clôture de la déclaration', hist === 1 && closed === 1, `${hist} / ${closed}`);
+  check('rejouer l’annulation après coup : sans effet ni erreur', !(await cancel(o8)).error);
+
+  // Une annulation de paiement indépendante garde son libellé d'origine.
+  const o9 = await fresh();
+  const d9 = await declare(o9);
+  await admin.from('payments').update({ status: 'ANNULE' }).eq('id', d9.data.id);
+  const { data: e9 } = await admin.from('order_events').select('summary').eq('payment_id', d9.data.id).eq('event_type', 'PAIEMENT_ANNULE');
+  check('une annulation de paiement indépendante reste « Déclaration annulée »', e9?.[0]?.summary === 'Déclaration annulée', JSON.stringify(e9));
+}
+
 async function teardown(target, accessToken, admin, state, before) {
   log.step('Nettoyage des données de contrôle');
 
@@ -1389,7 +1536,7 @@ async function teardown(target, accessToken, admin, state, before) {
     }
   }
 
-  const orderIds = [state.orderA, state.orderB, state.orderC, state.orderFromQuote]
+  const orderIds = [state.orderA, state.orderB, state.orderC, state.orderFromQuote, ...(state.extraOrders ?? [])]
     .filter(Boolean)
     .map((order) => order.id);
 
@@ -1733,6 +1880,7 @@ async function main() {
     await checkRefund(admin, sessions, state);
     await checkJournal(admin, sessions, state);
     await checkMethods(sessions);
+    await checkCancellation(target, accessToken, admin, sessions, state);
   } catch (error) {
     results.failed += 1;
     log.fail(`interruption : ${error.message}`);

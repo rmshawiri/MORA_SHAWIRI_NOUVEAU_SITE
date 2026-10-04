@@ -67,6 +67,7 @@ const MESSAGES = {
     'Cette demande n’est rattachée à aucun compte client. Le client doit créer son compte avant que la commande puisse être établie.',
   cancelWithPayment:
     'Cette commande a encaissé un paiement. Enregistrez le remboursement avant de l’annuler.',
+  orderCancelled: 'Cette commande est annulée : aucun paiement ne peut plus y être rattaché.',
   amountTooHigh: 'Ce montant dépasse ce qui reste à régler sur cette commande.',
   refundTooHigh: 'Ce montant dépasse ce qui a été encaissé.',
   methodInactive: 'Ce moyen de paiement n’est pas disponible.',
@@ -109,6 +110,7 @@ function describeDatabaseError(error: { code?: string | null; message?: string }
   if (text.includes('rattachée à aucun compte')) return MESSAGES.noAccount;
   if (text.includes('devis accepté')) return MESSAGES.quoteNotAccepted;
   if (text.includes('traitez le remboursement')) return MESSAGES.cancelWithPayment;
+  if (text.includes('ne reçoit pas de paiement')) return MESSAGES.orderCancelled;
   if (text.includes('Montant incohérent')) return MESSAGES.amountTooHigh;
   if (text.includes('dépasseraient')) return MESSAGES.refundTooHigh;
   if (text.includes('n’est pas disponible') || text.includes("n'est pas disponible")) {

@@ -346,25 +346,36 @@ async function payments(ctx) {
   check('paiement rejeté : le motif n’entre pas dans la notification',
     !JSON.stringify((await notes(admin, 'client.paiement.rejete', second.data.id)).rows).includes('introuvable'));
 
-  // Annulation : le journal 4G écrit PAIEMENT_ANNULE quand un paiement en
-  // attente passe à ANNULE. Aucune action de l'application ne le fait
-  // aujourd'hui, et cancel_order échoue dès qu'une déclaration est en attente
-  // (défaut 4G signalé au rapport 21) : la transition est donc produite
-  // directement, comme la base l'autorise à un rôle privilégié.
+  // Correctif 4G (rapport 22) : annuler une commande clôt ses déclarations en
+  // attente. L'administration voit son « à vérifier » traité ; le client ne
+  // reçoit qu'une notification, « Commande annulée ».
   const order2 = await makeManualOrder(ctx, A.clientA);
   const pending = await state.s.clientA.rpc('declare_payment', {
     p_order_id: order2.id, p_method_code: 'ESPECES', p_amount: 10000, p_transaction_reference: null, p_client_note: null,
   });
-  const blocked = await admin.rpc('cancel_order', { p_order_id: order2.id, p_reason: 'Contrôle 4J-2' });
-  check('constat 4G : annuler une commande avec une déclaration en attente échoue (inchangé, signalé)',
-    Boolean(blocked.error) && /annulée ne reçoit pas de paiement/.test(blocked.error.message), blocked.error?.message ?? 'acceptée');
-  const cancelled = await admin.from('payments').update({ status: 'ANNULE' }).eq('id', pending.data.id).select('status');
-  check('transition réelle EN_VERIFICATION → ANNULE', !cancelled.error && cancelled.data?.[0]?.status === 'ANNULE', cancelled.error?.message);
-  check('paiement annulé : le client est notifié une fois', one(await notes(admin, 'client.paiement.annule', pending.data.id), A.clientA));
-  check('paiement annulé : l’« à vérifier » est traité', (await notes(admin, 'admin.paiement.a_verifier', pending.data.id)).rows.every((r) => r.resolved_at));
+  check('déclaration en attente : « à vérifier » ouvert', (await notes(admin, 'admin.paiement.a_verifier', pending.data.id)).rows.some((r) => !r.resolved_at));
   const cancelledOrder = await admin.rpc('cancel_order', { p_order_id: order2.id, p_reason: 'Contrôle 4J-2' });
-  check('la commande, sans déclaration en attente, s’annule', !cancelledOrder.error, cancelledOrder.error?.message);
-  check('commande annulée : le client est notifié (Attention)', (await notes(admin, 'client.commande.annulee', order2.id)).of(A.clientA)?.level === 'ATTENTION');
+  check('annulation d’une commande avec déclaration en attente : réussie', !cancelledOrder.error, cancelledOrder.error?.message);
+  const { data: closed } = await admin.from('payments').select('status').eq('id', pending.data.id).single();
+  check('… la déclaration est close (ANNULE)', closed?.status === 'ANNULE');
+  check('… l’« à vérifier » administratif est traité', (await notes(admin, 'admin.paiement.a_verifier', pending.data.id)).rows.every((r) => r.resolved_at));
+  check('… le client reçoit « Commande annulée » (Attention), une fois', one(await notes(admin, 'client.commande.annulee', order2.id), A.clientA)
+    && (await notes(admin, 'client.commande.annulee', order2.id)).of(A.clientA)?.level === 'ATTENTION');
+  check('… et PAS « Paiement annulé » (une seule notification client)', (await notes(admin, 'client.paiement.annule', pending.data.id)).rows.length === 0);
+  const recancel = await admin.rpc('cancel_order', { p_order_id: order2.id, p_reason: 'Contrôle 4J-2' });
+  check('… une seconde annulation ne produit aucune notification de plus', !recancel.error
+    && (await notes(admin, 'client.commande.annulee', order2.id)).rows.length === 1);
+
+  // Une annulation de paiement indépendante (événement réel distinct) notifie
+  // toujours le client : le type « Paiement annulé » reste branché.
+  const order3 = await makeManualOrder(ctx, A.clientA);
+  const lone = await state.s.clientA.rpc('declare_payment', {
+    p_order_id: order3.id, p_method_code: 'ESPECES', p_amount: 10000, p_transaction_reference: null, p_client_note: null,
+  });
+  const direct = await admin.from('payments').update({ status: 'ANNULE' }).eq('id', lone.data.id).select('status');
+  check('annulation indépendante d’un paiement (transition réelle)', !direct.error && direct.data?.[0]?.status === 'ANNULE', direct.error?.message);
+  check('… le client est notifié « Paiement annulé », une fois', one(await notes(admin, 'client.paiement.annule', lone.data.id), A.clientA));
+  check('… l’« à vérifier » est traité', (await notes(admin, 'admin.paiement.a_verifier', lone.data.id)).rows.every((r) => r.resolved_at));
 }
 
 async function refundsAndInvoice(ctx) {

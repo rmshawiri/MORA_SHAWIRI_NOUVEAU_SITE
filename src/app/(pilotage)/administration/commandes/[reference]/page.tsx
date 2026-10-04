@@ -92,6 +92,19 @@ export default async function CommandeFichePage({
   const canEstablishOrderDocument =
     !orderDocumentReady && context.can('orders.update') && order.status !== 'NOUVELLE' && order.status !== 'ANNULEE';
 
+  // Correctif 4G : la base annule avec la commande ses déclarations encore en
+  // attente ; la confirmation le dit seulement quand c'est le cas.
+  const pendingDeclarations = payments.filter((payment) =>
+    ['EN_ATTENTE', 'INITIE', 'EN_VERIFICATION'].includes(payment.status),
+  ).length;
+  const cancelConsequence =
+    'La commande restera consultable dans l’historique et ne pourra plus évoluer.' +
+    (pendingDeclarations === 1
+      ? ' Cette commande possède une déclaration de paiement en attente de vérification. Elle sera annulée avec la commande.'
+      : pendingDeclarations > 1
+        ? ` Cette commande possède ${pendingDeclarations} déclarations de paiement en attente de vérification. Elles seront annulées avec la commande.`
+        : '');
+
   const transitions = ORDER_TRANSITIONS[order.status]
     .filter((status) => status !== 'ANNULEE')
     .map((status) => ({ value: status, label: ORDER_STATUS_LABELS[status] }));
@@ -293,7 +306,7 @@ export default async function CommandeFichePage({
                 action={cancelOrder}
                 fields={{ commande: order.id }}
                 trigger="Annuler la commande"
-                consequence="La commande restera consultable dans l’historique et ne pourra plus évoluer. Les déclarations de paiement encore en attente seront annulées."
+                consequence={cancelConsequence}
                 label="Motif de l’annulation"
                 placeholder="Demande du client, paiement non effectué, indisponibilité…"
                 confirmLabel="Annuler la commande"
